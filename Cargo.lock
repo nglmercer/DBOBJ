@@ -406,7 +406,6 @@ dependencies = [
  "parking_lot",
  "postcard",
  "postgres",
- "rayon",
  "rusqlite",
  "serde",
  "serde_json",

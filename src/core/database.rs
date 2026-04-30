@@ -219,7 +219,7 @@ impl Database {
         predicate: F,
     ) -> Result<Vec<super::table::Row>, crate::core::table::TableError>
     where
-        F: Fn(&super::table::Row) -> bool,
+        F: Fn(&super::table::Row) -> bool + Send + Sync,
     {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
@@ -396,23 +396,51 @@ impl Database {
             }
         }
 
-        let mut results = Vec::new();
-        // Probe phase
-        for probe_row in probe_table.rows.iter() {
-            if let Some(val) = probe_row.data.get(probe_col) {
-                if let Some(matches) = hash_map.get(val) {
-                    for build_row in matches {
-                        if reversed {
-                            // t2 was build, t1 was probe. Result should be (t1, t2)
-                            results.push((probe_row.clone(), (*build_row).clone()));
-                        } else {
-                            // t1 was build, t2 was probe. Result should be (t1, t2)
-                            results.push(((*build_row).clone(), probe_row.clone()));
+        let num_probe_rows = probe_table.rows.len();
+        let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+
+        if num_probe_rows < 5000 || num_threads <= 1 {
+            let mut results = Vec::new();
+            for probe_row in probe_table.rows.iter() {
+                if let Some(val) = probe_row.data.get(probe_col) {
+                    if let Some(matches) = hash_map.get(val) {
+                        for build_row in matches {
+                            if reversed {
+                                results.push((probe_row.clone(), (*build_row).clone()));
+                            } else {
+                                results.push(((*build_row).clone(), probe_row.clone()));
+                            }
                         }
                     }
                 }
             }
+            return Ok(results);
         }
+
+        let chunk_size = (num_probe_rows + num_threads - 1) / num_threads;
+        let results = std::thread::scope(|s| {
+            let mut handles = Vec::new();
+            for chunk in probe_table.rows.chunks(chunk_size) {
+                handles.push(s.spawn(move || {
+                    let mut local_results = Vec::new();
+                    for probe_row in chunk {
+                        if let Some(val) = probe_row.data.get(probe_col) {
+                            if let Some(matches) = hash_map.get(val) {
+                                for build_row in matches {
+                                    if reversed {
+                                        local_results.push((probe_row.clone(), (*build_row).clone()));
+                                    } else {
+                                        local_results.push(((*build_row).clone(), probe_row.clone()));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    local_results
+                }));
+            }
+            handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+        });
 
         Ok(results)
     }

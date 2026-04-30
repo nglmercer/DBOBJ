@@ -157,9 +157,26 @@ impl Table {
 
     pub fn select<F>(&self, predicate: F) -> Vec<&Row>
     where
-        F: Fn(&Row) -> bool,
+        F: Fn(&Row) -> bool + Send + Sync,
     {
-        self.rows.iter().filter(|r| predicate(r)).collect()
+        let num_rows = self.rows.len();
+        let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+        
+        // Only parallelize for larger datasets to avoid thread overhead
+        if num_rows < 5000 || num_threads <= 1 {
+            return self.rows.iter().filter(|r| predicate(r)).collect();
+        }
+
+        let chunk_size = (num_rows + num_threads - 1) / num_threads;
+        std::thread::scope(|s| {
+            let mut handles = Vec::new();
+            for chunk in self.rows.chunks(chunk_size) {
+                handles.push(s.spawn(move || {
+                    chunk.iter().filter(|r| predicate(r)).collect::<Vec<_>>()
+                }));
+            }
+            handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+        })
     }
 
     pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<&Row> {
