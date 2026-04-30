@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
+use compact_str::CompactString;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     Null,
     Integer(i64),
     Float(f64),
-    String(String),
+    String(CompactString),
     Boolean(bool),
     Blob(Vec<u8>),
 }
@@ -22,15 +23,21 @@ impl From<f64> for Value {
     }
 }
 
+impl From<CompactString> for Value {
+    fn from(v: CompactString) -> Self {
+        Value::String(v)
+    }
+}
+
 impl From<String> for Value {
     fn from(v: String) -> Self {
-        Value::String(v)
+        Value::String(CompactString::from(v))
     }
 }
 
 impl From<&str> for Value {
     fn from(v: &str) -> Self {
-        Value::String(v.to_string())
+        Value::String(CompactString::from(v))
     }
 }
 

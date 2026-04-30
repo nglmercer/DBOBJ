@@ -1,12 +1,11 @@
-use super::{Table, Schema, Id, RowData};
+use super::{Table, Schema, Id, RowData, FastHashMap};
 use crate::versioning::{VersionLog, ChangeType};
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Database {
     pub name: String,
-    pub tables: HashMap<String, Table>,
+    pub tables: FastHashMap<String, Table>,
     pub version_log: VersionLog,
 }
 
@@ -14,7 +13,7 @@ impl Database {
     pub fn new(name: String) -> Self {
         Self {
             name,
-            tables: HashMap::new(),
+            tables: FastHashMap::default(),
             version_log: VersionLog::new(),
         }
     }

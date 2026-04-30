@@ -30,7 +30,7 @@ pub struct Row {
 pub struct Table {
     pub name: String,
     pub schema: Schema,
-    pub rows: HashMap<Id, Row>,
+    pub rows: crate::core::FastHashMap<Id, Row>,
     pub next_int_id: u64,
 }
 
@@ -39,7 +39,7 @@ impl Table {
         Self {
             name,
             schema,
-            rows: HashMap::new(),
+            rows: crate::core::FastHashMap::default(),
             next_int_id: 1,
         }
     }

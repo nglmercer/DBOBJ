@@ -8,10 +8,8 @@ pub use value::Value;
 pub use table::{Table, Row, Schema};
 pub use database::Database;
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-
-pub type RowData = HashMap<String, Value>;
+pub type FastHashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
+pub type RowData = FastHashMap<String, Value>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnDefinition {

@@ -1,10 +1,11 @@
+use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Id {
     Integer(u64),
-    String(String),
+    String(CompactString),
 }
 
 impl fmt::Display for Id {
@@ -22,14 +23,20 @@ impl From<u64> for Id {
     }
 }
 
+impl From<CompactString> for Id {
+    fn from(id: CompactString) -> Self {
+        Id::String(id)
+    }
+}
+
 impl From<String> for Id {
     fn from(id: String) -> Self {
-        Id::String(id)
+        Id::String(CompactString::from(id))
     }
 }
 
 impl From<&str> for Id {
     fn from(id: &str) -> Self {
-        Id::String(id.to_string())
+        Id::String(CompactString::from(id))
     }
 }
