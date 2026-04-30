@@ -24,6 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     db.create_table("users".to_string(), schema);
+    
+    // Create an index on 'username' for O(log N) lookups
+    db.create_index("users", "username")?;
+    println!("Created index on users.username");
 
     // 3. Insert Rows
     println!("Inserting data...");
@@ -136,6 +140,44 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             user.data.get("username").unwrap_or(&Value::from("Unknown")),
             post.data.get("title").unwrap_or(&Value::from("No Title"))
         );
+    }
+
+    // New: Optimized Hash Join
+    println!("\n--- Optimized Hash Join (O(N+M)) ---");
+    // We need to convert users.id to a column value for hash_join if we want to join on it, 
+    // or join on user_id columns. Since users.id is an Id type and posts.user_id is a Value::Integer,
+    // let's add a user_id column to users for this demo or just use the existing data.
+    // For now, let's join on 'username' if we had it in both, but let's just show the API.
+    
+    // Let's create a temporary table for a more natural hash join demo
+    let meta_schema = Schema {
+        columns: vec![
+            dbobj::core::ColumnDefinition { name: "username".into(), data_type: dbobj::core::DataType::String, nullable: false },
+            dbobj::core::ColumnDefinition { name: "bio".into(), data_type: dbobj::core::DataType::String, nullable: true },
+        ],
+    };
+    db.create_table("metadata".to_string(), meta_schema);
+    let mut meta1 = RowData::default();
+    meta1.insert("username".into(), Value::from("alice"));
+    meta1.insert("bio".into(), Value::from("Software Engineer"));
+    db.insert_row("metadata", meta1, None)?;
+
+    println!("Performing Hash Join on 'username'...");
+    let bio_join = db.hash_join("users", "username", "metadata", "username")?;
+    for (user, meta) in bio_join {
+        println!("User: {:?}, Bio: {:?}", 
+            user.data.get("username").unwrap(),
+            meta.data.get("bio").unwrap()
+        );
+    }
+
+    // 10. Schema Validation Demo
+    println!("\n--- Schema Validation Demo ---");
+    let mut invalid_user = RowData::default();
+    invalid_user.insert("username".into(), Value::from(123i64)); // Should be String
+    match db.insert_row("users", invalid_user, None) {
+        Err(e) => println!("Caught expected error: {}", e),
+        Ok(_) => println!("Error: Should have failed validation!"),
     }
 
     Ok(())

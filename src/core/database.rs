@@ -27,6 +27,13 @@ impl Database {
         self.tables.get(name)
     }
 
+    pub fn create_index(&mut self, table_name: &str, column_name: &str) -> Result<(), crate::core::table::TableError> {
+        let table = self.tables.get_mut(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        table.create_index(column_name.into())
+    }
+
     pub fn get_table_mut(&mut self, name: &str) -> Option<&mut Table> {
         self.tables.get_mut(name)
     }
@@ -100,6 +107,43 @@ impl Database {
                 }
             }
         }
+        Ok(results)
+    }
+
+    pub fn hash_join(
+        &self,
+        table1: &str,
+        col1: &str,
+        table2: &str,
+        col2: &str,
+    ) -> Result<Vec<(&super::table::Row, &super::table::Row)>, crate::core::table::TableError> {
+        let t1 = self.tables.get(table1).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table1))
+        })?;
+        let t2 = self.tables.get(table2).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table2))
+        })?;
+
+        let mut hash_map = std::collections::HashMap::new();
+        // Build phase: use the smaller table if possible, but for simplicity let's use t1
+        for r1 in t1.rows.values() {
+            if let Some(val) = r1.data.get(col1) {
+                hash_map.entry(val.clone()).or_insert_with(Vec::new).push(r1);
+            }
+        }
+
+        let mut results = Vec::new();
+        // Probe phase
+        for r2 in t2.rows.values() {
+            if let Some(val) = r2.data.get(col2) {
+                if let Some(r1_list) = hash_map.get(val) {
+                    for r1 in r1_list {
+                        results.push((*r1, r2));
+                    }
+                }
+            }
+        }
+
         Ok(results)
     }
 }
