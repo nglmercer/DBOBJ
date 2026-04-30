@@ -2,7 +2,7 @@ use dbobj::core::{Database, Schema, Id, Value, RowData};
 use dbobj::storage::Storage;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("--- DBOBJ Proof of Concept ---");
+    println!("--- DBOBJ Proof of Concept (Optimized) ---");
 
     // 1. Initialize Database
     let mut db = Database::new("MyDatabase".to_string());
@@ -11,12 +11,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let schema = Schema {
         columns: vec![
             dbobj::core::ColumnDefinition {
-                name: "username".to_string(),
+                name: "username".into(),
                 data_type: dbobj::core::DataType::String,
                 nullable: false,
             },
             dbobj::core::ColumnDefinition {
-                name: "age".to_string(),
+                name: "age".into(),
                 data_type: dbobj::core::DataType::Integer,
                 nullable: true,
             },
@@ -28,16 +28,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Insert Rows
     println!("Inserting data...");
     
-    let mut user1 = RowData::new();
-    user1.insert("username".to_string(), Value::String("alice".to_string()));
-    user1.insert("age".to_string(), Value::Integer(30));
+    // Default ID (auto-incrementing integer)
+    let mut user1 = RowData::default();
+    user1.insert("username".into(), Value::from("alice"));
+    user1.insert("age".into(), Value::from(30i64));
     let id1 = db.insert_row("users", user1, None)?;
     println!("Inserted Alice with ID: {}", id1);
 
-    let mut user2 = RowData::new();
-    user2.insert("username".to_string(), Value::String("bob".to_string()));
-    user2.insert("age".to_string(), Value::Integer(25));
-    let id2 = db.insert_row("users", user2, Some(Id::String("bob_unique_id".to_string())))?;
+    // Custom String ID
+    let mut user2 = RowData::default();
+    user2.insert("username".into(), Value::from("bob"));
+    user2.insert("age".into(), Value::from(25i64));
+    let id2 = db.insert_row("users", user2, Some(Id::from("bob_unique_id")))?;
     println!("Inserted Bob with ID: {}", id2);
 
     // 4. Persistence
@@ -47,8 +49,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Demonstrate Backups
     println!("Modifying and saving again to trigger backup...");
-    let mut user3 = RowData::new();
-    user3.insert("username".to_string(), Value::String("charlie".to_string()));
+    let mut user3 = RowData::default();
+    user3.insert("username".into(), Value::from("charlie"));
     db.insert_row("users", user3, None)?;
     storage.save(&db)?;
     println!("Check for my_database.bak in the directory.");

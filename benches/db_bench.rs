@@ -8,7 +8,7 @@ fn bench_insertion(c: &mut Criterion) {
     let schema = Schema {
         columns: vec![
             ColumnDefinition {
-                name: "username".to_string(),
+                name: "username".into(),
                 data_type: DataType::String,
                 nullable: false,
             },
@@ -20,8 +20,8 @@ fn bench_insertion(c: &mut Criterion) {
             let mut db = Database::new("Test".to_string());
             db.create_table("users".to_string(), schema.clone());
             for i in 0..100 {
-                let mut row = RowData::new();
-                row.insert("username".to_string(), Value::String(format!("user_{}", i)));
+                let mut row = RowData::default();
+                row.insert("username".into(), Value::from(format!("user_{}", i)));
                 let _ = db.insert_row("users", row, None);
             }
         })
@@ -31,9 +31,9 @@ fn bench_insertion(c: &mut Criterion) {
 fn bench_serialization(c: &mut Criterion) {
     let mut rows = Vec::new();
     for i in 0..1000 {
-        let mut row = RowData::new();
-        row.insert("username".to_string(), Value::String(format!("user_{}", i)));
-        row.insert("age".to_string(), Value::Integer(i as i64));
+        let mut row = RowData::default();
+        row.insert("username".into(), Value::from(format!("user_{}", i)));
+        row.insert("age".into(), Value::from(i as i64));
         rows.push(row);
     }
     
@@ -58,9 +58,9 @@ fn bench_serialization(c: &mut Criterion) {
 fn bench_deserialization(c: &mut Criterion) {
     let mut rows = Vec::new();
     for i in 0..1000 {
-        let mut row = RowData::new();
-        row.insert("username".to_string(), Value::String(format!("user_{}", i)));
-        row.insert("age".to_string(), Value::Integer(i as i64));
+        let mut row = RowData::default();
+        row.insert("username".into(), Value::from(format!("user_{}", i)));
+        row.insert("age".into(), Value::from(i as i64));
         rows.push(row);
     }
     
