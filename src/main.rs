@@ -10,12 +10,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Define Schema
     let schema = Schema {
         columns: vec![
-            dbobj::core::table::ColumnDefinition {
+            dbobj::core::ColumnDefinition {
                 name: "username".to_string(),
                 data_type: dbobj::core::DataType::String,
                 nullable: false,
             },
-            dbobj::core::table::ColumnDefinition {
+            dbobj::core::ColumnDefinition {
                 name: "age".to_string(),
                 data_type: dbobj::core::DataType::Integer,
                 nullable: true,
