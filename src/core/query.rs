@@ -1,4 +1,4 @@
-use super::{RowData, Table, Value};
+use super::{FastHashMap, Table, Value};
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
@@ -31,13 +31,19 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn evaluate(&self, data: &RowData) -> Value {
+    pub fn evaluate(&self, data: &[Value], mapping: &FastHashMap<String, usize>) -> Value {
         match self {
             Expr::Literal(v) => v.clone(),
-            Expr::Column(name) => data.get(name).cloned().unwrap_or(Value::Null),
+            Expr::Column(name) => {
+                if let Some(&idx) = mapping.get(name.as_str()) {
+                    data[idx].clone()
+                } else {
+                    Value::Null
+                }
+            }
             Expr::Binary(left, op, right) => {
-                let l = left.evaluate(data);
-                let r = right.evaluate(data);
+                let l = left.evaluate(data, mapping);
+                let r = right.evaluate(data, mapping);
                 match op {
                     Operator::Eq => Value::Boolean(l == r),
                     Operator::Neq => Value::Boolean(l != r),
@@ -62,7 +68,7 @@ impl Expr {
                 }
             }
             Expr::Not(expr) => {
-                if let Value::Boolean(b) = expr.evaluate(data) {
+                if let Value::Boolean(b) = expr.evaluate(data, mapping) {
                     Value::Boolean(!b)
                 } else {
                     Value::Boolean(false)
@@ -72,8 +78,8 @@ impl Expr {
     }
 
     /// Helper to check if the expression evaluates to true
-    pub fn is_true(&self, data: &RowData) -> bool {
-        match self.evaluate(data) {
+    pub fn is_true(&self, data: &[Value], mapping: &FastHashMap<String, usize>) -> bool {
+        match self.evaluate(data, mapping) {
             Value::Boolean(b) => b,
             _ => false,
         }

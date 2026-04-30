@@ -22,7 +22,7 @@ pub struct Schema {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Row {
     pub id: Id,
-    pub data: std::sync::Arc<RowData>, // Shared for zero-copy joins
+    pub data: std::sync::Arc<Box<[Value]>>, // Positional values for O(1) access
     pub version: u64,
 }
 
@@ -35,6 +35,7 @@ pub struct Index {
 pub struct Table {
     pub name: String,
     pub schema: Schema,
+    pub column_map: crate::core::FastHashMap<String, usize>, // Map column name to index
     pub rows: Vec<Row>, // Contiguous storage for better cache locality
     pub id_map: crate::core::FastHashMap<Id, usize>, // Fast ID lookup
     pub next_int_id: u64,
@@ -43,9 +44,15 @@ pub struct Table {
 
 impl Table {
     pub fn new(name: String, schema: Schema) -> Self {
+        let mut column_map = crate::core::FastHashMap::default();
+        for (i, col) in schema.columns.iter().enumerate() {
+            column_map.insert(col.name.to_string(), i);
+        }
+
         Self {
             name,
             schema,
+            column_map,
             rows: Vec::new(),
             id_map: crate::core::FastHashMap::default(),
             next_int_id: 1,
@@ -70,15 +77,18 @@ impl Table {
             }
         };
 
+        let values = self.row_to_values(data);
+        
         let row = Row {
             id: id.clone(),
-            data: std::sync::Arc::new(data),
+            data: std::sync::Arc::new(values),
             version: 1,
         };
 
         // Update indexes
         for (col_name, index) in &mut self.indexes {
-            if let Some(val) = row.data.get(col_name) {
+            if let Some(&col_idx) = self.column_map.get(col_name.as_str()) {
+                let val = &row.data[col_idx];
                 index.map.entry(val.clone()).or_default().push(id.clone());
             }
         }
@@ -101,15 +111,17 @@ impl Table {
             let id = Id::Integer(self.next_int_id);
             self.next_int_id += 1;
 
+            let values = self.row_to_values(data);
             let row = Row {
                 id: id.clone(),
-                data: std::sync::Arc::new(data),
+                data: std::sync::Arc::new(values),
                 version: 1,
             };
 
             // Update indexes
             for (col_name, index) in &mut self.indexes {
-                if let Some(val) = row.data.get(col_name) {
+                if let Some(&col_idx) = self.column_map.get(col_name.as_str()) {
+                    let val = &row.data[col_idx];
                     index.map.entry(val.clone()).or_default().push(id.clone());
                 }
             }
@@ -168,8 +180,10 @@ impl Table {
 
     pub fn update(&mut self, id: &Id, data: RowData) -> Result<(), TableError> {
         if let Some(&idx) = self.id_map.get(id) {
+            self.validate_schema(&data)?;
+            let values = self.row_to_values(data);
             let row = &mut self.rows[idx];
-            row.data = std::sync::Arc::new(data);
+            row.data = std::sync::Arc::new(values);
             row.version += 1;
             Ok(())
         } else {
@@ -227,10 +241,14 @@ impl Table {
         }
 
         // Fallback to linear scan
-        self.rows
-            .iter()
-            .filter(|r| r.data.get(column_name) == Some(value))
-            .collect()
+        if let Some(&col_idx) = self.column_map.get(column_name) {
+            return self.rows
+                .iter()
+                .filter(|r| &r.data[col_idx] == value)
+                .collect();
+        }
+
+        Vec::new()
     }
 
     pub fn create_index(&mut self, column_name: CompactString) -> Result<(), TableError> {

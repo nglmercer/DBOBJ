@@ -418,13 +418,19 @@ impl Database {
         let t1 = t1_lock.read();
         let t2 = t2_lock.read();
 
-        // Optimization: build on the smaller table to minimize memory and hashing
         let (build_table, build_col, probe_table, probe_col, reversed) =
             if t1.rows.len() <= t2.rows.len() {
                 (&*t1, col1, &*t2, col2, false)
             } else {
                 (&*t2, col2, &*t1, col1, true)
             };
+
+        let build_col_idx = *build_table.column_map.get(build_col).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Column {} not found in {}", build_col, build_table.name))
+        })?;
+        let probe_col_idx = *probe_table.column_map.get(probe_col).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Column {} not found in {}", probe_col, probe_table.name))
+        })?;
 
         let hasher = ahash::RandomState::new();
         let mut bloom_filter = vec![0u64; 1024]; // 8KB bloom filter (64k bits)
@@ -434,7 +440,8 @@ impl Database {
         );
 
         for row in build_table.rows.iter() {
-            if let Some(val) = row.data.get(build_col) {
+            let val = &row.data[build_col_idx];
+            if !val.is_null() {
                 // Add to Bloom Filter
                 let h = hasher.hash_one(val);
                 let bit = (h % (1024 * 64)) as usize;
@@ -453,7 +460,8 @@ impl Database {
         if num_probe_rows < 5000 || num_threads <= 1 {
             let mut results = Vec::new();
             for probe_row in probe_table.rows.iter() {
-                if let Some(val) = probe_row.data.get(probe_col) {
+                let val = &probe_row.data[probe_col_idx];
+                if !val.is_null() {
                     // Fast Bloom Filter check
                     let h = hasher.hash_one(val);
                     let bit = (h % (1024 * 64)) as usize;
@@ -484,7 +492,8 @@ impl Database {
                 handles.push(s.spawn(move || {
                     let mut local_results = Vec::new();
                     for probe_row in chunk {
-                        if let Some(val) = probe_row.data.get(probe_col) {
+                        let val = &probe_row.data[probe_col_idx];
+                        if !val.is_null() {
                             // Fast Bloom Filter check
                             let h = hasher_ref.hash_one(val);
                             let bit = (h % (1024 * 64)) as usize;
