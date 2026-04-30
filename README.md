@@ -77,9 +77,9 @@ cargo bench
 | Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Postgres (Ops/sec) |
 | :--- | :--- | :--- | :--- |
 | **Insert** | **~1,269,405** | ~468,955 | ~450 |
-| **Read (ID)** | **~26,438,240** | ~441,754 | ~10,013 |
-| **Search (Indexed)** | **~3,513,456** | ~390,991 | - |
-| **Hash Join (1k rows)** | **~2,220** | ~2,116 | - |
+| **Read (ID)** | **~26,438,240** | ~431,090 | ~10,013 |
+| **Search (Indexed)** | **~3,403,791** | ~385,341 | - |
+| **Hash Join (1k rows)** | **~4,101** | ~2,093 | - |
 
 ### Conclusion
 
@@ -90,7 +90,7 @@ The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-m
 - **DBOBJ** wins across all core relational operations:
     - **Inserts** are ~2.7x faster than SQLite.
     - **ID Lookups** are **~60x faster** than SQLite.
-    - **Indexed Searches** are **~9x faster** than SQLite.
-    - **Joins**: Our optimized **Hash Join** (building on the smaller table) is now **faster** than SQLite's join engine for 1,000 rows.
+    - **Indexed Searches** are **~8.8x faster** than SQLite.
+    - **Joins**: Our optimized **Hash Join** (with Bloom Filters and Zero-Copy sharing) is now **~2x faster** than SQLite's join engine.
 
 *Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s) and a local ephemeral Postgres instance.*
