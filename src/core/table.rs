@@ -22,7 +22,7 @@ pub struct Schema {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Row {
     pub id: Id,
-    pub data: RowData,
+    pub data: std::sync::Arc<RowData>, // Shared for zero-copy joins
     pub version: u64,
 }
 
@@ -108,7 +108,7 @@ impl Table {
 
         let row = Row {
             id: id.clone(),
-            data,
+            data: std::sync::Arc::new(data),
             version: 1,
         };
 
@@ -132,7 +132,7 @@ impl Table {
     pub fn update(&mut self, id: &Id, data: RowData) -> Result<(), TableError> {
         if let Some(&idx) = self.id_map.get(id) {
             let row = &mut self.rows[idx];
-            row.data = data;
+            row.data = std::sync::Arc::new(data);
             row.version += 1;
             Ok(())
         } else {
@@ -168,11 +168,12 @@ impl Table {
         }
 
         let chunk_size = (num_rows + num_threads - 1) / num_threads;
+        let predicate_ref = &predicate;
         std::thread::scope(|s| {
             let mut handles = Vec::new();
             for chunk in self.rows.chunks(chunk_size) {
                 handles.push(s.spawn(move || {
-                    chunk.iter().filter(|r| predicate(r)).collect::<Vec<_>>()
+                    chunk.iter().filter(|r| predicate_ref(r)).collect::<Vec<_>>()
                 }));
             }
             handles.into_iter().flat_map(|h| h.join().unwrap()).collect()

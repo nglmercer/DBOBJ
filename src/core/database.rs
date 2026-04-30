@@ -382,6 +382,8 @@ impl Database {
                 (&*t2, col2, &*t1, col1, true)
             };
 
+        let hasher = ahash::RandomState::new();
+        let mut bloom_filter = vec![0u64; 1024]; // 8KB bloom filter (64k bits)
         let mut hash_map = FastHashMap::with_capacity_and_hasher(
             build_table.rows.len(),
             ahash::RandomState::new(),
@@ -389,6 +391,11 @@ impl Database {
 
         for row in build_table.rows.iter() {
             if let Some(val) = row.data.get(build_col) {
+                // Add to Bloom Filter
+                let h = hasher.hash_one(val);
+                let bit = (h % (1024 * 64)) as usize;
+                bloom_filter[bit / 64] |= 1 << (bit % 64);
+
                 hash_map
                     .entry(val.clone())
                     .or_insert_with(Vec::new)
@@ -403,12 +410,17 @@ impl Database {
             let mut results = Vec::new();
             for probe_row in probe_table.rows.iter() {
                 if let Some(val) = probe_row.data.get(probe_col) {
-                    if let Some(matches) = hash_map.get(val) {
-                        for build_row in matches {
-                            if reversed {
-                                results.push((probe_row.clone(), (*build_row).clone()));
-                            } else {
-                                results.push(((*build_row).clone(), probe_row.clone()));
+                    // Fast Bloom Filter check
+                    let h = hasher.hash_one(val);
+                    let bit = (h % (1024 * 64)) as usize;
+                    if (bloom_filter[bit / 64] & (1 << (bit % 64))) != 0 {
+                        if let Some(matches) = hash_map.get(val) {
+                            for build_row in matches {
+                                if reversed {
+                                    results.push((probe_row.clone(), (*build_row).clone()));
+                                } else {
+                                    results.push(((*build_row).clone(), probe_row.clone()));
+                                }
                             }
                         }
                     }
@@ -418,6 +430,10 @@ impl Database {
         }
 
         let chunk_size = (num_probe_rows + num_threads - 1) / num_threads;
+        let hash_map_ref = &hash_map;
+        let bloom_filter_ref = &bloom_filter;
+        let hasher_ref = &hasher;
+        
         let results = std::thread::scope(|s| {
             let mut handles = Vec::new();
             for chunk in probe_table.rows.chunks(chunk_size) {
@@ -425,12 +441,17 @@ impl Database {
                     let mut local_results = Vec::new();
                     for probe_row in chunk {
                         if let Some(val) = probe_row.data.get(probe_col) {
-                            if let Some(matches) = hash_map.get(val) {
-                                for build_row in matches {
-                                    if reversed {
-                                        local_results.push((probe_row.clone(), (*build_row).clone()));
-                                    } else {
-                                        local_results.push(((*build_row).clone(), probe_row.clone()));
+                            // Fast Bloom Filter check
+                            let h = hasher_ref.hash_one(val);
+                            let bit = (h % (1024 * 64)) as usize;
+                            if (bloom_filter_ref[bit / 64] & (1 << (bit % 64))) != 0 {
+                                if let Some(matches) = hash_map_ref.get(val) {
+                                    for build_row in matches {
+                                        if reversed {
+                                            local_results.push((probe_row.clone(), (*build_row).clone()));
+                                        } else {
+                                            local_results.push(((*build_row).clone(), probe_row.clone()));
+                                        }
                                     }
                                 }
                             }
