@@ -2,11 +2,13 @@ pub mod id;
 pub mod value;
 pub mod table;
 pub mod database;
+pub mod query;
 
 pub use id::Id;
 pub use value::Value;
 pub use table::{Table, Row, Schema};
 pub use database::Database;
+pub use query::{Expr, Operator};
 
 use serde::{Deserialize, Serialize};
 

@@ -1,4 +1,4 @@
-use dbobj::core::{Database, Schema, Id, Value, RowData};
+use dbobj::core::{Database, Schema, Id, Value, RowData, Expr, Operator};
 use dbobj::storage::Storage;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -179,6 +179,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("Caught expected error: {}", e),
         Ok(_) => println!("Error: Should have failed validation!"),
     }
+
+    // 11. Expression Queries & Optimizer Demo
+    println!("\n--- Expression Queries & Optimizer ---");
+    let alice_expr = Expr::Binary(
+        Box::new(Expr::Column("username".into())),
+        Operator::Eq,
+        Box::new(Expr::Literal(Value::from("alice")))
+    );
+    
+    // Check the plan
+    if let Some(table) = db.get_table("users") {
+        let plan = alice_expr.plan(table);
+        println!("Plan for 'username == alice': {:?}", plan);
+    }
+    
+    let results = db.query_expr("users", alice_expr)?;
+    println!("Expr Query found {} rows.", results.len());
+
+    // 12. Transactions Demo
+    println!("\n--- Transactions Demo ---");
+    println!("Current row count in 'users': {}", db.get_table("users").unwrap().rows.len());
+    
+    {
+        let mut tx = db.begin_transaction();
+        println!("Starting transaction and deleting Bob...");
+        tx.db.delete_row("users", &Id::from("bob_unique_id"))?;
+        println!("Temporary count: {}", tx.db.get_table("users").unwrap().rows.len());
+        
+        println!("Rolling back transaction...");
+        tx.rollback();
+    }
+    
+    println!("Count after rollback: {}", db.get_table("users").unwrap().rows.len());
 
     Ok(())
 }

@@ -110,6 +110,39 @@ impl Database {
         Ok(results)
     }
 
+    pub fn query_expr(&self, table_name: &str, expr: crate::core::query::Expr) -> Result<Vec<&super::table::Row>, crate::core::table::TableError> {
+        let table = self.tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        
+        let plan = expr.plan(table);
+        self.execute_plan(plan)
+    }
+
+    pub fn execute_plan(&self, plan: crate::core::query::QueryPlan) -> Result<Vec<&super::table::Row>, crate::core::table::TableError> {
+        match plan {
+            crate::core::query::QueryPlan::FullScan(table_name, expr) => {
+                let table = self.tables.get(table_name.as_str()).ok_or_else(|| {
+                    crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+                })?;
+                Ok(table.select(|r| expr.is_true(&r.data)))
+            }
+            crate::core::query::QueryPlan::IndexScan(table_name, col, val) => {
+                let table = self.tables.get(table_name.as_str()).ok_or_else(|| {
+                    crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+                })?;
+                Ok(table.find_by_column(col.as_str(), &val))
+            }
+        }
+    }
+
+    pub fn begin_transaction(&mut self) -> Transaction<'_> {
+        Transaction {
+            original_tables: self.tables.clone(),
+            db: self,
+        }
+    }
+
     pub fn hash_join(
         &self,
         table1: &str,
@@ -145,5 +178,22 @@ impl Database {
         }
 
         Ok(results)
+    }
+}
+
+pub struct Transaction<'a> {
+    pub db: &'a mut Database,
+    pub original_tables: FastHashMap<String, Table>,
+}
+
+impl<'a> Transaction<'a> {
+    pub fn commit(self) {
+        // In this simple implementation, the changes are already in self.db.tables
+        // So we just don't do anything (we "accept" the changes)
+    }
+
+    pub fn rollback(self) {
+        // Restore the original state
+        self.db.tables = self.original_tables;
     }
 }
