@@ -35,7 +35,8 @@ pub struct Index {
 pub struct Table {
     pub name: String,
     pub schema: Schema,
-    pub rows: crate::core::FastHashMap<Id, Row>,
+    pub rows: Vec<Row>, // Contiguous storage for better cache locality
+    pub id_map: crate::core::FastHashMap<Id, usize>, // Fast ID lookup
     pub next_int_id: u64,
     pub indexes: crate::core::FastHashMap<CompactString, Index>,
 }
@@ -45,7 +46,8 @@ impl Table {
         Self {
             name,
             schema,
-            rows: crate::core::FastHashMap::default(),
+            rows: Vec::new(),
+            id_map: crate::core::FastHashMap::default(),
             next_int_id: 1,
             indexes: crate::core::FastHashMap::default(),
         }
@@ -54,7 +56,7 @@ impl Table {
     pub fn insert(&mut self, data: RowData, custom_id: Option<Id>) -> Result<Id, TableError> {
         let id = match custom_id {
             Some(id) => {
-                if self.rows.contains_key(&id) {
+                if self.id_map.contains_key(&id) {
                     return Err(TableError::DuplicateId(id));
                 }
                 id
@@ -117,16 +119,19 @@ impl Table {
             }
         }
 
-        self.rows.insert(id.clone(), row);
+        let index = self.rows.len();
+        self.rows.push(row);
+        self.id_map.insert(id.clone(), index);
         Ok(id)
     }
 
     pub fn get(&self, id: &Id) -> Option<&Row> {
-        self.rows.get(id)
+        self.id_map.get(id).map(|&idx| &self.rows[idx])
     }
 
     pub fn update(&mut self, id: &Id, data: RowData) -> Result<(), TableError> {
-        if let Some(row) = self.rows.get_mut(id) {
+        if let Some(&idx) = self.id_map.get(id) {
+            let row = &mut self.rows[idx];
             row.data = data;
             row.version += 1;
             Ok(())
@@ -139,28 +144,36 @@ impl Table {
     }
 
     pub fn delete(&mut self, id: &Id) -> Option<Row> {
-        self.rows.remove(id)
+        if let Some(idx) = self.id_map.remove(id) {
+            if idx < self.rows.len() - 1 {
+                let last_id = &self.rows.last().unwrap().id;
+                self.id_map.insert(last_id.clone(), idx);
+            }
+            Some(self.rows.swap_remove(idx))
+        } else {
+            None
+        }
     }
 
     pub fn select<F>(&self, predicate: F) -> Vec<&Row>
     where
         F: Fn(&Row) -> bool,
     {
-        self.rows.values().filter(|r| predicate(r)).collect()
+        self.rows.iter().filter(|r| predicate(r)).collect()
     }
 
     pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<&Row> {
         // Use index if available
         if let Some(index) = self.indexes.get(column_name) {
             if let Some(ids) = index.map.get(value) {
-                return ids.iter().filter_map(|id| self.rows.get(id)).collect();
+                return ids.iter().filter_map(|id| self.get(id)).collect();
             }
             return Vec::new();
         }
 
         // Fallback to linear scan
         self.rows
-            .values()
+            .iter()
             .filter(|r| r.data.get(column_name) == Some(value))
             .collect()
     }
@@ -172,9 +185,9 @@ impl Table {
         }
 
         let mut index = Index::default();
-        for (id, row) in &self.rows {
+        for row in &self.rows {
             if let Some(val) = row.data.get(&column_name) {
-                index.map.entry(val.clone()).or_default().push(id.clone());
+                index.map.entry(val.clone()).or_default().push(row.id.clone());
             }
         }
         self.indexes.insert(column_name, index);

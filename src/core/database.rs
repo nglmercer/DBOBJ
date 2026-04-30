@@ -274,8 +274,8 @@ impl Database {
         let t2 = t2_lock.read();
 
         let mut results = Vec::new();
-        for r1 in t1.rows.values() {
-            for r2 in t2.rows.values() {
+        for r1 in t1.rows.iter() {
+            for r2 in t2.rows.iter() {
                 if condition(r1, r2) {
                     results.push((r1.clone(), r2.clone()));
                 }
@@ -387,7 +387,7 @@ impl Database {
             ahash::RandomState::new(),
         );
 
-        for row in build_table.rows.values() {
+        for row in build_table.rows.iter() {
             if let Some(val) = row.data.get(build_col) {
                 hash_map
                     .entry(val.clone())
@@ -398,7 +398,7 @@ impl Database {
 
         let mut results = Vec::new();
         // Probe phase
-        for probe_row in probe_table.rows.values() {
+        for probe_row in probe_table.rows.iter() {
             if let Some(val) = probe_row.data.get(probe_col) {
                 if let Some(matches) = hash_map.get(val) {
                     for build_row in matches {
