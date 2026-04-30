@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub enum QueryPlan {
     FullScan(CompactString, Expr),
     IndexScan(CompactString, CompactString, Value),
+    /// Use an index to get candidates, then filter them with the second expression
+    IndexFilteredScan(CompactString, CompactString, Value, Expr),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,6 +95,20 @@ impl Expr {
                 }
                 _ => {}
             },
+            Expr::Binary(left, Operator::And, right) => {
+                let left_plan = left.plan(table);
+                let right_plan = right.plan(table);
+                
+                match (left_plan, right_plan) {
+                    (QueryPlan::IndexScan(t, c, v), _) => {
+                        return QueryPlan::IndexFilteredScan(t, c, v, *right.clone());
+                    }
+                    (_, QueryPlan::IndexScan(t, c, v)) => {
+                        return QueryPlan::IndexFilteredScan(t, c, v, *left.clone());
+                    }
+                    _ => {}
+                }
+            }
             _ => {}
         }
         QueryPlan::FullScan(table.name.clone().into(), self.clone())

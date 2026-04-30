@@ -291,7 +291,7 @@ fn bench_joins(c: &mut Criterion) {
     group.sample_size(10);
     group.measurement_time(Duration::from_secs(3));
 
-    let row_count = 1000;
+    let row_count = 10000;
 
     // 1. DBOBJ Hash Join
     let db = Database::new("bench_db".to_string());

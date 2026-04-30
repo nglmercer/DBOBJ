@@ -329,15 +329,22 @@ impl Database {
             crate::core::query::QueryPlan::IndexScan(table_name, col, val) => {
                 let tables = self.tables.read();
                 let table_lock = tables.get(table_name.as_str()).ok_or_else(|| {
-                    crate::core::table::TableError::SchemaViolation(format!(
-                        "Table {} not found",
-                        table_name
-                    ))
+                    crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
                 })?;
                 let table = table_lock.read();
-                Ok(table
-                    .find_by_column(col.as_str(), &val)
-                    .into_iter()
+                Ok(table.find_by_column(&col, &val).into_iter().cloned().collect())
+            }
+            crate::core::query::QueryPlan::IndexFilteredScan(table_name, col, val, expr) => {
+                let tables = self.tables.read();
+                let table_lock = tables.get(table_name.as_str()).ok_or_else(|| {
+                    crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+                })?;
+                let table = table_lock.read();
+                // Get candidates from index
+                let candidates = table.find_by_column(&col, &val);
+                // Filter candidates in parallel
+                Ok(candidates.into_iter().par_bridge()
+                    .filter(|r| expr.is_true(&r.data))
                     .cloned()
                     .collect())
             }
