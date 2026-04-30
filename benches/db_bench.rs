@@ -3,6 +3,7 @@ use std::hint::black_box;
 use dbobj::core::{Database, Schema, Id, RowData, Value, DataType, ColumnDefinition};
 use serde_json;
 use bincode;
+use postcard;
 
 fn bench_insertion(c: &mut Criterion) {
     let schema = Schema {
@@ -46,6 +47,12 @@ fn bench_serialization(c: &mut Criterion) {
         })
     });
 
+    group.bench_function("Postcard", |b| {
+        b.iter(|| {
+            let _ = postcard::to_stdvec(black_box(&rows)).unwrap();
+        })
+    });
+
     group.bench_function("JSON", |b| {
         b.iter(|| {
             let _ = serde_json::to_vec(black_box(&rows)).unwrap();
@@ -66,6 +73,7 @@ fn bench_deserialization(c: &mut Criterion) {
     
     let config = bincode::config::standard();
     let bincode_data = bincode::serde::encode_to_vec(&rows, config).unwrap();
+    let postcard_data = postcard::to_stdvec(&rows).unwrap();
     let json_data = serde_json::to_vec(&rows).unwrap();
 
     let mut group = c.benchmark_group("Deserialization_1000_Rows");
@@ -73,6 +81,13 @@ fn bench_deserialization(c: &mut Criterion) {
     group.bench_function("Bincode", |b| {
         b.iter(|| {
             let (loaded_rows, _): (Vec<RowData>, usize) = bincode::serde::decode_from_slice(black_box(&bincode_data), config).unwrap();
+            black_box(loaded_rows);
+        })
+    });
+
+    group.bench_function("Postcard", |b| {
+        b.iter(|| {
+            let loaded_rows: Vec<RowData> = postcard::from_bytes(black_box(&postcard_data)).unwrap();
             black_box(loaded_rows);
         })
     });
