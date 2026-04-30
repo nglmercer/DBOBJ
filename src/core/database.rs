@@ -273,21 +273,38 @@ impl Database {
         let t1 = t1_lock.read();
         let t2 = t2_lock.read();
 
-        let mut hash_map = std::collections::HashMap::new();
-        // Build phase: use the smaller table if possible, but for simplicity let's use t1
-        for r1 in t1.rows.values() {
-            if let Some(val) = r1.data.get(col1) {
-                hash_map.entry(val.clone()).or_insert_with(Vec::new).push(r1);
+        // Optimization: build on the smaller table to minimize memory and hashing
+        let (build_table, build_col, probe_table, probe_col, reversed) = 
+            if t1.rows.len() <= t2.rows.len() {
+                (&*t1, col1, &*t2, col2, false)
+            } else {
+                (&*t2, col2, &*t1, col1, true)
+            };
+
+        let mut hash_map = FastHashMap::with_capacity_and_hasher(
+            build_table.rows.len(),
+            ahash::RandomState::new()
+        );
+
+        for row in build_table.rows.values() {
+            if let Some(val) = row.data.get(build_col) {
+                hash_map.entry(val.clone()).or_insert_with(Vec::new).push(row);
             }
         }
 
         let mut results = Vec::new();
         // Probe phase
-        for r2 in t2.rows.values() {
-            if let Some(val) = r2.data.get(col2) {
-                if let Some(r1_list) = hash_map.get(val) {
-                    for r1 in r1_list {
-                        results.push(((*r1).clone(), r2.clone()));
+        for probe_row in probe_table.rows.values() {
+            if let Some(val) = probe_row.data.get(probe_col) {
+                if let Some(matches) = hash_map.get(val) {
+                    for build_row in matches {
+                        if reversed {
+                            // t2 was build, t1 was probe. Result should be (t1, t2)
+                            results.push((probe_row.clone(), (*build_row).clone()));
+                        } else {
+                            // t1 was build, t2 was probe. Result should be (t1, t2)
+                            results.push(((*build_row).clone(), probe_row.clone()));
+                        }
                     }
                 }
             }
