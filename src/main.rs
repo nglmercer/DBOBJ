@@ -104,5 +104,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Found: ID={}, Data={:?}", row.id, row.data);
     }
 
+    // 9. Relational Joins
+    println!("\n--- Relational Joins ---");
+    // Create posts table
+    let post_schema = Schema {
+        columns: vec![
+            dbobj::core::ColumnDefinition { name: "user_id".into(), data_type: dbobj::core::DataType::Integer, nullable: false },
+            dbobj::core::ColumnDefinition { name: "title".into(), data_type: dbobj::core::DataType::String, nullable: false },
+        ],
+    };
+    db.create_table("posts".to_string(), post_schema);
+
+    // Insert a post for Alice (ID 1)
+    let mut post1 = RowData::default();
+    post1.insert("user_id".into(), Value::from(1i64));
+    post1.insert("title".into(), Value::from("First Post"));
+    db.insert_row("posts", post1, None)?;
+
+    println!("Joining 'users' and 'posts' on users.id == posts.user_id...");
+    let user_posts = db.join("users", "posts", |u, p| {
+        if let Some(Value::Integer(p_uid)) = p.data.get("user_id") {
+            if let Id::Integer(u_id) = &u.id {
+                return *u_id == *p_uid as u64;
+            }
+        }
+        false
+    })?;
+
+    for (user, post) in user_posts {
+        println!("User '{:?}' posted: '{:?}'", 
+            user.data.get("username").unwrap_or(&Value::from("Unknown")),
+            post.data.get("title").unwrap_or(&Value::from("No Title"))
+        );
+    }
+
     Ok(())
 }

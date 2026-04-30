@@ -80,4 +80,26 @@ impl Database {
         })?;
         Ok(table.find_by_column(column_name, &value))
     }
+
+    pub fn join<F>(&self, table1: &str, table2: &str, condition: F) -> Result<Vec<(&super::table::Row, &super::table::Row)>, crate::core::table::TableError>
+    where
+        F: Fn(&super::table::Row, &super::table::Row) -> bool,
+    {
+        let t1 = self.tables.get(table1).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table1))
+        })?;
+        let t2 = self.tables.get(table2).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table2))
+        })?;
+
+        let mut results = Vec::new();
+        for r1 in t1.rows.values() {
+            for r2 in t2.rows.values() {
+                if condition(r1, r2) {
+                    results.push((r1, r2));
+                }
+            }
+        }
+        Ok(results)
+    }
 }
