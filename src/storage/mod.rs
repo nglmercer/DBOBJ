@@ -1,8 +1,10 @@
 use std::fs;
 use std::path::PathBuf;
 use crate::core::Database;
-use postcard;
 use thiserror::Error;
+
+pub mod adapter;
+pub use adapter::{SerializerAdapter, BincodeAdapter, PostcardAdapter};
 
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -12,13 +14,17 @@ pub enum StorageError {
     Serialization(String),
 }
 
-pub struct Storage {
+pub struct Storage<S: SerializerAdapter> {
     path: PathBuf,
+    adapter: S,
 }
 
-impl Storage {
-    pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+impl<S: SerializerAdapter> Storage<S> {
+    pub fn new(path: impl Into<PathBuf>, adapter: S) -> Self {
+        Self { 
+            path: path.into(),
+            adapter,
+        }
     }
 
     pub fn save(&self, db: &Database) -> Result<(), StorageError> {
@@ -29,10 +35,7 @@ impl Storage {
             fs::copy(&self.path, backup_path)?;
         }
 
-        // Postcard serialization
-        let bytes = postcard::to_stdvec(db)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
-
+        let bytes = self.adapter.serialize(db)?;
         fs::write(&self.path, bytes)?;
         Ok(())
     }
@@ -46,10 +49,6 @@ impl Storage {
         }
 
         let bytes = fs::read(&self.path)?;
-        
-        let db: Database = postcard::from_bytes(&bytes)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
-
-        Ok(db)
+        self.adapter.deserialize(&bytes)
     }
 }

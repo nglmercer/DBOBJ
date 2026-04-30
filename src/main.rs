@@ -47,6 +47,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Saving database to my_database.db...");
     storage.save(&db)?;
 
+    // Size comparison (Technical Demonstration)
+    let postcard_bytes = postcard::to_stdvec(&db)?;
+    let bincode_config = bincode::config::standard();
+    let bincode_bytes = bincode::serde::encode_to_vec(&db, bincode_config)?;
+    println!("--- Size Comparison ---");
+    println!("Bincode size: {} bytes", bincode_bytes.len());
+    println!("Postcard size: {} bytes", postcard_bytes.len());
+    println!("Postcard is {:.1}% smaller", 
+        (1.0 - (postcard_bytes.len() as f64 / bincode_bytes.len() as f64)) * 100.0);
+
     // 5. Demonstrate Backups
     println!("Modifying and saving again to trigger backup...");
     let mut user3 = RowData::default();
