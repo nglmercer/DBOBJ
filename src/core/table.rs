@@ -141,6 +141,49 @@ impl Table {
         Ok(ids)
     }
 
+    pub fn insert_batch_raw(
+        &mut self,
+        batch: Vec<Box<[Value]>>,
+    ) -> Result<Vec<Id>, TableError> {
+        let mut ids = Vec::with_capacity(batch.len());
+        self.rows.reserve(batch.len());
+
+        for values in batch {
+            // Fast validation: just check column count
+            if values.len() != self.schema.columns.len() {
+                return Err(TableError::SchemaViolation(format!(
+                    "Raw batch row has {} columns, expected {}",
+                    values.len(),
+                    self.schema.columns.len()
+                )));
+            }
+
+            let id = Id::Integer(self.next_int_id);
+            self.next_int_id += 1;
+
+            let row = Row {
+                id: id.clone(),
+                data: std::sync::Arc::new(values),
+                version: 1,
+            };
+
+            // Update indexes
+            for (col_name, index) in &mut self.indexes {
+                if let Some(&col_idx) = self.column_map.get(col_name.as_str()) {
+                    let val = &row.data[col_idx];
+                    index.map.entry(val.clone()).or_default().push(id.clone());
+                }
+            }
+
+            let index = self.rows.len();
+            self.rows.push(row);
+            self.id_map.insert(id.clone(), index);
+            ids.push(id);
+        }
+
+        Ok(ids)
+    }
+
     fn validate_schema(&self, data: &RowData) -> Result<(), TableError> {
         for col_def in &self.schema.columns {
             match data.get(&col_def.name) {

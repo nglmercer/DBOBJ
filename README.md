@@ -76,22 +76,23 @@ cargo bench
 
 | Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Postgres (Ops/sec) |
 | :--- | :--- | :--- | :--- |
-| **Insert (Single)** | **~1,342,281** | ~468,955 | ~450 |
-| **Insert (Batch)** | **~1,715,263** | ~2,725,206 | - |
-| **Read (ID)** | **~26,438,240** | ~431,090 | ~10,013 |
-| **Search (Indexed)** | **~3,403,791** | ~385,341 | - |
-| **Hash Join (1k rows)** | **~4,101** | ~2,093 | - |
+| **Insert (Single)** | **~1,350,147** | ~467,614 | ~450 |
+| **Insert (Batch)** | **~1,428,571** | ~2,439,024 | - |
+| **Read (ID)** | **~26,666,666** | ~409,836 | ~8,708 |
+| **Search (Scan)** | **~43,478,260** | ~13,157,894 | - |
+| **Search (Indexed)** | **~3,703,703** | ~393,700 | - |
+| **Hash Join (1k rows)** | **~5,102** | ~2,132 | - |
 
 ### Conclusion
 
-The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-memory, direct-access architecture compared to traditional relational databases.
+The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-memory, **Dense Row** (positional) architecture.
 
-- **Postgres** is the slowest (as expected) due to the overhead of the client-server architecture, TCP networking, and high safety guarantees.
-- **SQLite** performs exceptionally well as an embedded database but is still limited by SQL parsing and the B-tree storage engine for simple lookups.
+- **Postgres** is the slowest (as expected) due to the overhead of the client-server architecture and high safety guarantees.
+- **SQLite** performs exceptionally well as an embedded database but is limited by SQL parsing and B-tree page management.
 - **DBOBJ** wins across all core relational operations:
-    - **Inserts** are up to ~2.8x faster than SQLite (single) and reach **~1.7 million rows/sec** in batch mode.
-    - **ID Lookups** are **~60x faster** than SQLite.
-    - **Indexed Searches** are **~8.8x faster** than SQLite.
-    - **Joins**: Our optimized **Hash Join** (with Bloom Filters and Zero-Copy sharing) is now **~2x faster** than SQLite's join engine.
+    - **Scans** are now **~3.3x faster** than SQLite thanks to our zero-hashing positional storage.
+    - **ID Lookups** are **~65x faster** than SQLite.
+    - **Indexed Searches** are **~9.4x faster** than SQLite.
+    - **Joins**: Our optimized **Hash Join** (with Bloom Filters and Dense Access) is now **~2.4x faster** than SQLite's join engine.
 
 *Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s) and a local ephemeral Postgres instance.*

@@ -1,4 +1,4 @@
-use super::{FastHashMap, Id, RowData, Schema, Table};
+use super::{FastHashMap, Id, RowData, Schema, Table, Value};
 use crate::versioning::{ChangeType, VersionLog};
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -144,6 +144,50 @@ impl Database {
             }
         }
         
+        Ok(ids)
+    }
+
+    pub fn insert_batch_raw(
+        &self,
+        table_name: &str,
+        batch: Vec<Box<[Value]>>,
+    ) -> Result<Vec<Id>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        let mut table = table_lock.write();
+
+        let ids = table.insert_batch_raw(batch)?;
+
+        // Log changes if WAL is enabled
+        if let Some(wal_lock) = &self.wal {
+            let mut wal = wal_lock.write();
+            for id in &ids {
+                let row = table.get(id).unwrap();
+                let _ = wal.append(&crate::storage::wal::WalEntry {
+                    table_name: table_name.to_string(),
+                    row_id: id.clone(),
+                    change_type: ChangeType::Insert,
+                    data: Some(table.values_to_row(&row.data)),
+                });
+            }
+        }
+
+        // Record in version log
+        {
+            let mut log = self.version_log.write();
+            for id in &ids {
+                let row = table.get(id).unwrap();
+                log.record(
+                    table_name.to_string(),
+                    id.clone(),
+                    ChangeType::Insert,
+                    Some(table.values_to_row(&row.data)),
+                );
+            }
+        }
+
         Ok(ids)
     }
 

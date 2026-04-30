@@ -123,6 +123,43 @@ fn bench_inserts(c: &mut Criterion) {
         )
     });
 
+    // 4.5 DBOBJ Batch Raw
+    group.bench_function("DBOBJ Batch Raw Insert (100 rows)", |b| {
+        let db = Database::new("bench_db".to_string());
+        let schema = Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "username".into(),
+                    data_type: DataType::String,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "age".into(),
+                    data_type: DataType::Integer,
+                    nullable: false,
+                },
+            ],
+        };
+        db.create_table("users_batch_raw".to_string(), schema);
+
+        b.iter_batched(
+            || {
+                let mut batch = Vec::with_capacity(100);
+                for i in 0..100 {
+                    batch.push(vec![
+                        Value::from(format!("user_{}", i)),
+                        Value::from(i as i64)
+                    ].into_boxed_slice());
+                }
+                batch
+            },
+            |batch| {
+                db.insert_batch_raw("users_batch_raw", batch).unwrap();
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
     // 5. SQLite Batch
     group.bench_function("SQLite Batch Insert (100 rows)", |b| {
         let mut conn = Connection::open_in_memory().unwrap();
