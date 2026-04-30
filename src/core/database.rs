@@ -3,9 +3,6 @@ use crate::versioning::{VersionLog, ChangeType};
 use serde::{Deserialize, Serialize};
 use parking_lot::RwLock;
 use std::sync::Arc;
-use serde::ser::SerializeStruct;
-use serde::de::{self, Deserializer, Visitor, MapAccess};
-use std::fmt;
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -320,25 +317,27 @@ impl<'a> Transaction<'a> {
 
 impl Database {
     pub fn recover_from_wal(&self) -> Result<(), crate::core::table::TableError> {
-        if let Some(wal_lock) = &self.wal {
+        let entries = if let Some(wal_lock) = &self.wal {
             let wal = wal_lock.read();
-            if let Ok(entries) = wal.read_all() {
-                for entry in entries {
-                    match entry.change_type {
-                        ChangeType::Insert => {
-                            if let Some(data) = entry.data {
-                                let _ = self.insert_row(&entry.table_name, data, Some(entry.row_id));
-                            }
-                        }
-                        ChangeType::Update => {
-                            if let Some(data) = entry.data {
-                                let _ = self.update_row(&entry.table_name, &entry.row_id, data);
-                            }
-                        }
-                        ChangeType::Delete => {
-                            let _ = self.delete_row(&entry.table_name, &entry.row_id);
-                        }
+            wal.read_all().unwrap_or_default()
+        } else {
+            return Ok(());
+        };
+
+        for entry in entries {
+            match entry.change_type {
+                ChangeType::Insert => {
+                    if let Some(data) = entry.data {
+                        let _ = self.insert_row(&entry.table_name, data, Some(entry.row_id));
                     }
+                }
+                ChangeType::Update => {
+                    if let Some(data) = entry.data {
+                        let _ = self.update_row(&entry.table_name, &entry.row_id, data);
+                    }
+                }
+                ChangeType::Delete => {
+                    let _ = self.delete_row(&entry.table_name, &entry.row_id);
                 }
             }
         }

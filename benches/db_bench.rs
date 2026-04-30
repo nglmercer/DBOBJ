@@ -105,7 +105,7 @@ fn bench_reads(c: &mut Criterion) {
         let mut i = 0;
         b.iter(|| {
             let id = &ids[i % ids.len()];
-            let _ = db.get_table("users").unwrap().get(id).unwrap();
+            let _ = db.get_table("users").unwrap().read().get(id).unwrap();
             i += 1;
         })
     });
@@ -169,9 +169,125 @@ fn bench_reads(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_search(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Search");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(3));
+
+    let row_count = 5000;
+    
+    // 1. DBOBJ (Indexed vs Unindexed)
+    let db = Database::new("bench_db".to_string());
+    let schema = Schema {
+        columns: vec![
+            ColumnDefinition { name: "username".into(), data_type: DataType::String, nullable: false },
+            ColumnDefinition { name: "age".into(), data_type: DataType::Integer, nullable: false },
+        ],
+    };
+    db.create_table("users".to_string(), schema);
+    for i in 0..row_count {
+        let mut data = RowData::default();
+        data.insert("username".into(), Value::from(format!("user{}", i)));
+        data.insert("age".into(), Value::from(i as i64));
+        db.insert_row("users", data, None).unwrap();
+    }
+
+    group.bench_function("DBOBJ Scan (O(N))", |b| {
+        b.iter(|| {
+            // Searching on 'age' (no index)
+            let _ = db.find("users", "age", Value::from(2500i64)).unwrap();
+        })
+    });
+
+    db.create_index("users", "username").unwrap();
+    group.bench_function("DBOBJ Indexed (O(log N))", |b| {
+        b.iter(|| {
+            // Searching on 'username' (with index)
+            let _ = db.find("users", "username", Value::from("user2500")).unwrap();
+        })
+    });
+
+    // 2. SQLite (Indexed vs Unindexed)
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE users (username TEXT, age INTEGER)", []).unwrap();
+    for i in 0..row_count {
+        conn.execute("INSERT INTO users (username, age) VALUES (?1, ?2)", sqlite_params![format!("user{}", i), i as i64]).unwrap();
+    }
+
+    group.bench_function("SQLite Scan", |b| {
+        b.iter(|| {
+            let mut stmt = conn.prepare("SELECT username FROM users WHERE age = 2500").unwrap();
+            let _ = stmt.query_row([], |r| r.get::<_, String>(0)).unwrap_or_default();
+        })
+    });
+
+    conn.execute("CREATE INDEX idx_username ON users (username)", []).unwrap();
+    group.bench_function("SQLite Indexed", |b| {
+        b.iter(|| {
+            let mut stmt = conn.prepare("SELECT age FROM users WHERE username = 'user2500'").unwrap();
+            let _ = stmt.query_row([], |r| r.get::<_, i64>(0)).unwrap();
+        })
+    });
+
+    group.finish();
+}
+
+fn bench_joins(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Joins");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(3));
+
+    let row_count = 1000;
+
+    // 1. DBOBJ Hash Join
+    let db = Database::new("bench_db".to_string());
+    db.create_table("users".to_string(), Schema {
+        columns: vec![ColumnDefinition { name: "id".into(), data_type: DataType::Integer, nullable: false }, ColumnDefinition { name: "name".into(), data_type: DataType::String, nullable: false }],
+    });
+    db.create_table("posts".to_string(), Schema {
+        columns: vec![ColumnDefinition { name: "user_id".into(), data_type: DataType::Integer, nullable: false }, ColumnDefinition { name: "title".into(), data_type: DataType::String, nullable: false }],
+    });
+
+    for i in 0..row_count {
+        let mut u = RowData::default();
+        u.insert("id".into(), Value::from(i as i64));
+        u.insert("name".into(), Value::from(format!("user{}", i)));
+        db.insert_row("users", u, None).unwrap();
+
+        let mut p = RowData::default();
+        p.insert("user_id".into(), Value::from(i as i64));
+        p.insert("title".into(), Value::from(format!("post{}", i)));
+        db.insert_row("posts", p, None).unwrap();
+    }
+
+    group.bench_function("DBOBJ Hash Join", |b| {
+        b.iter(|| {
+            let _ = db.hash_join("users", "id", "posts", "user_id").unwrap();
+        })
+    });
+
+    // 2. SQLite Join
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE users (id INTEGER, name TEXT)", []).unwrap();
+    conn.execute("CREATE TABLE posts (user_id INTEGER, title TEXT)", []).unwrap();
+    for i in 0..row_count {
+        conn.execute("INSERT INTO users (id, name) VALUES (?1, ?2)", sqlite_params![i as i64, format!("user{}", i)]).unwrap();
+        conn.execute("INSERT INTO posts (user_id, title) VALUES (?1, ?2)", sqlite_params![i as i64, format!("post{}", i)]).unwrap();
+    }
+
+    group.bench_function("SQLite Join", |b| {
+        b.iter(|| {
+            let mut stmt = conn.prepare("SELECT users.name, posts.title FROM users JOIN posts ON users.id = posts.user_id").unwrap();
+            let _Rows = stmt.query_map([], |_| Ok(())).unwrap().collect::<Vec<_>>();
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_inserts, bench_reads
+    targets = bench_inserts, bench_reads, bench_search, bench_joins
 );
 criterion_main!(benches);

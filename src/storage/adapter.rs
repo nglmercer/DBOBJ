@@ -64,7 +64,7 @@ mod tests {
     use crate::core::{Schema, ColumnDefinition, DataType, Value, RowData};
 
     fn create_test_db() -> Database {
-        let mut db = Database::new("TestDB".to_string());
+        let db = Database::new("TestDB".to_string());
         let schema = Schema {
             columns: vec![
                 ColumnDefinition {
@@ -91,7 +91,7 @@ mod tests {
         
         let loaded_db = adapter.deserialize(&bytes).expect("Failed to deserialize with Bincode");
         assert_eq!(db.name, loaded_db.name);
-        assert_eq!(loaded_db.get_table("test_table").unwrap().rows.len(), 1);
+        assert_eq!(loaded_db.get_table("test_table").unwrap().read().rows.len(), 1);
     }
 
     #[test]
@@ -104,7 +104,7 @@ mod tests {
         
         let loaded_db = adapter.deserialize(&bytes).expect("Failed to deserialize with Postcard");
         assert_eq!(db.name, loaded_db.name);
-        assert_eq!(loaded_db.get_table("test_table").unwrap().rows.len(), 1);
+        assert_eq!(loaded_db.get_table("test_table").unwrap().read().rows.len(), 1);
     }
 
     #[test]
@@ -117,6 +117,6 @@ mod tests {
         
         let loaded_db = adapter.deserialize(&bytes).expect("Failed to deserialize with FastBincode");
         assert_eq!(db.name, loaded_db.name);
-        assert_eq!(loaded_db.get_table("test_table").unwrap().rows.len(), 1);
+        assert_eq!(loaded_db.get_table("test_table").unwrap().read().rows.len(), 1);
     }
 }
