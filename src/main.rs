@@ -143,24 +143,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     db.insert_row("posts", post1, None)?;
 
     println!("Joining 'users' and 'posts' on users.id == posts.user_id...");
-    let user_posts = db.join("users", "posts", |u, p| {
-        if let Some(Value::Integer(p_uid)) = p.data.get("user_id") {
-            if let Id::Integer(u_id) = &u.id {
-                return *u_id == *p_uid as u64;
-            }
-        }
-        false
-    })?;
-
-    for (user, post) in user_posts {
+    let joined_rows = db.hash_join("users", "id", "posts", "user_id")?;
+    println!("Join Results (User + Post):");
+    let user_name_idx = *db.get_table("users").unwrap().read().column_map.get("username").unwrap();
+    let post_title_idx = *db.get_table("posts").unwrap().read().column_map.get("title").unwrap();
+    
+    for (user, post) in joined_rows {
         println!(
-            "User '{:?}' posted: '{:?}'",
-            user.data.get("username").unwrap_or(&Value::from("Unknown")),
-            post.data.get("title").unwrap_or(&Value::from("No Title"))
+            "User: {:?}, Post: {:?}",
+            user.data[user_name_idx],
+            post.data[post_title_idx]
         );
     }
 
-    // New: Optimized Hash Join
+    // Optimized Hash Join
     println!("\n--- Optimized Hash Join (O(N+M)) ---");
     // We need to convert users.id to a column value for hash_join if we want to join on it,
     // or join on user_id columns. Since users.id is an Id type and posts.user_id is a Value::Integer,
@@ -189,12 +185,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     db.insert_row("metadata", meta1, None)?;
 
     println!("Performing Hash Join on 'username'...");
-    let bio_join = db.hash_join("users", "username", "metadata", "username")?;
-    for (user, meta) in bio_join {
+    let profiles = db.hash_join("users", "username", "metadata", "username")?;
+    println!("Joined Profiles:");
+    let user_name_idx = *db.get_table("users").unwrap().read().column_map.get("username").unwrap();
+    let bio_idx = *db.get_table("metadata").unwrap().read().column_map.get("bio").unwrap();
+    
+    for (user, meta) in profiles {
         println!(
             "User: {:?}, Bio: {:?}",
-            user.data.get("username").unwrap(),
-            meta.data.get("bio").unwrap()
+            user.data[user_name_idx],
+            meta.data[bio_idx]
         );
     }
 
