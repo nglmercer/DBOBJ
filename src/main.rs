@@ -1,11 +1,12 @@
 use dbobj::core::{Database, Schema, Id, Value, RowData, Expr, Operator};
 use dbobj::storage::Storage;
+use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- DBOBJ Proof of Concept (Optimized) ---");
 
     // 1. Initialize Database
-    let mut db = Database::new("MyDatabase".to_string());
+    let db = Arc::new(Database::new("MyDatabase".to_string()));
 
     // 2. Define Schema
     let schema = Schema {
@@ -53,9 +54,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     storage.save(&db)?;
 
     // Size comparison (Technical Demonstration)
-    let postcard_bytes = postcard::to_stdvec(&db)?;
+    let postcard_bytes = postcard::to_stdvec(&*db)?;
     let bincode_config = bincode::config::standard();
-    let bincode_bytes = bincode::serde::encode_to_vec(&db, bincode_config)?;
+    let bincode_bytes = bincode::serde::encode_to_vec(&*db, bincode_config)?;
     println!("--- Size Comparison ---");
     println!("Bincode size: {} bytes", bincode_bytes.len());
     println!("Postcard size: {} bytes", postcard_bytes.len());
@@ -72,7 +73,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 6. Versioning History
     println!("\n--- Version History ---");
-    for entry in &db.version_log.entries {
+    for entry in &db.version_log.read().entries {
         println!("[{}] Table: {}, ID: {}, Action: {:?}", 
             entry.timestamp(), entry.table_name, entry.row_id, entry.change_type);
     }
@@ -81,8 +82,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nLoading database from disk...");
     let loaded_db = storage.load()?;
     println!("Loaded database: {}", loaded_db.name);
-    if let Some(table) = loaded_db.get_table("users") {
-        println!("Table 'users' has {} rows.", table.rows.len());
+    if let Some(table_lock) = loaded_db.get_table("users") {
+        println!("Table 'users' has {} rows.", table_lock.read().rows.len());
     }
 
     // 8. Relational Search (Queries)
@@ -189,8 +190,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     
     // Check the plan
-    if let Some(table) = db.get_table("users") {
-        let plan = alice_expr.plan(table);
+    if let Some(table_lock) = db.get_table("users") {
+        let table = table_lock.read();
+        let plan = alice_expr.plan(&table);
         println!("Plan for 'username == alice': {:?}", plan);
     }
     
@@ -199,19 +201,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 12. Transactions Demo
     println!("\n--- Transactions Demo ---");
-    println!("Current row count in 'users': {}", db.get_table("users").unwrap().rows.len());
+    println!("Current row count in 'users': {}", db.get_table("users").unwrap().read().rows.len());
     
     {
-        let mut tx = db.begin_transaction();
+        let tx = db.begin_transaction();
         println!("Starting transaction and deleting Bob...");
         tx.db.delete_row("users", &Id::from("bob_unique_id"))?;
-        println!("Temporary count: {}", tx.db.get_table("users").unwrap().rows.len());
+        println!("Temporary count: {}", tx.db.get_table("users").unwrap().read().rows.len());
         
         println!("Rolling back transaction...");
         tx.rollback();
     }
     
-    println!("Count after rollback: {}", db.get_table("users").unwrap().rows.len());
+    println!("Count after rollback: {}", db.get_table("users").unwrap().read().rows.len());
+
+    // 13. Concurrency Stress Test
+    println!("\n--- Concurrency Stress Test ---");
+    let mut handles = vec![];
+    for i in 0..4 {
+        let db_clone = Arc::clone(&db);
+        let handle = std::thread::spawn(move || {
+            for j in 0..100 {
+                let mut data = RowData::default();
+                data.insert("username".into(), Value::from(format!("user_{}_{}", i, j)));
+                data.insert("age".into(), Value::from(20 + i + j));
+                let _ = db_clone.insert_row("users", data, None);
+            }
+        });
+        handles.push(handle);
+    }
+    
+    for handle in handles {
+        handle.join().unwrap();
+    }
+    
+    println!("Total rows in 'users' after stress test: {}", db.get_table("users").unwrap().read().rows.len());
 
     Ok(())
 }
