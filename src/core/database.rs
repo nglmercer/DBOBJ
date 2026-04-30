@@ -1,8 +1,6 @@
 use super::{FastHashMap, Id, RowData, Schema, Table};
 use crate::versioning::{ChangeType, VersionLog};
 use parking_lot::RwLock;
-use rayon::iter::ParallelBridge;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -221,7 +219,7 @@ impl Database {
         predicate: F,
     ) -> Result<Vec<super::table::Row>, crate::core::table::TableError>
     where
-        F: Fn(&super::table::Row) -> bool + Sync + Send,
+        F: Fn(&super::table::Row) -> bool,
     {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
@@ -318,13 +316,7 @@ impl Database {
                     ))
                 })?;
                 let table = table_lock.read();
-                Ok(table
-                    .rows
-                    .values()
-                    .par_bridge()
-                    .filter(|r| expr.is_true(&r.data))
-                    .cloned()
-                    .collect())
+                Ok(table.select(|r| expr.is_true(&r.data)).into_iter().cloned().collect())
             }
             crate::core::query::QueryPlan::IndexScan(table_name, col, val) => {
                 let tables = self.tables.read();
@@ -342,8 +334,8 @@ impl Database {
                 let table = table_lock.read();
                 // Get candidates from index
                 let candidates = table.find_by_column(&col, &val);
-                // Filter candidates in parallel
-                Ok(candidates.into_iter().par_bridge()
+                // Filter candidates
+                Ok(candidates.into_iter()
                     .filter(|r| expr.is_true(&r.data))
                     .cloned()
                     .collect())
@@ -404,29 +396,25 @@ impl Database {
             }
         }
 
-        // Probe phase in parallel
-        let probe_results: Vec<(super::table::Row, super::table::Row)> = probe_table
-            .rows
-            .values()
-            .par_bridge()
-            .flat_map(|probe_row| {
-                let mut local_results = Vec::new();
-                if let Some(val) = probe_row.data.get(probe_col) {
-                    if let Some(matches) = hash_map.get(val) {
-                        for build_row in matches {
-                            if reversed {
-                                local_results.push((probe_row.clone(), (*build_row).clone()));
-                            } else {
-                                local_results.push(((*build_row).clone(), probe_row.clone()));
-                            }
+        let mut results = Vec::new();
+        // Probe phase
+        for probe_row in probe_table.rows.values() {
+            if let Some(val) = probe_row.data.get(probe_col) {
+                if let Some(matches) = hash_map.get(val) {
+                    for build_row in matches {
+                        if reversed {
+                            // t2 was build, t1 was probe. Result should be (t1, t2)
+                            results.push((probe_row.clone(), (*build_row).clone()));
+                        } else {
+                            // t1 was build, t2 was probe. Result should be (t1, t2)
+                            results.push(((*build_row).clone(), probe_row.clone()));
                         }
                     }
                 }
-                local_results
-            })
-            .collect();
+            }
+        }
 
-        Ok(probe_results)
+        Ok(results)
     }
 }
 

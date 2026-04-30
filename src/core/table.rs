@@ -1,7 +1,5 @@
-use super::{ColumnDefinition, FastHashMap, Id, RowData, Value};
+use super::{ColumnDefinition, Id, RowData, Value};
 use compact_str::CompactString;
-use rayon::iter::ParallelBridge;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use thiserror::Error;
@@ -146,13 +144,9 @@ impl Table {
 
     pub fn select<F>(&self, predicate: F) -> Vec<&Row>
     where
-        F: Fn(&Row) -> bool + Sync + Send,
+        F: Fn(&Row) -> bool,
     {
-        self.rows
-            .values()
-            .par_bridge()
-            .filter(|r| predicate(r))
-            .collect()
+        self.rows.values().filter(|r| predicate(r)).collect()
     }
 
     pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<&Row> {
