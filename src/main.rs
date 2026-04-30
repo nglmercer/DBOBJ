@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Version History ---");
     for entry in &db.version_log.entries {
         println!("[{}] Table: {}, ID: {}, Action: {:?}", 
-            entry.timestamp, entry.table_name, entry.row_id, entry.change_type);
+            entry.timestamp(), entry.table_name, entry.row_id, entry.change_type);
     }
 
     // 7. Loading back

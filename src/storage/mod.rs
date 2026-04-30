@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 use crate::core::Database;
-use bincode;
+use rkyv::{self, ser::serializers::AllocSerializer, ser::Serializer, Deserialize as RkyvDeserialize, Archive};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -29,12 +29,13 @@ impl Storage {
             fs::copy(&self.path, backup_path)?;
         }
 
-        // Bincode 3.0 configuration
-        let config = bincode::config::standard();
-        let encoded = bincode::serde::encode_to_vec(db, config)
+        // rkyv serialization
+        let mut serializer = AllocSerializer::<4096>::default();
+        serializer.serialize_value(db)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let bytes = serializer.into_serializer().into_inner();
 
-        fs::write(&self.path, encoded)?;
+        fs::write(&self.path, bytes)?;
         Ok(())
     }
 
@@ -46,9 +47,13 @@ impl Storage {
             )));
         }
 
-        let encoded = fs::read(&self.path)?;
-        let config = bincode::config::standard();
-        let (db, _): (Database, usize) = bincode::serde::decode_from_slice(&encoded, config)
+        let bytes = fs::read(&self.path)?;
+        
+        // Use validation for safety
+        let archived = rkyv::check_archived_root::<Database>(&bytes)
+            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        
+        let db: Database = archived.deserialize(&mut rkyv::Infallible)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
 
         Ok(db)

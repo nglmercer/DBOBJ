@@ -1,8 +1,10 @@
 use super::{Table, Schema, Id, RowData, FastHashMap};
 use crate::versioning::{VersionLog, ChangeType};
 use serde::{Deserialize, Serialize};
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Archive, RkyvSerialize, RkyvDeserialize)]
+#[archive(check_bytes)]
 pub struct Database {
     pub name: String,
     pub tables: FastHashMap<String, Table>,
