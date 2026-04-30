@@ -86,6 +86,74 @@ fn bench_inserts(c: &mut Criterion) {
         });
     }
 
+    // 4. DBOBJ Batch
+    group.bench_function("DBOBJ Batch Insert (100 rows)", |b| {
+        let db = Database::new("bench_db".to_string());
+        let schema = Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "username".into(),
+                    data_type: DataType::String,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "age".into(),
+                    data_type: DataType::Integer,
+                    nullable: false,
+                },
+            ],
+        };
+        db.create_table("users_batch".to_string(), schema);
+
+        b.iter_batched(
+            || {
+                let mut batch = Vec::with_capacity(100);
+                for i in 0..100 {
+                    let mut data = RowData::default();
+                    data.insert("username".into(), Value::from(format!("user_{}", i)));
+                    data.insert("age".into(), Value::from(i as i64));
+                    batch.push(data);
+                }
+                batch
+            },
+            |batch| {
+                db.insert_batch("users_batch", batch).unwrap();
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    // 5. SQLite Batch
+    group.bench_function("SQLite Batch Insert (100 rows)", |b| {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE users_batch (id INTEGER PRIMARY KEY, username TEXT, age INTEGER)",
+            [],
+        )
+        .unwrap();
+
+        b.iter_batched(
+            || {
+                let mut batch = Vec::with_capacity(100);
+                for i in 0..100 {
+                    batch.push((format!("user_{}", i), i));
+                }
+                batch
+            },
+            |batch| {
+                let tx = conn.transaction().unwrap();
+                {
+                    let mut stmt = tx.prepare_cached("INSERT INTO users_batch (username, age) VALUES (?1, ?2)").unwrap();
+                    for (name, age) in batch {
+                        stmt.execute(sqlite_params![name, age]).unwrap();
+                    }
+                }
+                tx.commit().unwrap();
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
     group.finish();
 }
 

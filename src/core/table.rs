@@ -54,6 +54,8 @@ impl Table {
     }
 
     pub fn insert(&mut self, data: RowData, custom_id: Option<Id>) -> Result<Id, TableError> {
+        self.validate_schema(&data)?;
+
         let id = match custom_id {
             Some(id) => {
                 if self.id_map.contains_key(&id) {
@@ -68,11 +70,63 @@ impl Table {
             }
         };
 
-        // Schema validation
+        let row = Row {
+            id: id.clone(),
+            data: std::sync::Arc::new(data),
+            version: 1,
+        };
+
+        // Update indexes
+        for (col_name, index) in &mut self.indexes {
+            if let Some(val) = row.data.get(col_name) {
+                index.map.entry(val.clone()).or_default().push(id.clone());
+            }
+        }
+
+        let index = self.rows.len();
+        self.rows.push(row);
+        self.id_map.insert(id.clone(), index);
+        Ok(id)
+    }
+
+    pub fn insert_batch(&mut self, batch: Vec<RowData>) -> Result<Vec<Id>, TableError> {
+        let batch_size = batch.len();
+        self.rows.reserve(batch_size);
+        self.id_map.reserve(batch_size);
+
+        let mut ids = Vec::with_capacity(batch_size);
+
+        for data in batch {
+            self.validate_schema(&data)?;
+            let id = Id::Integer(self.next_int_id);
+            self.next_int_id += 1;
+
+            let row = Row {
+                id: id.clone(),
+                data: std::sync::Arc::new(data),
+                version: 1,
+            };
+
+            // Update indexes
+            for (col_name, index) in &mut self.indexes {
+                if let Some(val) = row.data.get(col_name) {
+                    index.map.entry(val.clone()).or_default().push(id.clone());
+                }
+            }
+
+            let index = self.rows.len();
+            self.rows.push(row);
+            self.id_map.insert(id.clone(), index);
+            ids.push(id);
+        }
+
+        Ok(ids)
+    }
+
+    fn validate_schema(&self, data: &RowData) -> Result<(), TableError> {
         for col_def in &self.schema.columns {
             match data.get(&col_def.name) {
                 Some(val) => {
-                    // Check type
                     let type_matches = match (&col_def.data_type, val) {
                         (super::DataType::Integer, Value::Integer(_)) => true,
                         (super::DataType::Float, Value::Float(_)) => true,
@@ -105,24 +159,7 @@ impl Table {
                 }
             }
         }
-
-        let row = Row {
-            id: id.clone(),
-            data: std::sync::Arc::new(data),
-            version: 1,
-        };
-
-        // Update indexes
-        for (col_name, index) in &mut self.indexes {
-            if let Some(val) = row.data.get(col_name) {
-                index.map.entry(val.clone()).or_default().push(id.clone());
-            }
-        }
-
-        let index = self.rows.len();
-        self.rows.push(row);
-        self.id_map.insert(id.clone(), index);
-        Ok(id)
+        Ok(())
     }
 
     pub fn get(&self, id: &Id) -> Option<&Row> {

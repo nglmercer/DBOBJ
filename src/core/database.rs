@@ -103,6 +103,50 @@ impl Database {
         table_lock.write().create_index(column_name.into())
     }
 
+    pub fn insert_batch(
+        &self,
+        table_name: &str,
+        batch: Vec<RowData>,
+    ) -> Result<Vec<Id>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        let mut table = table_lock.write();
+
+        let ids = table.insert_batch(batch)?;
+        
+        // Log changes if WAL is enabled
+        if let Some(wal_lock) = &self.wal {
+            let mut wal = wal_lock.write();
+            for id in &ids {
+                let row = table.get(id).unwrap();
+                let _ = wal.append(&crate::storage::wal::WalEntry {
+                    table_name: table_name.to_string(),
+                    row_id: id.clone(),
+                    change_type: ChangeType::Insert,
+                    data: Some((*row.data).clone()),
+                });
+            }
+        }
+
+        // Record in version log
+        {
+            let mut log = self.version_log.write();
+            for id in &ids {
+                let row = table.get(id).unwrap();
+                log.record(
+                    table_name.to_string(),
+                    id.clone(),
+                    ChangeType::Insert,
+                    Some((*row.data).clone()),
+                );
+            }
+        }
+        
+        Ok(ids)
+    }
+
     pub fn insert_row(
         &self,
         table_name: &str,
