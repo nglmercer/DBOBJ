@@ -74,16 +74,19 @@ cargo bench
 
 *(This section will be populated once `cargo bench` is executed. The output will look similar to the below)*
 
-| Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Difference (%) |
+| Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Postgres (Ops/sec) |
 | :--- | :--- | :--- | :--- |
-| **Insert** | ~1,525,715 | ~470,900 | +224% Faster |
-| **Read (PK)** | ~40,141,300 | ~445,077 | +8919% Faster |
+| **Insert** | ~1,477,759 | ~475,014 | ~475 |
+| **Read (PK)** | ~40,307,953 | ~435,748 | ~9,555 |
 
 ### Conclusion
 
-The benchmarks demonstrate that **DBOBJ** significantly outperforms SQLite for in-memory operations. 
+The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-memory, direct-access architecture compared to traditional relational databases.
 
-- **Inserts** are approximately **3.2x faster** in DBOBJ.
-- **Reads** are approximately **90x faster** in DBOBJ, primarily due to the overhead of SQL parsing and the relational engine in SQLite compared to DBOBJ's direct hash-map lookups.
+- **Postgres** is the slowest (as expected) due to the overhead of the client-server architecture, TCP networking, and high safety guarantees.
+- **SQLite** performs well as an embedded database but is still limited by SQL parsing and the B-tree storage engine.
+- **DBOBJ** wins by several orders of magnitude:
+    - **Inserts** are ~3x faster than SQLite and **~3,000x faster** than Postgres.
+    - **Reads** are ~90x faster than SQLite and **~4,200x faster** than Postgres.
 
-*Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s) to ensure stability.*
+*Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s) and a local ephemeral Postgres instance.*

@@ -15,13 +15,13 @@ echo "Initializing temporary Postgres data directory..."
 initdb -D "$PG_DATA" --auth=trust --nosync
 
 echo "Starting Postgres on port $PG_PORT..."
-pg_ctl -D "$PG_DATA" -o "-p $PG_PORT" -l "$PG_DATA/logfile" start
+pg_ctl -D "$PG_DATA" -o "-p $PG_PORT -c unix_socket_directories='/tmp'" -l "$PG_DATA/logfile" start
 
 # Wait for start
 sleep 2
 
 echo "Creating benchmark database..."
-createdb -p $PG_PORT bench_db || true
+createdb -p $PG_PORT -h localhost bench_db || true
 
 echo "------------------------------------------------"
 echo "Postgres is ready at: postgresql://$PG_USER@localhost:$PG_PORT/bench_db"

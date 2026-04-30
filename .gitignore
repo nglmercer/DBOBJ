@@ -1,3 +1,4 @@
 /target
+/pg_bench_data
 *.db
 *.bak
