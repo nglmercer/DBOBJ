@@ -4,6 +4,7 @@ use crate::core::Database;
 use thiserror::Error;
 
 pub mod adapter;
+pub mod wal;
 pub use adapter::{SerializerAdapter, BincodeAdapter, PostcardAdapter, FastBincodeAdapter};
 
 #[derive(Error, Debug)]

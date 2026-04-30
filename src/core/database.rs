@@ -12,6 +12,14 @@ pub struct Database {
     pub name: String,
     pub tables: Arc<RwLock<FastHashMap<String, Arc<RwLock<Table>>>>>,
     pub version_log: Arc<RwLock<VersionLog>>,
+    pub wal: Option<Arc<RwLock<crate::storage::wal::Wal>>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DatabaseProxy {
+    name: String,
+    tables: FastHashMap<String, Table>,
+    version_log: VersionLog,
 }
 
 impl Serialize for Database {
@@ -22,117 +30,38 @@ impl Serialize for Database {
         let tables = self.tables.read();
         let version_log = self.version_log.read();
         
-        let mut state = serializer.serialize_struct("Database", 3)?;
-        state.serialize_field("name", &self.name)?;
-        
-        // Convert Arc<RwLock<Table>> to Table for serialization
-        let mut serializable_tables = FastHashMap::default();
+        let mut proxy_tables = FastHashMap::default();
         for (name, table_lock) in tables.iter() {
-            serializable_tables.insert(name.clone(), table_lock.read().clone());
+            proxy_tables.insert(name.clone(), table_lock.read().clone());
         }
         
-        state.serialize_field("tables", &serializable_tables)?;
-        state.serialize_field("version_log", &*version_log)?;
-        state.end()
+        let proxy = DatabaseProxy {
+            name: self.name.clone(),
+            tables: proxy_tables,
+            version_log: version_log.clone(),
+        };
+        proxy.serialize(serializer)
     }
 }
 
 impl<'de> Deserialize<'de> for Database {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: Deserializer<'de>,
+        D: serde::Deserializer<'de>,
     {
-        enum Field { Name, Tables, VersionLog }
-
-        impl<'de> Deserialize<'de> for Field {
-            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-            where
-                D: Deserializer<'de>,
-            {
-                struct FieldVisitor;
-
-                impl<'de> Visitor<'de> for FieldVisitor {
-                    type Value = Field;
-
-                    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                        formatter.write_str("`name`, `tables` or `version_log`")
-                    }
-
-                    fn visit_str<E>(self, value: &str) -> Result<Field, E>
-                    where
-                        E: de::Error,
-                    {
-                        match value {
-                            "name" => Ok(Field::Name),
-                            "tables" => Ok(Field::Tables),
-                            "version_log" => Ok(Field::VersionLog),
-                            _ => Err(de::Error::unknown_field(value, FIELDS)),
-                        }
-                    }
-                }
-
-                deserializer.deserialize_identifier(FieldVisitor)
-            }
+        let proxy = DatabaseProxy::deserialize(deserializer)?;
+        
+        let mut tables = FastHashMap::default();
+        for (name, table) in proxy.tables {
+            tables.insert(name, Arc::new(RwLock::new(table)));
         }
-
-        struct DatabaseVisitor;
-
-        impl<'de> Visitor<'de> for DatabaseVisitor {
-            type Value = Database;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct Database")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<Database, V::Error>
-            where
-                V: MapAccess<'de>,
-            {
-                let mut name = None;
-                let mut tables: Option<FastHashMap<String, Table>> = None;
-                let mut version_log = None;
-
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Name => {
-                            if name.is_some() {
-                                return Err(de::Error::duplicate_field("name"));
-                            }
-                            name = Some(map.next_value()?);
-                        }
-                        Field::Tables => {
-                            if tables.is_some() {
-                                return Err(de::Error::duplicate_field("tables"));
-                            }
-                            tables = Some(map.next_value()?);
-                        }
-                        Field::VersionLog => {
-                            if version_log.is_some() {
-                                return Err(de::Error::duplicate_field("version_log"));
-                            }
-                            version_log = Some(map.next_value()?);
-                        }
-                    }
-                }
-                let name = name.ok_or_else(|| de::Error::missing_field("name"))?;
-                let raw_tables = tables.ok_or_else(|| de::Error::missing_field("tables"))?;
-                let version_log_raw = version_log.ok_or_else(|| de::Error::missing_field("version_log"))?;
-
-                let mut tables = FastHashMap::default();
-                for (t_name, table) in raw_tables {
-                    tables.insert(t_name, Arc::new(RwLock::new(table)));
-                }
-
-                Ok(Database {
-                    name,
-                    tables: Arc::new(RwLock::new(tables)),
-                    version_log: Arc::new(RwLock::new(version_log_raw)),
-                })
-            }
-        }
-
-        const FIELDS: &[&str] = &["name", "tables", "version_log"];
-        deserializer.deserialize_struct("Database", FIELDS, DatabaseVisitor)
+        
+        Ok(Database {
+            name: proxy.name,
+            tables: Arc::new(RwLock::new(tables)),
+            version_log: Arc::new(RwLock::new(proxy.version_log)),
+            wal: None,
+        })
     }
 }
 
@@ -142,7 +71,13 @@ impl Database {
             name,
             tables: Arc::new(RwLock::new(FastHashMap::default())),
             version_log: Arc::new(RwLock::new(VersionLog::new())),
+            wal: None,
         }
+    }
+
+    pub fn with_wal(mut self, wal: crate::storage::wal::Wal) -> Self {
+        self.wal = Some(Arc::new(RwLock::new(wal)));
+        self
     }
 
     pub fn create_table(&self, name: String, schema: Schema) {
@@ -170,7 +105,17 @@ impl Database {
         
         let mut table = table_lock.write();
         let id = table.insert(data.clone(), custom_id)?;
-        self.version_log.write().record(table_name.to_string(), id.clone(), ChangeType::Insert, Some(data));
+        self.version_log.write().record(table_name.to_string(), id.clone(), ChangeType::Insert, Some(data.clone()));
+        
+        if let Some(wal_lock) = &self.wal {
+            let mut wal = wal_lock.write();
+            let _ = wal.append(&crate::storage::wal::WalEntry {
+                table_name: table_name.to_string(),
+                row_id: id.clone(),
+                change_type: ChangeType::Insert,
+                data: Some(data),
+            });
+        }
         Ok(id)
     }
 
@@ -182,7 +127,17 @@ impl Database {
         
         let mut table = table_lock.write();
         table.update(id, data.clone())?;
-        self.version_log.write().record(table_name.to_string(), id.clone(), ChangeType::Update, Some(data));
+        self.version_log.write().record(table_name.to_string(), id.clone(), ChangeType::Update, Some(data.clone()));
+        
+        if let Some(wal_lock) = &self.wal {
+            let mut wal = wal_lock.write();
+            let _ = wal.append(&crate::storage::wal::WalEntry {
+                table_name: table_name.to_string(),
+                row_id: id.clone(),
+                change_type: ChangeType::Update,
+                data: Some(data),
+            });
+        }
         Ok(())
     }
 
@@ -195,6 +150,16 @@ impl Database {
         let mut table = table_lock.write();
         if table.delete(id).is_some() {
             self.version_log.write().record(table_name.to_string(), id.clone(), ChangeType::Delete, None);
+            
+            if let Some(wal_lock) = &self.wal {
+                let mut wal = wal_lock.write();
+                let _ = wal.append(&crate::storage::wal::WalEntry {
+                    table_name: table_name.to_string(),
+                    row_id: id.clone(),
+                    change_type: ChangeType::Delete,
+                    data: None,
+                });
+            }
             Ok(())
         } else {
             Err(crate::core::table::TableError::SchemaViolation(format!("Row with ID {} not found", id)))
@@ -350,5 +315,33 @@ impl<'a> Transaction<'a> {
         for (name, table) in self.original_tables {
             tables.insert(name, Arc::new(RwLock::new(table)));
         }
+    }
+}
+
+impl Database {
+    pub fn recover_from_wal(&self) -> Result<(), crate::core::table::TableError> {
+        if let Some(wal_lock) = &self.wal {
+            let wal = wal_lock.read();
+            if let Ok(entries) = wal.read_all() {
+                for entry in entries {
+                    match entry.change_type {
+                        ChangeType::Insert => {
+                            if let Some(data) = entry.data {
+                                let _ = self.insert_row(&entry.table_name, data, Some(entry.row_id));
+                            }
+                        }
+                        ChangeType::Update => {
+                            if let Some(data) = entry.data {
+                                let _ = self.update_row(&entry.table_name, &entry.row_id, data);
+                            }
+                        }
+                        ChangeType::Delete => {
+                            let _ = self.delete_row(&entry.table_name, &entry.row_id);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }

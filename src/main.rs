@@ -1,5 +1,5 @@
 use dbobj::core::{Database, Schema, Id, Value, RowData, Expr, Operator};
-use dbobj::storage::Storage;
+use dbobj::storage::{Storage, wal::Wal};
 use std::sync::Arc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -236,6 +236,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     
     println!("Total rows in 'users' after stress test: {}", db.get_table("users").unwrap().read().rows.len());
+
+    // 14. WAL Recovery Demo
+    println!("\n--- WAL Recovery Demo ---");
+    let wal_path = "test_wal.log";
+    let wal = Wal::new(wal_path)?;
+    let db_wal = Database::new("WalDB".to_string()).with_wal(wal);
+    
+    let schema = Schema {
+        columns: vec![dbobj::core::ColumnDefinition { name: "data".into(), data_type: dbobj::core::DataType::String, nullable: false }],
+    };
+    db_wal.create_table("logs".into(), schema);
+    
+    println!("Inserting rows into WAL-enabled DB...");
+    let mut row = RowData::default();
+    row.insert("data".into(), Value::from("Entry 1"));
+    db_wal.insert_row("logs", row, None)?;
+    
+    println!("Simulating 'crash' by creating new DB instance and recovering from WAL...");
+    let recovered_db = Database::new("RecoveredDB".to_string())
+        .with_wal(Wal::new(wal_path)?);
+    
+    // We need to recreate the table schema first in this simple recovery model
+    let schema = Schema {
+        columns: vec![dbobj::core::ColumnDefinition { name: "data".into(), data_type: dbobj::core::DataType::String, nullable: false }],
+    };
+    recovered_db.create_table("logs".into(), schema);
+    
+    recovered_db.recover_from_wal()?;
+    
+    if let Some(table) = recovered_db.get_table("logs") {
+        println!("Recovered {} rows from WAL.", table.read().rows.len());
+    }
 
     Ok(())
 }
