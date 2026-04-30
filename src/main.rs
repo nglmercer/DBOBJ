@@ -1,10 +1,5 @@
-pub mod core;
-pub mod storage;
-pub mod versioning;
-
-use crate::core::{Database, Schema, Id, Value, RowData};
-use crate::storage::Storage;
-use std::collections::HashMap;
+use dbobj::core::{Database, Schema, Id, Value, RowData};
+use dbobj::storage::Storage;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- DBOBJ Proof of Concept ---");
@@ -15,14 +10,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Define Schema
     let schema = Schema {
         columns: vec![
-            crate::core::ColumnDefinition {
+            dbobj::core::table::ColumnDefinition {
                 name: "username".to_string(),
-                data_type: crate::core::DataType::String,
+                data_type: dbobj::core::DataType::String,
                 nullable: false,
             },
-            crate::core::ColumnDefinition {
+            dbobj::core::table::ColumnDefinition {
                 name: "age".to_string(),
-                data_type: crate::core::DataType::Integer,
+                data_type: dbobj::core::DataType::Integer,
                 nullable: true,
             },
         ],
@@ -33,14 +28,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 3. Insert Rows
     println!("Inserting data...");
     
-    // Default ID (auto-incrementing integer)
     let mut user1 = RowData::new();
     user1.insert("username".to_string(), Value::String("alice".to_string()));
     user1.insert("age".to_string(), Value::Integer(30));
     let id1 = db.insert_row("users", user1, None)?;
     println!("Inserted Alice with ID: {}", id1);
 
-    // Custom String ID (as requested: "user can use as ID or define their own string ID")
     let mut user2 = RowData::new();
     user2.insert("username".to_string(), Value::String("bob".to_string()));
     user2.insert("age".to_string(), Value::Integer(25));

@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(untagged)]
 pub enum Id {
     Integer(u64),
     String(String),
