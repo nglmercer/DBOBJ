@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::core::{Id, RowData};
-use chrono::{DateTime, Utc, TimeZone};
+use chrono::{DateTime, TimeZone, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChangeType {
@@ -36,7 +36,13 @@ impl VersionLog {
         }
     }
 
-    pub fn record(&mut self, table_name: String, row_id: Id, change_type: ChangeType, data: Option<RowData>) {
+    pub fn record(
+        &mut self,
+        table_name: String,
+        row_id: Id,
+        change_type: ChangeType,
+        data: Option<RowData>,
+    ) {
         let entry = VersionEntry {
             timestamp_ms: Utc::now().timestamp_millis(),
             table_name,

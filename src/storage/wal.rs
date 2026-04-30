@@ -1,9 +1,9 @@
-use std::fs::{File, OpenOptions};
-use std::io::{Write, BufReader, BufRead};
-use std::path::PathBuf;
 use crate::core::{Id, RowData};
 use crate::versioning::ChangeType;
 use serde::{Deserialize, Serialize};
+use std::fs::{File, OpenOptions};
+use std::io::{BufRead, BufReader, Write};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WalEntry {
@@ -27,16 +27,14 @@ impl std::fmt::Debug for Wal {
 impl Wal {
     pub fn new(path: impl Into<PathBuf>) -> std::io::Result<Self> {
         let path = path.into();
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)?;
-        
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
+
         Ok(Self { file, path })
     }
 
     pub fn append(&mut self, entry: &WalEntry) -> std::io::Result<()> {
-        let bytes = serde_json::to_vec(entry).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let bytes = serde_json::to_vec(entry)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         self.file.write_all(&bytes)?;
         self.file.write_all(b"\n")?;
         self.file.flush()?;
@@ -47,14 +45,17 @@ impl Wal {
         let file = File::open(&self.path)?;
         let reader = BufReader::new(file);
         let mut entries = Vec::new();
-        
+
         for line in reader.lines() {
             let line = line?;
-            if line.is_empty() { continue; }
-            let entry: WalEntry = serde_json::from_str(&line).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            if line.is_empty() {
+                continue;
+            }
+            let entry: WalEntry = serde_json::from_str(&line)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
             entries.push(entry);
         }
-        
+
         Ok(entries)
     }
 

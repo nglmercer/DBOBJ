@@ -1,11 +1,11 @@
+use crate::core::Database;
 use std::fs;
 use std::path::PathBuf;
-use crate::core::Database;
 use thiserror::Error;
 
 pub mod adapter;
 pub mod wal;
-pub use adapter::{SerializerAdapter, BincodeAdapter, PostcardAdapter, FastBincodeAdapter};
+pub use adapter::{BincodeAdapter, FastBincodeAdapter, PostcardAdapter, SerializerAdapter};
 
 #[derive(Error, Debug)]
 pub enum StorageError {
@@ -22,7 +22,7 @@ pub struct Storage<S: SerializerAdapter> {
 
 impl<S: SerializerAdapter> Storage<S> {
     pub fn new(path: impl Into<PathBuf>, adapter: S) -> Self {
-        Self { 
+        Self {
             path: path.into(),
             adapter,
         }

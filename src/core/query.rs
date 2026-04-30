@@ -1,4 +1,4 @@
-use super::{Value, RowData, Table};
+use super::{RowData, Table, Value};
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
@@ -10,7 +10,14 @@ pub enum QueryPlan {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Operator {
-    Eq, Neq, Gt, Gte, Lt, Lte, And, Or,
+    Eq,
+    Neq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    And,
+    Or,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,16 +80,19 @@ impl Expr {
     /// Try to optimize the expression into a query plan
     pub fn plan(&self, table: &Table) -> QueryPlan {
         match self {
-            Expr::Binary(left, Operator::Eq, right) => {
-                match (left.as_ref(), right.as_ref()) {
-                    (Expr::Column(col), Expr::Literal(val)) | (Expr::Literal(val), Expr::Column(col)) => {
-                        if table.indexes.contains_key(col) {
-                            return QueryPlan::IndexScan(table.name.clone().into(), col.clone(), val.clone());
-                        }
+            Expr::Binary(left, Operator::Eq, right) => match (left.as_ref(), right.as_ref()) {
+                (Expr::Column(col), Expr::Literal(val))
+                | (Expr::Literal(val), Expr::Column(col)) => {
+                    if table.indexes.contains_key(col) {
+                        return QueryPlan::IndexScan(
+                            table.name.clone().into(),
+                            col.clone(),
+                            val.clone(),
+                        );
                     }
-                    _ => {}
                 }
-            }
+                _ => {}
+            },
             _ => {}
         }
         QueryPlan::FullScan(table.name.clone().into(), self.clone())

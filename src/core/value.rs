@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use compact_str::CompactString;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
@@ -54,7 +54,7 @@ impl Ord for Value {
             (Value::Null, Value::Null) => std::cmp::Ordering::Equal,
             (Value::Null, _) => std::cmp::Ordering::Less,
             (_, Value::Null) => std::cmp::Ordering::Greater,
-            
+
             (Value::Integer(a), Value::Integer(b)) => a.cmp(b),
             (Value::Integer(_), _) => std::cmp::Ordering::Less,
             (_, Value::Integer(_)) => std::cmp::Ordering::Greater,

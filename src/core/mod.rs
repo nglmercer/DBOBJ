@@ -1,14 +1,14 @@
-pub mod id;
-pub mod value;
-pub mod table;
 pub mod database;
+pub mod id;
 pub mod query;
+pub mod table;
+pub mod value;
 
-pub use id::Id;
-pub use value::Value;
-pub use table::{Table, Row, Schema};
 pub use database::Database;
+pub use id::Id;
 pub use query::{Expr, Operator};
+pub use table::{Row, Schema, Table};
+pub use value::Value;
 
 use serde::{Deserialize, Serialize};
 

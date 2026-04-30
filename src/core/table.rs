@@ -1,9 +1,9 @@
-use super::{Id, ColumnDefinition, RowData, Value};
+use super::{ColumnDefinition, FastHashMap, Id, RowData, Value};
 use compact_str::CompactString;
-use std::collections::BTreeMap;
-
-
+use rayon::iter::ParallelBridge;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -105,7 +105,7 @@ impl Table {
                 }
             }
         }
-        
+
         let row = Row {
             id: id.clone(),
             data,
@@ -133,7 +133,10 @@ impl Table {
             row.version += 1;
             Ok(())
         } else {
-            Err(TableError::SchemaViolation(format!("Row with ID {} not found", id)))
+            Err(TableError::SchemaViolation(format!(
+                "Row with ID {} not found",
+                id
+            )))
         }
     }
 
@@ -143,9 +146,13 @@ impl Table {
 
     pub fn select<F>(&self, predicate: F) -> Vec<&Row>
     where
-        F: Fn(&Row) -> bool,
+        F: Fn(&Row) -> bool + Sync + Send,
     {
-        self.rows.values().filter(|r| predicate(r)).collect()
+        self.rows
+            .values()
+            .par_bridge()
+            .filter(|r| predicate(r))
+            .collect()
     }
 
     pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<&Row> {
@@ -158,7 +165,8 @@ impl Table {
         }
 
         // Fallback to linear scan
-        self.rows.values()
+        self.rows
+            .values()
             .filter(|r| r.data.get(column_name) == Some(value))
             .collect()
     }

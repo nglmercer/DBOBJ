@@ -1,7 +1,9 @@
-use super::{Table, Schema, Id, RowData, FastHashMap};
-use crate::versioning::{VersionLog, ChangeType};
-use serde::{Deserialize, Serialize};
+use super::{FastHashMap, Id, RowData, Schema, Table};
+use crate::versioning::{ChangeType, VersionLog};
 use parking_lot::RwLock;
+use rayon::iter::ParallelBridge;
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -26,12 +28,12 @@ impl Serialize for Database {
     {
         let tables = self.tables.read();
         let version_log = self.version_log.read();
-        
+
         let mut proxy_tables = FastHashMap::default();
         for (name, table_lock) in tables.iter() {
             proxy_tables.insert(name.clone(), table_lock.read().clone());
         }
-        
+
         let proxy = DatabaseProxy {
             name: self.name.clone(),
             tables: proxy_tables,
@@ -47,12 +49,12 @@ impl<'de> Deserialize<'de> for Database {
         D: serde::Deserializer<'de>,
     {
         let proxy = DatabaseProxy::deserialize(deserializer)?;
-        
+
         let mut tables = FastHashMap::default();
         for (name, table) in proxy.tables {
             tables.insert(name, Arc::new(RwLock::new(table)));
         }
-        
+
         Ok(Database {
             name: proxy.name,
             tables: Arc::new(RwLock::new(tables)),
@@ -79,31 +81,53 @@ impl Database {
 
     pub fn create_table(&self, name: String, schema: Schema) {
         let table = Table::new(name.clone(), schema);
-        self.tables.write().insert(name, Arc::new(RwLock::new(table)));
+        self.tables
+            .write()
+            .insert(name, Arc::new(RwLock::new(table)));
     }
 
     pub fn get_table(&self, name: &str) -> Option<Arc<RwLock<Table>>> {
         self.tables.read().get(name).cloned()
     }
 
-    pub fn create_index(&self, table_name: &str, column_name: &str) -> Result<(), crate::core::table::TableError> {
+    pub fn create_index(
+        &self,
+        table_name: &str,
+        column_name: &str,
+    ) -> Result<(), crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         table_lock.write().create_index(column_name.into())
     }
 
-    pub fn insert_row(&self, table_name: &str, data: RowData, custom_id: Option<Id>) -> Result<Id, crate::core::table::TableError> {
+    pub fn insert_row(
+        &self,
+        table_name: &str,
+        data: RowData,
+        custom_id: Option<Id>,
+    ) -> Result<Id, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
-        
+
         let mut table = table_lock.write();
         let id = table.insert(data.clone(), custom_id)?;
-        self.version_log.write().record(table_name.to_string(), id.clone(), ChangeType::Insert, Some(data.clone()));
-        
+        self.version_log.write().record(
+            table_name.to_string(),
+            id.clone(),
+            ChangeType::Insert,
+            Some(data.clone()),
+        );
+
         if let Some(wal_lock) = &self.wal {
             let mut wal = wal_lock.write();
             let _ = wal.append(&crate::storage::wal::WalEntry {
@@ -116,16 +140,29 @@ impl Database {
         Ok(id)
     }
 
-    pub fn update_row(&self, table_name: &str, id: &Id, data: RowData) -> Result<(), crate::core::table::TableError> {
+    pub fn update_row(
+        &self,
+        table_name: &str,
+        id: &Id,
+        data: RowData,
+    ) -> Result<(), crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
-        
+
         let mut table = table_lock.write();
         table.update(id, data.clone())?;
-        self.version_log.write().record(table_name.to_string(), id.clone(), ChangeType::Update, Some(data.clone()));
-        
+        self.version_log.write().record(
+            table_name.to_string(),
+            id.clone(),
+            ChangeType::Update,
+            Some(data.clone()),
+        );
+
         if let Some(wal_lock) = &self.wal {
             let mut wal = wal_lock.write();
             let _ = wal.append(&crate::storage::wal::WalEntry {
@@ -138,16 +175,28 @@ impl Database {
         Ok(())
     }
 
-    pub fn delete_row(&self, table_name: &str, id: &Id) -> Result<(), crate::core::table::TableError> {
+    pub fn delete_row(
+        &self,
+        table_name: &str,
+        id: &Id,
+    ) -> Result<(), crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
-        
+
         let mut table = table_lock.write();
         if table.delete(id).is_some() {
-            self.version_log.write().record(table_name.to_string(), id.clone(), ChangeType::Delete, None);
-            
+            self.version_log.write().record(
+                table_name.to_string(),
+                id.clone(),
+                ChangeType::Delete,
+                None,
+            );
+
             if let Some(wal_lock) = &self.wal {
                 let mut wal = wal_lock.write();
                 let _ = wal.append(&crate::storage::wal::WalEntry {
@@ -159,32 +208,59 @@ impl Database {
             }
             Ok(())
         } else {
-            Err(crate::core::table::TableError::SchemaViolation(format!("Row with ID {} not found", id)))
+            Err(crate::core::table::TableError::SchemaViolation(format!(
+                "Row with ID {} not found",
+                id
+            )))
         }
     }
 
-    pub fn query<F>(&self, table_name: &str, predicate: F) -> Result<Vec<super::table::Row>, crate::core::table::TableError>
+    pub fn query<F>(
+        &self,
+        table_name: &str,
+        predicate: F,
+    ) -> Result<Vec<super::table::Row>, crate::core::table::TableError>
     where
-        F: Fn(&super::table::Row) -> bool,
+        F: Fn(&super::table::Row) -> bool + Sync + Send,
     {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let table = table_lock.read();
         Ok(table.select(predicate).into_iter().cloned().collect())
     }
 
-    pub fn find(&self, table_name: &str, column_name: &str, value: super::Value) -> Result<Vec<super::table::Row>, crate::core::table::TableError> {
+    pub fn find(
+        &self,
+        table_name: &str,
+        column_name: &str,
+        value: super::Value,
+    ) -> Result<Vec<super::table::Row>, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let table = table_lock.read();
-        Ok(table.find_by_column(column_name, &value).into_iter().cloned().collect())
+        Ok(table
+            .find_by_column(column_name, &value)
+            .into_iter()
+            .cloned()
+            .collect())
     }
 
-    pub fn join<F>(&self, table1: &str, table2: &str, condition: F) -> Result<Vec<(super::table::Row, super::table::Row)>, crate::core::table::TableError>
+    pub fn join<F>(
+        &self,
+        table1: &str,
+        table2: &str,
+        condition: F,
+    ) -> Result<Vec<(super::table::Row, super::table::Row)>, crate::core::table::TableError>
     where
         F: Fn(&super::table::Row, &super::table::Row) -> bool,
     {
@@ -210,34 +286,60 @@ impl Database {
         Ok(results)
     }
 
-    pub fn query_expr(&self, table_name: &str, expr: crate::core::query::Expr) -> Result<Vec<super::table::Row>, crate::core::table::TableError> {
+    pub fn query_expr(
+        &self,
+        table_name: &str,
+        expr: crate::core::query::Expr,
+    ) -> Result<Vec<super::table::Row>, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let table = table_lock.read();
-        
+
         let plan = expr.plan(&table);
         self.execute_plan(plan)
     }
 
-    pub fn execute_plan(&self, plan: crate::core::query::QueryPlan) -> Result<Vec<super::table::Row>, crate::core::table::TableError> {
+    pub fn execute_plan(
+        &self,
+        plan: crate::core::query::QueryPlan,
+    ) -> Result<Vec<super::table::Row>, crate::core::table::TableError> {
         match plan {
             crate::core::query::QueryPlan::FullScan(table_name, expr) => {
                 let tables = self.tables.read();
                 let table_lock = tables.get(table_name.as_str()).ok_or_else(|| {
-                    crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+                    crate::core::table::TableError::SchemaViolation(format!(
+                        "Table {} not found",
+                        table_name
+                    ))
                 })?;
                 let table = table_lock.read();
-                Ok(table.select(|r| expr.is_true(&r.data)).into_iter().cloned().collect())
+                Ok(table
+                    .rows
+                    .values()
+                    .par_bridge()
+                    .filter(|r| expr.is_true(&r.data))
+                    .cloned()
+                    .collect())
             }
             crate::core::query::QueryPlan::IndexScan(table_name, col, val) => {
                 let tables = self.tables.read();
                 let table_lock = tables.get(table_name.as_str()).ok_or_else(|| {
-                    crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+                    crate::core::table::TableError::SchemaViolation(format!(
+                        "Table {} not found",
+                        table_name
+                    ))
                 })?;
                 let table = table_lock.read();
-                Ok(table.find_by_column(col.as_str(), &val).into_iter().cloned().collect())
+                Ok(table
+                    .find_by_column(col.as_str(), &val)
+                    .into_iter()
+                    .cloned()
+                    .collect())
             }
         }
     }
@@ -248,7 +350,7 @@ impl Database {
         for (name, table_lock) in tables_guard.iter() {
             original_tables.insert(name.clone(), table_lock.read().clone());
         }
-        
+
         Transaction {
             db: self,
             original_tables,
@@ -274,7 +376,7 @@ impl Database {
         let t2 = t2_lock.read();
 
         // Optimization: build on the smaller table to minimize memory and hashing
-        let (build_table, build_col, probe_table, probe_col, reversed) = 
+        let (build_table, build_col, probe_table, probe_col, reversed) =
             if t1.rows.len() <= t2.rows.len() {
                 (&*t1, col1, &*t2, col2, false)
             } else {
@@ -283,34 +385,41 @@ impl Database {
 
         let mut hash_map = FastHashMap::with_capacity_and_hasher(
             build_table.rows.len(),
-            ahash::RandomState::new()
+            ahash::RandomState::new(),
         );
 
         for row in build_table.rows.values() {
             if let Some(val) = row.data.get(build_col) {
-                hash_map.entry(val.clone()).or_insert_with(Vec::new).push(row);
+                hash_map
+                    .entry(val.clone())
+                    .or_insert_with(Vec::new)
+                    .push(row);
             }
         }
 
-        let mut results = Vec::new();
-        // Probe phase
-        for probe_row in probe_table.rows.values() {
-            if let Some(val) = probe_row.data.get(probe_col) {
-                if let Some(matches) = hash_map.get(val) {
-                    for build_row in matches {
-                        if reversed {
-                            // t2 was build, t1 was probe. Result should be (t1, t2)
-                            results.push((probe_row.clone(), (*build_row).clone()));
-                        } else {
-                            // t1 was build, t2 was probe. Result should be (t1, t2)
-                            results.push(((*build_row).clone(), probe_row.clone()));
+        // Probe phase in parallel
+        let probe_results: Vec<(super::table::Row, super::table::Row)> = probe_table
+            .rows
+            .values()
+            .par_bridge()
+            .flat_map(|probe_row| {
+                let mut local_results = Vec::new();
+                if let Some(val) = probe_row.data.get(probe_col) {
+                    if let Some(matches) = hash_map.get(val) {
+                        for build_row in matches {
+                            if reversed {
+                                local_results.push((probe_row.clone(), (*build_row).clone()));
+                            } else {
+                                local_results.push(((*build_row).clone(), probe_row.clone()));
+                            }
                         }
                     }
                 }
-            }
-        }
+                local_results
+            })
+            .collect();
 
-        Ok(results)
+        Ok(probe_results)
     }
 }
 
