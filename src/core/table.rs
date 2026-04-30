@@ -88,4 +88,17 @@ impl Table {
     pub fn delete(&mut self, id: &Id) -> Option<Row> {
         self.rows.remove(id)
     }
+
+    pub fn select<F>(&self, predicate: F) -> Vec<&Row>
+    where
+        F: Fn(&Row) -> bool,
+    {
+        self.rows.values().filter(|r| predicate(r)).collect()
+    }
+
+    pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<&Row> {
+        self.rows.values()
+            .filter(|r| r.data.get(column_name) == Some(value))
+            .collect()
+    }
 }

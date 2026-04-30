@@ -20,3 +20,4 @@ harness = false
 
 [dev-dependencies]
 criterion = "0.8.2"
+rusqlite = "0.31.0"

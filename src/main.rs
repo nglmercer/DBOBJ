@@ -43,7 +43,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Inserted Bob with ID: {}", id2);
 
     // 4. Persistence
-    let storage = Storage::new("my_database.db");
+    use dbobj::storage::PostcardAdapter;
+    let storage = Storage::new("my_database.db", PostcardAdapter);
     println!("Saving database to my_database.db...");
     storage.save(&db)?;
 
@@ -78,6 +79,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Loaded database: {}", loaded_db.name);
     if let Some(table) = loaded_db.get_table("users") {
         println!("Table 'users' has {} rows.", table.rows.len());
+    }
+
+    // 8. Relational Search (Queries)
+    println!("\n--- Relational Search Queries ---");
+    
+    // Find by exact column value
+    println!("Searching for username 'alice'...");
+    let alice_rows = db.find("users", "username", Value::from("alice"))?;
+    for row in alice_rows {
+        println!("Found: ID={}, Data={:?}", row.id, row.data);
+    }
+
+    // Predicate search (e.g., age > 26)
+    println!("\nSearching for users with age > 26...");
+    let older_users = db.query("users", |row| {
+        if let Some(Value::Integer(age)) = row.data.get("age") {
+            *age > 26
+        } else {
+            false
+        }
+    })?;
+    for row in older_users {
+        println!("Found: ID={}, Data={:?}", row.id, row.data);
     }
 
     Ok(())

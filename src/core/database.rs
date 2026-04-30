@@ -63,4 +63,21 @@ impl Database {
             Err(crate::core::table::TableError::SchemaViolation(format!("Row with ID {} not found", id)))
         }
     }
+
+    pub fn query<F>(&self, table_name: &str, predicate: F) -> Result<Vec<&super::table::Row>, crate::core::table::TableError>
+    where
+        F: Fn(&super::table::Row) -> bool,
+    {
+        let table = self.tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        Ok(table.select(predicate))
+    }
+
+    pub fn find(&self, table_name: &str, column_name: &str, value: super::Value) -> Result<Vec<&super::table::Row>, crate::core::table::TableError> {
+        let table = self.tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        Ok(table.find_by_column(column_name, &value))
+    }
 }

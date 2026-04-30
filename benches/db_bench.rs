@@ -1,106 +1,125 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use std::hint::black_box;
-use dbobj::core::{Database, Schema, Id, RowData, Value, DataType, ColumnDefinition};
-use serde_json;
-use bincode;
-use postcard;
+use criterion::{criterion_group, criterion_main, Criterion, BatchSize};
+use dbobj::core::{Database, Schema, ColumnDefinition, DataType, RowData, Value};
+use rusqlite::{Connection, params};
+use std::time::Duration;
 
-fn bench_insertion(c: &mut Criterion) {
+fn bench_inserts(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Inserts");
+    group.sample_size(10); // Reduced from 100
+    group.measurement_time(Duration::from_secs(3)); // Reduced from 5
+
+    // DBOBJ Setup
+    group.bench_function("DBOBJ Insert", |b| {
+        let mut db = Database::new("bench_db".to_string());
+        let schema = Schema {
+            columns: vec![
+                ColumnDefinition { name: "username".into(), data_type: DataType::String, nullable: false },
+                ColumnDefinition { name: "age".into(), data_type: DataType::Integer, nullable: false },
+            ],
+        };
+        db.create_table("users".to_string(), schema);
+
+        b.iter_batched(
+            || {
+                let mut data = RowData::default();
+                data.insert("username".into(), Value::from("alice"));
+                data.insert("age".into(), Value::from(30i64));
+                data
+            },
+            |data| {
+                db.insert_row("users", data, None).unwrap();
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    // SQLite Setup
+    group.bench_function("SQLite Insert", |b| {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, age INTEGER)",
+            [],
+        ).unwrap();
+
+        b.iter_batched(
+            || ("alice", 30),
+            |(name, age)| {
+                conn.execute(
+                    "INSERT INTO users (username, age) VALUES (?1, ?2)",
+                    params![name, age],
+                ).unwrap();
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.finish();
+}
+
+fn bench_reads(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Reads");
+    group.sample_size(10); // Reduced from 100
+    group.measurement_time(Duration::from_secs(3)); // Reduced from 5
+
+    // DBOBJ Setup
+    let mut db = Database::new("bench_db".to_string());
     let schema = Schema {
         columns: vec![
-            ColumnDefinition {
-                name: "username".into(),
-                data_type: DataType::String,
-                nullable: false,
-            },
+            ColumnDefinition { name: "username".into(), data_type: DataType::String, nullable: false },
+            ColumnDefinition { name: "age".into(), data_type: DataType::Integer, nullable: false },
         ],
     };
-
-    c.bench_function("insert_100_rows", |b| {
-        b.iter(|| {
-            let mut db = Database::new("Test".to_string());
-            db.create_table("users".to_string(), schema.clone());
-            for i in 0..100 {
-                let mut row = RowData::default();
-                row.insert("username".into(), Value::from(format!("user_{}", i)));
-                let _ = db.insert_row("users", row, None);
-            }
-        })
-    });
-}
-
-fn bench_serialization(c: &mut Criterion) {
-    let mut rows = Vec::new();
+    db.create_table("users".to_string(), schema);
+    let mut ids = Vec::new();
     for i in 0..1000 {
-        let mut row = RowData::default();
-        row.insert("username".into(), Value::from(format!("user_{}", i)));
-        row.insert("age".into(), Value::from(i as i64));
-        rows.push(row);
+        let mut data = RowData::default();
+        data.insert("username".into(), Value::from(format!("user{}", i)));
+        data.insert("age".into(), Value::from(i as i64));
+        ids.push(db.insert_row("users", data, None).unwrap());
     }
-    
-    let mut group = c.benchmark_group("Serialization_1000_Rows");
 
-    group.bench_function("Bincode", |b| {
-        let config = bincode::config::standard();
+    group.bench_function("DBOBJ Read", |b| {
+        let mut i = 0;
         b.iter(|| {
-            let _ = bincode::serde::encode_to_vec(black_box(&rows), config).unwrap();
+            let id = &ids[i % ids.len()];
+            let _ = db.get_table("users").unwrap().get(id).unwrap();
+            i += 1;
         })
     });
 
-    group.bench_function("Postcard", |b| {
-        b.iter(|| {
-            let _ = postcard::to_stdvec(black_box(&rows)).unwrap();
-        })
-    });
+    // SQLite Setup
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, age INTEGER)",
+        [],
+    ).unwrap();
+    for i in 0..1000 {
+        conn.execute(
+            "INSERT INTO users (username, age) VALUES (?1, ?2)",
+            params![format!("user{}", i), i as i64],
+        ).unwrap();
+    }
 
-    group.bench_function("JSON", |b| {
+    group.bench_function("SQLite Read", |b| {
+        let mut i = 1;
         b.iter(|| {
-            let _ = serde_json::to_vec(black_box(&rows)).unwrap();
+            let id = (i % 1000) + 1;
+            let mut stmt = conn.prepare("SELECT username, age FROM users WHERE id = ?1").unwrap();
+            let _ = stmt.query_row(params![id], |row| {
+                let name: String = row.get(0)?;
+                let age: i64 = row.get(1)?;
+                Ok((name, age))
+            }).unwrap();
+            i += 1;
         })
     });
 
     group.finish();
 }
 
-fn bench_deserialization(c: &mut Criterion) {
-    let mut rows = Vec::new();
-    for i in 0..1000 {
-        let mut row = RowData::default();
-        row.insert("username".into(), Value::from(format!("user_{}", i)));
-        row.insert("age".into(), Value::from(i as i64));
-        rows.push(row);
-    }
-    
-    let config = bincode::config::standard();
-    let bincode_data = bincode::serde::encode_to_vec(&rows, config).unwrap();
-    let postcard_data = postcard::to_stdvec(&rows).unwrap();
-    let json_data = serde_json::to_vec(&rows).unwrap();
-
-    let mut group = c.benchmark_group("Deserialization_1000_Rows");
-
-    group.bench_function("Bincode", |b| {
-        b.iter(|| {
-            let (loaded_rows, _): (Vec<RowData>, usize) = bincode::serde::decode_from_slice(black_box(&bincode_data), config).unwrap();
-            black_box(loaded_rows);
-        })
-    });
-
-    group.bench_function("Postcard", |b| {
-        b.iter(|| {
-            let loaded_rows: Vec<RowData> = postcard::from_bytes(black_box(&postcard_data)).unwrap();
-            black_box(loaded_rows);
-        })
-    });
-
-    group.bench_function("JSON", |b| {
-        b.iter(|| {
-            let loaded_rows: Vec<RowData> = serde_json::from_slice(black_box(&json_data)).unwrap();
-            black_box(loaded_rows);
-        })
-    });
-
-    group.finish();
-}
-
-criterion_group!(benches, bench_insertion, bench_serialization, bench_deserialization);
+criterion_group!(
+    name = benches;
+    config = Criterion::default().warm_up_time(Duration::from_secs(1));
+    targets = bench_inserts, bench_reads
+);
 criterion_main!(benches);

@@ -25,6 +25,24 @@ impl SerializerAdapter for BincodeAdapter {
     }
 }
 
+/// Highly optimized Bincode implementation
+pub struct FastBincodeAdapter;
+
+impl SerializerAdapter for FastBincodeAdapter {
+    fn serialize(&self, db: &Database) -> Result<Vec<u8>, StorageError> {
+        let config = bincode::config::standard().with_fixed_int_encoding();
+        bincode::serde::encode_to_vec(db, config)
+            .map_err(|e| StorageError::Serialization(e.to_string()))
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> Result<Database, StorageError> {
+        let config = bincode::config::standard().with_fixed_int_encoding();
+        let (db, _): (Database, usize) = bincode::serde::decode_from_slice(bytes, config)
+            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        Ok(db)
+    }
+}
+
 /// Postcard implementation
 pub struct PostcardAdapter;
 
@@ -85,6 +103,19 @@ mod tests {
         assert!(!bytes.is_empty());
         
         let loaded_db = adapter.deserialize(&bytes).expect("Failed to deserialize with Postcard");
+        assert_eq!(db.name, loaded_db.name);
+        assert_eq!(loaded_db.get_table("test_table").unwrap().rows.len(), 1);
+    }
+
+    #[test]
+    fn test_fast_bincode_adapter() {
+        let db = create_test_db();
+        let adapter = FastBincodeAdapter;
+        
+        let bytes = adapter.serialize(&db).expect("Failed to serialize with FastBincode");
+        assert!(!bytes.is_empty());
+        
+        let loaded_db = adapter.deserialize(&bytes).expect("Failed to deserialize with FastBincode");
         assert_eq!(db.name, loaded_db.name);
         assert_eq!(loaded_db.get_table("test_table").unwrap().rows.len(), 1);
     }

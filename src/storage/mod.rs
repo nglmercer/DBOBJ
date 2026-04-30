@@ -4,7 +4,7 @@ use crate::core::Database;
 use thiserror::Error;
 
 pub mod adapter;
-pub use adapter::{SerializerAdapter, BincodeAdapter, PostcardAdapter};
+pub use adapter::{SerializerAdapter, BincodeAdapter, PostcardAdapter, FastBincodeAdapter};
 
 #[derive(Error, Debug)]
 pub enum StorageError {
