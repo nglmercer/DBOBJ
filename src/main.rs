@@ -105,8 +105,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Predicate search (e.g., age > 26)
     println!("\nSearching for users with age > 26...");
-    let older_users = db.query("users", |row| {
-        if let Some(Value::Integer(age)) = row.data.get("age") {
+    let age_idx = *db.get_table("users").unwrap().read().column_map.get("age").unwrap();
+    let older_users = db.query("users", move |row| {
+        if let Value::Integer(age) = &row.data[age_idx] {
             *age > 26
         } else {
             false

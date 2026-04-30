@@ -125,7 +125,7 @@ impl Database {
                     table_name: table_name.to_string(),
                     row_id: id.clone(),
                     change_type: ChangeType::Insert,
-                    data: Some((*row.data).clone()),
+                    data: Some(table.values_to_row(&row.data)),
                 });
             }
         }
@@ -139,7 +139,7 @@ impl Database {
                     table_name.to_string(),
                     id.clone(),
                     ChangeType::Insert,
-                    Some((*row.data).clone()),
+                    Some(table.values_to_row(&row.data)),
                 );
             }
         }
@@ -172,11 +172,12 @@ impl Database {
 
         if let Some(wal_lock) = &self.wal {
             let mut wal = wal_lock.write();
+            let row = table.get(&id).unwrap();
             let _ = wal.append(&crate::storage::wal::WalEntry {
                 table_name: table_name.to_string(),
                 row_id: id.clone(),
                 change_type: ChangeType::Insert,
-                data: Some(data),
+                data: Some(table.values_to_row(&row.data)),
             });
         }
         Ok(id)
@@ -360,7 +361,7 @@ impl Database {
                     ))
                 })?;
                 let table = table_lock.read();
-                Ok(table.select(|r| expr.is_true(&r.data)).into_iter().cloned().collect())
+                Ok(table.select(|r| expr.is_true(&r.data, &table.column_map)).into_iter().cloned().collect())
             }
             crate::core::query::QueryPlan::IndexScan(table_name, col, val) => {
                 let tables = self.tables.read();
@@ -380,7 +381,7 @@ impl Database {
                 let candidates = table.find_by_column(&col, &val);
                 // Filter candidates
                 Ok(candidates.into_iter()
-                    .filter(|r| expr.is_true(&r.data))
+                    .filter(|r| expr.is_true(&r.data, &table.column_map))
                     .cloned()
                     .collect())
             }

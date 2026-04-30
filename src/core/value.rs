@@ -11,6 +11,12 @@ pub enum Value {
     Blob(Vec<u8>),
 }
 
+impl Value {
+    pub fn is_null(&self) -> bool {
+        matches!(self, Value::Null)
+    }
+}
+
 impl Eq for Value {}
 
 impl std::hash::Hash for Value {

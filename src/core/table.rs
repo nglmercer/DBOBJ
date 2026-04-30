@@ -26,6 +26,12 @@ pub struct Row {
     pub version: u64,
 }
 
+impl Row {
+    pub fn to_map(&self, table: &Table) -> RowData {
+        table.values_to_row(&self.data)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Index {
     pub map: BTreeMap<Value, Vec<Id>>,
@@ -174,6 +180,24 @@ impl Table {
         Ok(())
     }
 
+    pub fn row_to_values(&self, data: RowData) -> Box<[Value]> {
+        let mut values = Vec::with_capacity(self.schema.columns.len());
+        for col in &self.schema.columns {
+            values.push(data.get(&col.name).cloned().unwrap_or(Value::Null));
+        }
+        values.into_boxed_slice()
+    }
+
+    pub fn values_to_row(&self, values: &[Value]) -> RowData {
+        let mut data = RowData::default();
+        for col in &self.schema.columns {
+            if let Some(&idx) = self.column_map.get(col.name.as_str()) {
+                data.insert(col.name.clone(), values[idx].clone());
+            }
+        }
+        data
+    }
+
     pub fn get(&self, id: &Id) -> Option<&Row> {
         self.id_map.get(id).map(|&idx| &self.rows[idx])
     }
@@ -257,11 +281,11 @@ impl Table {
             return Err(TableError::InvalidColumn(column_name.to_string()));
         }
 
+        let col_idx = *self.column_map.get(column_name.as_str()).unwrap();
         let mut index = Index::default();
         for row in &self.rows {
-            if let Some(val) = row.data.get(&column_name) {
-                index.map.entry(val.clone()).or_default().push(row.id.clone());
-            }
+            let val = &row.data[col_idx];
+            index.map.entry(val.clone()).or_default().push(row.id.clone());
         }
         self.indexes.insert(column_name, index);
         Ok(())
