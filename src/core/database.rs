@@ -130,6 +130,22 @@ impl Database {
         }
     }
 
+    /// Serialize the database via `rkyv` to `path` for mmap-backed loading.
+    pub fn save_to_mmap(
+        &self,
+        path: impl Into<std::path::PathBuf>,
+    ) -> Result<(), crate::storage::StorageError> {
+        crate::storage::MmapStorage::new(path).save(self)
+    }
+
+    /// Load a database from a memory-mapped file at `path`.
+    pub fn load_from_mmap(
+        path: impl Into<std::path::PathBuf>,
+    ) -> Result<Self, crate::storage::StorageError> {
+        let mut storage = crate::storage::MmapStorage::new(path);
+        storage.load_database()
+    }
+
     pub fn with_wal(mut self, wal: crate::storage::wal::Wal) -> Self {
         self.wal = Some(Arc::new(RwLock::new(wal)));
         self

@@ -1,5 +1,6 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use dbobj::core::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
+use dbobj::storage::MmapStorage;
 use rusqlite::{Connection, params as sqlite_params};
 use std::time::Duration;
 
@@ -575,9 +576,80 @@ fn bench_serialization(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_mmap(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Mmap");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(3));
+
+    let db = Database::new("bench_db".to_string());
+    db.create_table(
+        "users".to_string(),
+        Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "id".into(),
+                    data_type: DataType::Integer,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "name".into(),
+                    data_type: DataType::String,
+                    nullable: false,
+                },
+            ],
+        },
+    );
+
+    let mut batch = Vec::with_capacity(10_000);
+    for i in 0..10_000 {
+        batch.push(vec![
+            Value::from(i as i64),
+            Value::from(format!("user_{}", i)),
+        ]);
+    }
+    db.insert_batch_values("users", batch).unwrap();
+
+    // Pre-save for load / access / deserialize benchmarks
+    db.save_to_mmap("bench_mmap_load.db").unwrap();
+
+    group.bench_function("Mmap Save (rkyv)", |b| {
+        b.iter(|| {
+            db.save_to_mmap("bench_mmap_save.db").unwrap();
+        })
+    });
+
+    group.bench_function("Mmap Load", |b| {
+        b.iter(|| {
+            let mut storage = MmapStorage::new("bench_mmap_load.db");
+            storage.load().unwrap();
+        })
+    });
+
+    let mut storage_access = MmapStorage::new("bench_mmap_load.db");
+    storage_access.load().unwrap();
+    group.bench_function("Mmap Access (zero-copy)", |b| {
+        b.iter(|| {
+            let _ = storage_access.access();
+        })
+    });
+
+    let mut storage_deser = MmapStorage::new("bench_mmap_load.db");
+    storage_deser.load().unwrap();
+    group.bench_function("Mmap Deserialize", |b| {
+        b.iter(|| {
+            let _ = storage_deser.deserialize().unwrap();
+        })
+    });
+
+    group.finish();
+
+    let _ = std::fs::remove_file("bench_mmap_save.db");
+    let _ = std::fs::remove_file("bench_mmap_load.db");
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_inserts, bench_reads, bench_search, bench_joins, bench_large_joins, bench_serialization
+    targets = bench_inserts, bench_reads, bench_search, bench_joins, bench_large_joins, bench_serialization, bench_mmap
 );
 criterion_main!(benches);

@@ -4,8 +4,10 @@ use std::path::PathBuf;
 use thiserror::Error;
 
 pub mod adapter;
+pub mod mmap;
 pub mod wal;
 pub use adapter::{BitcodeAdapter, SerializerAdapter};
+pub use mmap::MmapStorage;
 
 #[derive(Error, Debug)]
 pub enum StorageError {
