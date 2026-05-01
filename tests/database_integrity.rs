@@ -103,3 +103,30 @@ fn test_join_integrity() {
     let joined = db.hash_join("users", "uid", "posts", "user_id").unwrap();
     assert_eq!(joined.len(), 1);
 }
+
+#[test]
+fn test_persistence_integrity() {
+    let db = Database::new("PersistDB".to_string());
+    db.create_table("test".to_string(), Schema {
+        columns: vec![ColumnDefinition { name: "val".into(), data_type: DataType::Integer, nullable: false }],
+    });
+    
+    db.insert_row("test", {
+        let mut r = RowData::default();
+        r.insert("val".into(), Value::from(42));
+        r
+    }, None).unwrap();
+
+    use dbobj::storage::{Storage, BitcodeAdapter};
+    let path = "test_integrity.db";
+    let storage = Storage::new(path, BitcodeAdapter);
+    
+    storage.save(&db).unwrap();
+    let loaded_db = storage.load().unwrap();
+    
+    assert_eq!(loaded_db.name, "PersistDB");
+    let table = loaded_db.get_table("test").unwrap();
+    assert_eq!(table.read().ids.len(), 1);
+    
+    std::fs::remove_file(path).ok();
+}

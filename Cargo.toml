@@ -15,6 +15,8 @@ serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.140"
 string-interner = { version = "0.20.0", features = ["serde"] }
 thiserror = "2.0.18"
+rkyv = { version = "0.8.16", features = ["bytecheck", "pointer_width_32", "std"] }
+memmap2 = "0.9.5"
 
 [[bench]]
 name = "db_bench"

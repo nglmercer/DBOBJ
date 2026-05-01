@@ -2,7 +2,6 @@ use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-#[archive(check_bytes)]
 pub enum Value {
     Null,
     Integer(i64),

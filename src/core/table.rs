@@ -13,7 +13,7 @@ pub enum TableError {
     SchemaViolation(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Schema {
     pub columns: Vec<ColumnDefinition>,
 }

@@ -2,7 +2,7 @@ use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum Id {
     Integer(u64),
     String(CompactString),
