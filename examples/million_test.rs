@@ -101,7 +101,7 @@ fn main() {
     for _ in 0..1000 {
         let table = table_lock.read();
         let index = table.indexes.get("username").unwrap();
-        
+
         let row_idx = *index.unique_map.get(&lookup_val).unwrap();
         let _val = table.get_value_by_index(row_idx, id_col_idx);
     }

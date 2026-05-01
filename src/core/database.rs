@@ -662,7 +662,8 @@ impl Database {
                             if build_hashes[idx] == h {
                                 // Optimized comparison: use get_value_ref if possible
                                 let match_ok = if build_col_idx != -1 && probe_col_idx != -1 {
-                                    build_table.get_value_ref(idx, build_col_idx as usize) == probe_table.get_value_ref(i, probe_col_idx as usize)
+                                    build_table.get_value_ref(idx, build_col_idx as usize)
+                                        == probe_table.get_value_ref(i, probe_col_idx as usize)
                                 } else {
                                     build_table.get_value_by_index(idx, build_col_idx) == val
                                 };
@@ -722,18 +723,24 @@ impl Database {
                                     let idx = build_idx_ptr as usize;
                                     if build_hashes_ref[idx] == h {
                                         // Optimized comparison
-                                        let match_ok = if build_col_idx != -1 && probe_col_idx != -1 {
-                                            build_table.get_value_ref(idx, build_col_idx as usize) == probe_table.get_value_ref(j, probe_col_idx as usize)
+                                        let match_ok = if build_col_idx != -1 && probe_col_idx != -1
+                                        {
+                                            build_table.get_value_ref(idx, build_col_idx as usize)
+                                                == probe_table
+                                                    .get_value_ref(j, probe_col_idx as usize)
                                         } else {
-                                            build_table.get_value_by_index(idx, build_col_idx) == val
+                                            build_table.get_value_by_index(idx, build_col_idx)
+                                                == val
                                         };
 
                                         if match_ok {
                                             if probe_row_cache.is_none() {
-                                                probe_row_cache = Some(probe_table.get_row_by_index(j));
+                                                probe_row_cache =
+                                                    Some(probe_table.get_row_by_index(j));
                                             }
                                             let build_row = build_table.get_row_by_index(idx);
-                                            let probe_row = probe_row_cache.as_ref().unwrap().clone();
+                                            let probe_row =
+                                                probe_row_cache.as_ref().unwrap().clone();
                                             if reversed {
                                                 local_results.push((probe_row, build_row));
                                             } else {

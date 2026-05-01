@@ -5,7 +5,7 @@ use thiserror::Error;
 
 pub mod adapter;
 pub mod wal;
-pub use adapter::{BincodeAdapter, BitcodeAdapter, FastBincodeAdapter, PostcardAdapter, SerializerAdapter};
+pub use adapter::{BitcodeAdapter, SerializerAdapter};
 
 #[derive(Error, Debug)]
 pub enum StorageError {

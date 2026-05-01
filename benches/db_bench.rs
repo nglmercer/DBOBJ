@@ -471,8 +471,14 @@ fn bench_large_joins(c: &mut Criterion) {
     let mut u_batch = Vec::with_capacity(row_count);
     let mut p_batch = Vec::with_capacity(row_count);
     for i in 0..row_count {
-        u_batch.push(vec![Value::from(i as i64), Value::from(format!("user{}", i))]);
-        p_batch.push(vec![Value::from(i as i64), Value::from(format!("post{}", i))]);
+        u_batch.push(vec![
+            Value::from(i as i64),
+            Value::from(format!("user{}", i)),
+        ]);
+        p_batch.push(vec![
+            Value::from(i as i64),
+            Value::from(format!("post{}", i)),
+        ]);
     }
     db.insert_batch_values("users", u_batch).unwrap();
     db.insert_batch_values("posts", p_batch).unwrap();
@@ -489,14 +495,22 @@ fn bench_large_joins(c: &mut Criterion) {
         .unwrap();
     conn.execute("CREATE TABLE posts (user_id INTEGER, title TEXT)", [])
         .unwrap();
-    
+
     let tx = conn.transaction().unwrap();
     {
-        let mut u_stmt = tx.prepare_cached("INSERT INTO users (id, name) VALUES (?1, ?2)").unwrap();
-        let mut p_stmt = tx.prepare_cached("INSERT INTO posts (user_id, title) VALUES (?1, ?2)").unwrap();
+        let mut u_stmt = tx
+            .prepare_cached("INSERT INTO users (id, name) VALUES (?1, ?2)")
+            .unwrap();
+        let mut p_stmt = tx
+            .prepare_cached("INSERT INTO posts (user_id, title) VALUES (?1, ?2)")
+            .unwrap();
         for i in 0..row_count {
-            u_stmt.execute(sqlite_params![i as i64, format!("user{}", i)]).unwrap();
-            p_stmt.execute(sqlite_params![i as i64, format!("post{}", i)]).unwrap();
+            u_stmt
+                .execute(sqlite_params![i as i64, format!("user{}", i)])
+                .unwrap();
+            p_stmt
+                .execute(sqlite_params![i as i64, format!("post{}", i)])
+                .unwrap();
         }
     }
     tx.commit().unwrap();
@@ -537,42 +551,18 @@ fn bench_serialization(c: &mut Criterion) {
 
     let mut batch = Vec::with_capacity(10_000);
     for i in 0..10_000 {
-        batch.push(vec![Value::from(i as i64), Value::from(format!("user_{}", i))]);
+        batch.push(vec![
+            Value::from(i as i64),
+            Value::from(format!("user_{}", i)),
+        ]);
     }
     db.insert_batch_values("users", batch).unwrap();
 
-    let bincode_config = bincode::config::standard();
-    let bincode_bytes = bincode::serde::encode_to_vec(&db, bincode_config).unwrap();
-    let postcard_bytes = postcard::to_stdvec(&db).unwrap();
     let bitcode_bytes = bitcode::serialize(&db).unwrap();
-
-    group.bench_function("Bincode Serialize", |b| {
-        b.iter(|| {
-            bincode::serde::encode_to_vec(&db, bincode_config).unwrap();
-        })
-    });
-
-    group.bench_function("Postcard Serialize", |b| {
-        b.iter(|| {
-            postcard::to_stdvec(&db).unwrap();
-        })
-    });
 
     group.bench_function("Bitcode Serialize", |b| {
         b.iter(|| {
             bitcode::serialize(&db).unwrap();
-        })
-    });
-
-    group.bench_function("Bincode Deserialize", |b| {
-        b.iter(|| {
-            let _: (Database, usize) = bincode::serde::decode_from_slice(&bincode_bytes, bincode_config).unwrap();
-        })
-    });
-
-    group.bench_function("Postcard Deserialize", |b| {
-        b.iter(|| {
-            let _: Database = postcard::from_bytes(&postcard_bytes).unwrap();
         })
     });
 

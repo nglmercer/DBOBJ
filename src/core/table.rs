@@ -156,7 +156,7 @@ impl Table {
         self.data.extend(values);
         self.ids.push(id.clone());
         self.versions.push(1);
-        
+
         if !self.is_sequential_ids {
             self.id_map.insert(id.clone(), index);
         }
@@ -334,7 +334,6 @@ impl Table {
         Ok(ids)
     }
 
-
     /// Single-pass: validates schema and converts RowData to positional Vec<Value> simultaneously.
     /// Eliminates the double HashMap iteration of separate validate_schema + row_to_values.
     fn validate_and_convert(&self, data: RowData) -> Result<Vec<Value>, TableError> {
@@ -495,9 +494,9 @@ impl Table {
                 self.id_map.insert(existing_id.clone(), i);
             }
         }
-        
+
         self.id_map.remove(id);
-        
+
         let row = self.get_row_by_index(idx);
 
         let last_idx = self.ids.len() - 1;
