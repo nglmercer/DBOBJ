@@ -7,8 +7,32 @@ pub enum Value {
     Integer(i64),
     Float(f64),
     String(CompactString),
+    InternedString(u32),
     Boolean(bool),
     Blob(Vec<u8>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StringPool {
+    id_to_string: Vec<CompactString>,
+    string_to_id: crate::core::FastHashMap<CompactString, u32>,
+}
+
+impl StringPool {
+    pub fn intern(&mut self, s: CompactString) -> u32 {
+        if let Some(&id) = self.string_to_id.get(&s) {
+            id
+        } else {
+            let id = self.id_to_string.len() as u32;
+            self.string_to_id.insert(s.clone(), id);
+            self.id_to_string.push(s);
+            id
+        }
+    }
+
+    pub fn resolve(&self, id: u32) -> Option<&CompactString> {
+        self.id_to_string.get(id as usize)
+    }
 }
 
 impl Value {
@@ -35,6 +59,10 @@ impl std::hash::Hash for Value {
             Value::String(s) => {
                 3.hash(state);
                 s.hash(state);
+            }
+            Value::InternedString(id) => {
+                3.hash(state); // Same as String to allow comparison
+                id.hash(state);
             }
             Value::Boolean(b) => {
                 4.hash(state);
@@ -83,6 +111,10 @@ impl Ord for Value {
             (Value::String(a), Value::String(b)) => a.cmp(b),
             (Value::String(_), _) => std::cmp::Ordering::Less,
             (_, Value::String(_)) => std::cmp::Ordering::Greater,
+
+            (Value::InternedString(a), Value::InternedString(b)) => a.cmp(b),
+            (Value::InternedString(_), _) => std::cmp::Ordering::Less,
+            (_, Value::InternedString(_)) => std::cmp::Ordering::Greater,
 
             (Value::Boolean(a), Value::Boolean(b)) => a.cmp(b),
             (Value::Boolean(_), _) => std::cmp::Ordering::Less,

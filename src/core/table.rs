@@ -43,8 +43,11 @@ pub struct Table {
     pub schema: Schema,
     pub column_map: crate::core::FastHashMap<String, usize>, // Map column name to index
     pub num_columns: usize, // Cached column count for fast validation
-    pub rows: Vec<Row>, // Contiguous storage for better cache locality
-    pub id_map: crate::core::FastHashMap<Id, usize>, // Fast ID lookup
+    pub data: Vec<Value>, // ALL row values stored contiguously (Flat storage)
+    pub ids: Vec<Id>, // Contiguous IDs
+    pub versions: Vec<u64>, // Contiguous versions
+    pub id_map: crate::core::FastHashMap<Id, usize>, // Fast ID to index lookup
+    pub string_pool: crate::core::value::StringPool,
     pub next_int_id: u64,
     pub indexes: crate::core::FastHashMap<CompactString, Index>,
 }
@@ -62,15 +65,48 @@ impl Table {
             schema,
             column_map,
             num_columns,
-            rows: Vec::new(),
+            data: Vec::new(),
+            ids: Vec::new(),
+            versions: Vec::new(),
             id_map: crate::core::FastHashMap::default(),
-            next_int_id: 1,
+            string_pool: crate::core::value::StringPool::default(),
+            next_int_id: 0,
             indexes: crate::core::FastHashMap::default(),
         }
     }
 
+    fn get_row_by_index(&self, index: usize) -> Row {
+        let start = index * self.num_columns;
+        let end = start + self.num_columns;
+        let mut row_data = self.data[start..end].to_vec();
+        
+        // Resolve interned strings back to CompactString for the public API
+        for val in &mut row_data {
+            if let Value::InternedString(id) = val {
+                if let Some(s) = self.string_pool.resolve(*id) {
+                    *val = Value::String(s.clone());
+                }
+            }
+        }
+
+        Row {
+            id: self.ids[index].clone(),
+            data: std::sync::Arc::from(row_data),
+            version: self.versions[index],
+        }
+    }
+
+    fn intern_row(&mut self, values: &mut [Value]) {
+        for val in values {
+            if let Value::String(s) = val {
+                let id = self.string_pool.intern(s.clone());
+                *val = Value::InternedString(id);
+            }
+        }
+    }
+
     pub fn insert(&mut self, data: RowData, custom_id: Option<Id>) -> Result<Id, TableError> {
-        let values = self.validate_and_convert(data)?;
+        let mut values = self.validate_and_convert(data)?;
 
         let id = match custom_id {
             Some(id) => {
@@ -86,51 +122,53 @@ impl Table {
             }
         };
 
-        let row = Row {
-            id: id.clone(),
-            data: std::sync::Arc::from(values),
-            version: 1,
-        };
+        // Intern strings
+        self.intern_row(&mut values);
+
+        let index = self.ids.len();
+        self.data.extend(values);
+        self.ids.push(id.clone());
+        self.versions.push(1);
+        self.id_map.insert(id.clone(), index);
 
         // Update indexes
-        for index in self.indexes.values_mut() {
-            let val = &row.data[index.col_idx];
-            index.map.entry(val.clone()).or_default().push(id.clone());
+        for index_obj in self.indexes.values_mut() {
+            let start = index * self.num_columns;
+            let val = &self.data[start + index_obj.col_idx];
+            index_obj.map.entry(val.clone()).or_default().push(id.clone());
         }
 
-        let index = self.rows.len();
-        self.rows.push(row);
-        self.id_map.insert(id.clone(), index);
         Ok(id)
     }
 
     pub fn insert_batch(&mut self, batch: Vec<RowData>) -> Result<Vec<Id>, TableError> {
         let batch_size = batch.len();
-        self.rows.reserve(batch_size);
+        self.data.reserve(batch_size * self.num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
         self.id_map.reserve(batch_size);
 
         let mut ids = Vec::with_capacity(batch_size);
 
         for data in batch {
-            let values = self.validate_and_convert(data)?;
+            let mut values = self.validate_and_convert(data)?;
             let id = Id::Integer(self.next_int_id);
             self.next_int_id += 1;
 
-            let row = Row {
-                id: id.clone(),
-                data: std::sync::Arc::from(values),
-                version: 1,
-            };
+            self.intern_row(&mut values);
+
+            let index = self.ids.len();
+            self.data.extend(values);
+            self.ids.push(id.clone());
+            self.versions.push(1);
+            self.id_map.insert(id.clone(), index);
 
             // Update indexes
-            for index in self.indexes.values_mut() {
-                let val = &row.data[index.col_idx];
-                index.map.entry(val.clone()).or_default().push(id.clone());
+            for index_obj in self.indexes.values_mut() {
+                let start = index * self.num_columns;
+                let val = &self.data[start + index_obj.col_idx];
+                index_obj.map.entry(val.clone()).or_default().push(id.clone());
             }
-
-            let index = self.rows.len();
-            self.rows.push(row);
-            self.id_map.insert(id.clone(), index);
             ids.push(id);
         }
 
