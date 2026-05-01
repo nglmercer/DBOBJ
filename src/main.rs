@@ -167,9 +167,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     for (user, post) in joined_rows {
+
+        let user_map = user.to_map(&*db.get_table("users").unwrap().read());
+        let post_map = post.to_map(&*db.get_table("posts").unwrap().read());
         println!(
             "User: {:?}, Post: {:?}",
-            user.data[user_name_idx], post.data[post_title_idx]
+            user_map.get("username").unwrap(),
+            post_map.get("title").unwrap()
         );
     }
 
@@ -220,9 +224,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     for (user, meta) in profiles {
+        let user_map = user.to_map(&*db.get_table("users").unwrap().read());
+        let meta_map = meta.to_map(&*db.get_table("metadata").unwrap().read());
         println!(
             "User: {:?}, Bio: {:?}",
-            user.data[user_name_idx], meta.data[bio_idx]
+            user_map.get("username").unwrap(),
+            meta_map.get("bio").unwrap()
         );
     }
 

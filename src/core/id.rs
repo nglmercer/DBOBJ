@@ -40,3 +40,12 @@ impl From<&str> for Id {
         Id::String(CompactString::from(id))
     }
 }
+
+impl Id {
+    pub fn to_value(&self) -> crate::core::Value {
+        match self {
+            Id::Integer(i) => crate::core::Value::Integer(*i as i64),
+            Id::String(s) => crate::core::Value::String(s.clone()),
+        }
+    }
+}

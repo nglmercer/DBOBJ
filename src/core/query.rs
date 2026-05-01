@@ -35,6 +35,10 @@ impl Expr {
         match self {
             Expr::Literal(v) => v.clone(),
             Expr::Column(name) => {
+                if name == "id" {
+                    // This is handled by a different evaluate overload or we need the ID here
+                    return Value::Null; 
+                }
                 if let Some(&idx) = mapping.get(name.as_str()) {
                     data[idx].clone()
                 } else {
@@ -78,10 +82,38 @@ impl Expr {
     }
 
     /// Helper to check if the expression evaluates to true
-    pub fn is_true(&self, data: &[Value], mapping: &FastHashMap<String, usize>) -> bool {
-        match self.evaluate(data, mapping) {
+    pub fn is_true(&self, row: &super::table::Row, mapping: &FastHashMap<String, usize>) -> bool {
+        match self {
+            Expr::Column(name) if name == "id" => {
+                // Special case for ID column in expressions
+                return false; // Need to implement Id comparison in Expr
+            }
+            _ => {}
+        }
+        
+        match self.evaluate_with_row(row, mapping) {
             Value::Boolean(b) => b,
             _ => false,
+        }
+    }
+
+    pub fn evaluate_with_row(&self, row: &super::table::Row, mapping: &FastHashMap<String, usize>) -> Value {
+        match self {
+            Expr::Column(name) if name == "id" => row.id.to_value(),
+            Expr::Binary(left, op, right) => {
+                let l = left.evaluate_with_row(row, mapping);
+                let r = right.evaluate_with_row(row, mapping);
+                match op {
+                    Operator::Eq => Value::Boolean(l == r),
+                    Operator::Neq => Value::Boolean(l != r),
+                    Operator::Gt => Value::Boolean(l > r),
+                    Operator::Gte => Value::Boolean(l >= r),
+                    Operator::Lt => Value::Boolean(l < r),
+                    Operator::Lte => Value::Boolean(l <= r),
+                    _ => self.evaluate(&row.data, mapping), // Fallback for And/Or
+                }
+            }
+            _ => self.evaluate(&row.data, mapping),
         }
     }
 

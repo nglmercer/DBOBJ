@@ -443,7 +443,7 @@ impl Database {
                     ))
                 })?;
                 let table = table_lock.read();
-                Ok(table.select(|r| expr.is_true(&r.data, &table.column_map)))
+                Ok(table.select(|r| expr.is_true(r, &table.column_map)))
             }
             crate::core::query::QueryPlan::IndexScan(table_name, col, val) => {
                 let tables = self.tables.read();
@@ -469,7 +469,7 @@ impl Database {
                 let candidates = table.find_by_column(&col, &val);
                 Ok(candidates
                     .into_iter()
-                    .filter(|r| expr.is_true(&r.data, &table.column_map))
+                    .filter(|r| expr.is_true(r, &table.column_map))
                     .collect())
             }
         }
@@ -513,13 +513,13 @@ impl Database {
                 (&*t2, col2, &*t1, col1, true)
             };
 
-        let build_col_idx = *build_table.column_map.get(build_col).ok_or_else(|| {
+        let build_col_idx = build_table.get_column_index(build_col).ok_or_else(|| {
             crate::core::table::TableError::SchemaViolation(format!(
                 "Column {} not found in {}",
                 build_col, build_table.name
             ))
         })?;
-        let probe_col_idx = *probe_table.column_map.get(probe_col).ok_or_else(|| {
+        let probe_col_idx = probe_table.get_column_index(probe_col).ok_or_else(|| {
             crate::core::table::TableError::SchemaViolation(format!(
                 "Column {} not found in {}",
                 probe_col, probe_table.name
@@ -544,10 +544,9 @@ impl Database {
 
         // BUILD PHASE
         for i in 0..num_build_rows {
-            let start = i * build_table.num_columns;
-            let val = &build_table.data[start + build_col_idx];
+            let val = build_table.get_value_by_index(i, build_col_idx);
             if !val.is_null() {
-                let h = hasher.hash_one(val);
+                let h = hasher.hash_one(&val);
                 build_hashes[i] = h;
 
                 // Update Bloom Filter
@@ -570,12 +569,11 @@ impl Database {
         if num_probe_rows < 5000 || num_threads <= 1 {
             let mut results = Vec::new();
             for i in 0..num_probe_rows {
-                let start = i * probe_table.num_columns;
-                let val = &probe_table.data[start + probe_col_idx];
+                let val = probe_table.get_value_by_index(i, probe_col_idx);
                 if !val.is_null() {
-                    let h = hasher.hash_one(val);
+                    let h = hasher.hash_one(&val);
                     let bit = (h & 0xFFFF) as usize;
-
+ 
                     // Fast Bloom Filter check
                     if (bloom_filter[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
                         let bucket = (h & bucket_mask) as usize;
@@ -585,9 +583,8 @@ impl Database {
                             let idx = build_idx as usize;
                             // Check hash first (fast collision filter)
                             if build_hashes[idx] == h {
-                                let build_start = idx * build_table.num_columns;
                                 // Exact value check
-                                if &build_table.data[build_start + build_col_idx] == val {
+                                if build_table.get_value_by_index(idx, build_col_idx) == val {
                                     let build_row = build_table.get_row_by_index(idx);
                                     let probe_row = probe_table.get_row_by_index(i);
                                     if reversed {
@@ -623,12 +620,11 @@ impl Database {
                 handles.push(s.spawn(move || {
                     let mut local_results = Vec::new();
                     for j in start_idx..end_idx {
-                        let probe_start = j * probe_table.num_columns;
-                        let val = &probe_table.data[probe_start + probe_col_idx];
+                        let val = probe_table.get_value_by_index(j, probe_col_idx);
                         if !val.is_null() {
-                            let h = hasher_ref.hash_one(val);
+                            let h = hasher_ref.hash_one(&val);
                             let bit = (h & 0xFFFF) as usize;
-
+ 
                             if (bloom_filter_ref[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
                                 let bucket = (h & bucket_mask) as usize;
                                 let mut build_idx = heads_ref[bucket];
@@ -636,8 +632,7 @@ impl Database {
                                 while build_idx != -1 {
                                     let idx = build_idx as usize;
                                     if build_hashes_ref[idx] == h {
-                                        let build_start = idx * build_table.num_columns;
-                                        if &build_table.data[build_start + build_col_idx] == val {
+                                        if build_table.get_value_by_index(idx, build_col_idx) == val {
                                             let build_row = build_table.get_row_by_index(idx);
                                             let probe_row = probe_table.get_row_by_index(j);
                                             if reversed {

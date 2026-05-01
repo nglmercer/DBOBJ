@@ -78,22 +78,32 @@ impl Table {
     pub(crate) fn get_row_by_index(&self, index: usize) -> Row {
         let start = index * self.num_columns;
         let end = start + self.num_columns;
-        let mut row_data = self.data[start..end].to_vec();
-
-        // Resolve interned strings back to CompactString for the public API
-        for val in &mut row_data {
-            if let Value::InternedString(id) = val {
-                if let Some(s) = self.string_pool.resolve(*id) {
-                    *val = Value::String(s.clone());
-                }
-            }
-        }
+        
+        // Zero-copy optimization: Directly copy values into Arc.
+        // We delay string resolution to Row::to_map to avoid massive cloning in queries/joins.
+        let row_data: std::sync::Arc<[Value]> = std::sync::Arc::from(&self.data[start..end]);
 
         Row {
             id: self.ids[index].clone(),
-            data: std::sync::Arc::from(row_data),
+            data: row_data,
             version: self.versions[index],
         }
+    }
+
+    /// Get a column index, supporting "id" as a special virtual column.
+    pub fn get_column_index(&self, name: &str) -> Option<isize> {
+        if name == "id" {
+            return Some(-1); // Special sentinel for ID
+        }
+        self.column_map.get(name).map(|&idx| idx as isize)
+    }
+
+    /// Get a value from a row by column index (supports -1 for ID).
+    pub fn get_value_by_index(&self, row_idx: usize, col_idx: isize) -> Value {
+        if col_idx == -1 {
+            return self.ids[row_idx].to_value();
+        }
+        self.data[row_idx * self.num_columns + col_idx as usize].clone()
     }
 
     fn intern_row(&mut self, values: &mut [Value]) {
@@ -366,7 +376,14 @@ impl Table {
         let mut data = RowData::default();
         for col in &self.schema.columns {
             if let Some(&idx) = self.column_map.get(col.name.as_str()) {
-                data.insert(col.name.clone(), values[idx].clone());
+                let mut val = values[idx].clone();
+                // Resolve interned strings when converting back to a map
+                if let Value::InternedString(id) = val {
+                    if let Some(s) = self.string_pool.resolve(id) {
+                        val = Value::String(s.clone());
+                    }
+                }
+                data.insert(col.name.clone(), val);
             }
         }
         data
@@ -497,12 +514,11 @@ impl Table {
         }
 
         // Fallback to linear scan
-        if let Some(&col_idx) = self.column_map.get(column_name) {
+        if let Some(col_idx) = self.get_column_index(column_name) {
             let mut results = Vec::new();
             for i in 0..self.ids.len() {
-                let start = i * self.num_columns;
-                // Optimized: check value in flat data before reconstructing Row
-                if &self.data[start + col_idx] == value {
+                // Optimized: check value before reconstructing Row
+                if self.get_value_by_index(i, col_idx) == *value {
                     results.push(self.get_row_by_index(i));
                 }
             }
