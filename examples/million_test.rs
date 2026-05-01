@@ -1,4 +1,4 @@
-use dbobj::core::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
+use dbobj::core::{ColumnDefinition, DataType, Database, Schema, Value};
 use rusqlite::{Connection, params as sqlite_params};
 use std::time::Instant;
 
@@ -96,11 +96,10 @@ fn main() {
             .find(|idx| idx.col_idx == username_col_idx)
             .unwrap();
         let mut lookup_val = search_val.clone();
-        if let Value::String(s) = &search_val {
-            if let Some(id) = table.string_pool.get_id(s.as_str()) {
+        if let Value::String(s) = &search_val
+            && let Some(id) = table.string_pool.get_id(s.as_str()) {
                 lookup_val = Value::InternedString(id);
             }
-        }
         let row_idx = *index.unique_map.get(&lookup_val).unwrap();
         let _val = table.get_value_by_index(row_idx, id_col_idx);
     }

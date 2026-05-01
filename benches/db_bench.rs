@@ -11,7 +11,7 @@ fn bench_inserts(c: &mut Criterion) {
 
     // 1. DBOBJ
     group.bench_function("DBOBJ Insert", |b| {
-        let mut db = Database::new("bench_db".to_string());
+        let db = Database::new("bench_db".to_string());
         let schema = Schema {
             columns: vec![
                 ColumnDefinition {
@@ -202,7 +202,7 @@ fn bench_reads(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(3));
 
     // 1. DBOBJ
-    let mut db = Database::new("bench_db".to_string());
+    let db = Database::new("bench_db".to_string());
     let schema = Schema {
         columns: vec![
             ColumnDefinition {
@@ -283,7 +283,7 @@ fn bench_reads(c: &mut Criterion) {
             client
                 .execute(
                     "INSERT INTO users_bench_read (username, age) VALUES ($1, $2)",
-                    &[&format!("user{}", i), &(i as i32)],
+                    &[&format!("user{}", i), &{ i }],
                 )
                 .unwrap();
         }
@@ -477,7 +477,7 @@ fn bench_joins(c: &mut Criterion) {
     group.bench_function("SQLite Join", |b| {
         b.iter(|| {
             let mut stmt = conn.prepare("SELECT users.name, posts.title FROM users JOIN posts ON users.id = posts.user_id").unwrap();
-            let _Rows = stmt.query_map([], |_| Ok(())).unwrap().collect::<Vec<_>>();
+            let _rows = stmt.query_map([], |_| Ok(())).unwrap().collect::<Vec<_>>();
         })
     });
 

@@ -126,15 +126,14 @@ impl Expr {
         match self {
             Expr::Binary(left, Operator::Eq, right) => match (left.as_ref(), right.as_ref()) {
                 (Expr::Column(col), Expr::Literal(val))
-                | (Expr::Literal(val), Expr::Column(col)) => {
-                    if table.indexes.contains_key(col) {
+                | (Expr::Literal(val), Expr::Column(col))
+                    if table.indexes.contains_key(col) => {
                         return QueryPlan::IndexScan(
                             table.name.clone().into(),
                             col.clone(),
                             val.clone(),
                         );
                     }
-                }
                 _ => {}
             },
             Expr::Binary(left, Operator::And, right) => {

@@ -393,11 +393,10 @@ impl Table {
             if let Some(&idx) = self.column_map.get(col.name.as_str()) {
                 let mut val = values[idx].clone();
                 // Resolve interned strings when converting back to a map
-                if let Value::InternedString(id) = val {
-                    if let Some(s) = self.string_pool.resolve(id) {
+                if let Value::InternedString(id) = val
+                    && let Some(s) = self.string_pool.resolve(id) {
                         val = Value::String(s.clone());
                     }
-                }
                 data.insert(col.name.clone(), val);
             }
         }
@@ -405,14 +404,13 @@ impl Table {
     }
 
     pub fn get(&self, id: &Id) -> Option<Row> {
-        if self.is_sequential_ids {
-            if let Id::Integer(i) = id {
+        if self.is_sequential_ids
+            && let Id::Integer(i) = id {
                 let idx = *i as usize;
                 if idx < self.ids.len() {
                     return Some(self.get_row_by_index(idx));
                 }
             }
-        }
         self.id_map.get(id).map(|&idx| self.get_row_by_index(idx))
     }
 
@@ -463,11 +461,10 @@ impl Table {
             .find(|idx| idx.col_idx == column_idx)?;
 
         let mut lookup_val = value.clone();
-        if let Value::String(s) = value {
-            if let Some(id) = self.string_pool.get_id(s.as_str()) {
+        if let Value::String(s) = value
+            && let Some(id) = self.string_pool.get_id(s.as_str()) {
                 lookup_val = Value::InternedString(id);
             }
-        }
 
         if index.is_unique {
             return index
@@ -526,7 +523,7 @@ impl Table {
             return results;
         }
 
-        let chunk_size = (num_rows + num_threads - 1) / num_threads;
+        let chunk_size = num_rows.div_ceil(num_threads);
         let predicate_ref = &predicate;
         std::thread::scope(|s| {
             let mut handles = Vec::new();
@@ -559,11 +556,10 @@ impl Table {
         // Use index if available
         if let Some(index) = self.indexes.get(column_name) {
             let mut lookup_val = value.clone();
-            if let Value::String(s) = value {
-                if let Some(id) = self.string_pool.get_id(s.as_str()) {
+            if let Value::String(s) = value
+                && let Some(id) = self.string_pool.get_id(s.as_str()) {
                     lookup_val = Value::InternedString(id);
                 }
-            }
 
             if index.is_unique {
                 if let Some(&idx) = index.unique_map.get(&lookup_val) {

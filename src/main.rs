@@ -151,14 +151,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Joining 'users' and 'posts' on users.id == posts.user_id...");
     let joined_rows = db.hash_join("users", "id", "posts", "user_id")?;
     println!("Join Results (User + Post):");
-    let user_name_idx = *db
+    let _user_name_idx = *db
         .get_table("users")
         .unwrap()
         .read()
         .column_map
         .get("username")
         .unwrap();
-    let post_title_idx = *db
+    let _post_title_idx = *db
         .get_table("posts")
         .unwrap()
         .read()
@@ -167,8 +167,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     for (user, post) in joined_rows {
-        let user_map = user.to_map(&*db.get_table("users").unwrap().read());
-        let post_map = post.to_map(&*db.get_table("posts").unwrap().read());
+        let user_map = user.to_map(&db.get_table("users").unwrap().read());
+        let post_map = post.to_map(&db.get_table("posts").unwrap().read());
         println!(
             "User: {:?}, Post: {:?}",
             user_map.get("username").unwrap(),
@@ -207,14 +207,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Performing Hash Join on 'username'...");
     let profiles = db.hash_join("users", "username", "metadata", "username")?;
     println!("Joined Profiles:");
-    let user_name_idx = *db
+    let _user_name_idx = *db
         .get_table("users")
         .unwrap()
         .read()
         .column_map
         .get("username")
         .unwrap();
-    let bio_idx = *db
+    let _bio_idx = *db
         .get_table("metadata")
         .unwrap()
         .read()
@@ -223,8 +223,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     for (user, meta) in profiles {
-        let user_map = user.to_map(&*db.get_table("users").unwrap().read());
-        let meta_map = meta.to_map(&*db.get_table("metadata").unwrap().read());
+        let user_map = user.to_map(&db.get_table("users").unwrap().read());
+        let meta_map = meta.to_map(&db.get_table("metadata").unwrap().read());
         println!(
             "User: {:?}, Bio: {:?}",
             user_map.get("username").unwrap(),

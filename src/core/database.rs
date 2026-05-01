@@ -40,7 +40,7 @@ impl Serialize for Database {
             }
         }
 
-        state.serialize_field("tables", &TablesSerializer(&*tables))?;
+        state.serialize_field("tables", &TablesSerializer(&tables))?;
         state.serialize_field("version_log", &*version_log)?;
         state.end()
     }
@@ -672,8 +672,8 @@ impl Database {
 
                         while build_idx != -1 {
                             let idx = build_idx as usize;
-                            if build_hashes[idx] == h {
-                                if build_table.get_value_by_index(idx, build_col_idx) == val {
+                            if build_hashes[idx] == h
+                                && build_table.get_value_by_index(idx, build_col_idx) == val {
                                     if probe_row_cache.is_none() {
                                         probe_row_cache = Some(probe_table.get_row_by_index(i));
                                     }
@@ -685,7 +685,6 @@ impl Database {
                                         results.push((build_row, probe_row));
                                     }
                                 }
-                            }
                             build_idx = nexts[idx];
                         }
                     }
@@ -695,7 +694,7 @@ impl Database {
         }
 
         // PROBE PHASE (Multi-threaded)
-        let chunk_size = (num_probe_rows + num_threads - 1) / num_threads;
+        let chunk_size = num_probe_rows.div_ceil(num_threads);
         let heads_ref = &heads;
         let nexts_ref = &nexts;
         let build_hashes_ref = &build_hashes;
@@ -727,8 +726,8 @@ impl Database {
 
                                 while build_idx != -1 {
                                     let idx = build_idx as usize;
-                                    if build_hashes_ref[idx] == h {
-                                        if build_table.get_value_by_index(idx, build_col_idx) == val
+                                    if build_hashes_ref[idx] == h
+                                        && build_table.get_value_by_index(idx, build_col_idx) == val
                                         {
                                             if probe_row_cache.is_none() {
                                                 probe_row_cache =
@@ -743,7 +742,6 @@ impl Database {
                                                 local_results.push((build_row, probe_row));
                                             }
                                         }
-                                    }
                                     build_idx = nexts_ref[idx];
                                 }
                             }
