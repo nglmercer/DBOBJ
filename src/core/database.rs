@@ -478,7 +478,7 @@ impl Database {
         })?;
 
         let hasher = ahash::RandomState::new();
-        let mut bloom_filter = vec![0u64; 1024]; // 8KB bloom filter (64k bits)
+        let mut bloom_filter = [0u64; 1024]; // 8KB bloom filter (64k bits)
         let mut hash_map = FastHashMap::with_capacity_and_hasher(
             build_table.rows.len(),
             ahash::RandomState::new(),

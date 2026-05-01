@@ -1,7 +1,6 @@
 use super::{ColumnDefinition, Id, RowData, Value};
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -22,7 +21,7 @@ pub struct Schema {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Row {
     pub id: Id,
-    pub data: std::sync::Arc<Box<[Value]>>, // Positional values for O(1) access
+    pub data: std::sync::Arc<[Value]>, // Positional values for O(1) access
     pub version: u64,
 }
 
@@ -34,7 +33,8 @@ impl Row {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Index {
-    pub map: BTreeMap<Value, Vec<Id>>,
+    pub col_idx: usize,
+    pub map: crate::core::FastHashMap<Value, Vec<Id>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,16 +87,14 @@ impl Table {
         
         let row = Row {
             id: id.clone(),
-            data: std::sync::Arc::new(values),
+            data: std::sync::Arc::from(values),
             version: 1,
         };
 
         // Update indexes
-        for (col_name, index) in &mut self.indexes {
-            if let Some(&col_idx) = self.column_map.get(col_name.as_str()) {
-                let val = &row.data[col_idx];
-                index.map.entry(val.clone()).or_default().push(id.clone());
-            }
+        for index in self.indexes.values_mut() {
+            let val = &row.data[index.col_idx];
+            index.map.entry(val.clone()).or_default().push(id.clone());
         }
 
         let index = self.rows.len();
@@ -120,16 +118,14 @@ impl Table {
             let values = self.row_to_values(data);
             let row = Row {
                 id: id.clone(),
-                data: std::sync::Arc::new(values),
+                data: std::sync::Arc::from(values),
                 version: 1,
             };
 
             // Update indexes
-            for (col_name, index) in &mut self.indexes {
-                if let Some(&col_idx) = self.column_map.get(col_name.as_str()) {
-                    let val = &row.data[col_idx];
-                    index.map.entry(val.clone()).or_default().push(id.clone());
-                }
+            for index in self.indexes.values_mut() {
+                let val = &row.data[index.col_idx];
+                index.map.entry(val.clone()).or_default().push(id.clone());
             }
 
             let index = self.rows.len();
@@ -163,16 +159,14 @@ impl Table {
 
             let row = Row {
                 id: id.clone(),
-                data: std::sync::Arc::new(values),
+                data: std::sync::Arc::from(values),
                 version: 1,
             };
 
             // Update indexes
-            for (col_name, index) in &mut self.indexes {
-                if let Some(&col_idx) = self.column_map.get(col_name.as_str()) {
-                    let val = &row.data[col_idx];
-                    index.map.entry(val.clone()).or_default().push(id.clone());
-                }
+            for index in self.indexes.values_mut() {
+                let val = &row.data[index.col_idx];
+                index.map.entry(val.clone()).or_default().push(id.clone());
             }
 
             let index = self.rows.len();
@@ -223,12 +217,12 @@ impl Table {
         Ok(())
     }
 
-    pub fn row_to_values(&self, data: RowData) -> Box<[Value]> {
+    pub fn row_to_values(&self, data: RowData) -> Vec<Value> {
         let mut values = Vec::with_capacity(self.schema.columns.len());
         for col in &self.schema.columns {
             values.push(data.get(&col.name).cloned().unwrap_or(Value::Null));
         }
-        values.into_boxed_slice()
+        values
     }
 
     pub fn values_to_row(&self, values: &[Value]) -> RowData {
@@ -250,7 +244,7 @@ impl Table {
             self.validate_schema(&data)?;
             let values = self.row_to_values(data);
             let row = &mut self.rows[idx];
-            row.data = std::sync::Arc::new(values);
+            row.data = std::sync::Arc::from(values);
             row.version += 1;
             Ok(())
         } else {
@@ -325,7 +319,10 @@ impl Table {
         }
 
         let col_idx = *self.column_map.get(column_name.as_str()).unwrap();
-        let mut index = Index::default();
+        let mut index = Index {
+            col_idx,
+            map: crate::core::FastHashMap::default(),
+        };
         for row in &self.rows {
             let val = &row.data[col_idx];
             index.map.entry(val.clone()).or_default().push(row.id.clone());
