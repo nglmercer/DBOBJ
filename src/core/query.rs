@@ -37,7 +37,7 @@ impl Expr {
             Expr::Column(name) => {
                 if name == "id" {
                     // This is handled by a different evaluate overload or we need the ID here
-                    return Value::Null; 
+                    return Value::Null;
                 }
                 if let Some(&idx) = mapping.get(name.as_str()) {
                     data[idx].clone()
@@ -90,14 +90,18 @@ impl Expr {
             }
             _ => {}
         }
-        
+
         match self.evaluate_with_row(row, mapping) {
             Value::Boolean(b) => b,
             _ => false,
         }
     }
 
-    pub fn evaluate_with_row(&self, row: &super::table::Row, mapping: &FastHashMap<String, usize>) -> Value {
+    pub fn evaluate_with_row(
+        &self,
+        row: &super::table::Row,
+        mapping: &FastHashMap<String, usize>,
+    ) -> Value {
         match self {
             Expr::Column(name) if name == "id" => row.id.to_value(),
             Expr::Binary(left, op, right) => {

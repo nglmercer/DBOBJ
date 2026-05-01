@@ -12,7 +12,6 @@ pub struct Database {
     pub wal: Option<Arc<RwLock<crate::storage::wal::Wal>>>,
 }
 
-
 impl Serialize for Database {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -24,7 +23,7 @@ impl Serialize for Database {
 
         let mut state = serializer.serialize_struct("Database", 3)?;
         state.serialize_field("name", &self.name)?;
-        
+
         // Serialize tables as a map of names to Table objects (read-locked)
         struct TablesSerializer<'a>(&'a FastHashMap<String, Arc<RwLock<Table>>>);
         impl Serialize for TablesSerializer<'_> {
@@ -40,7 +39,7 @@ impl Serialize for Database {
                 map.end()
             }
         }
-        
+
         state.serialize_field("tables", &TablesSerializer(&*tables))?;
         state.serialize_field("version_log", &*version_log)?;
         state.end()
@@ -101,7 +100,11 @@ impl Database {
         self.tables.read().get(name).cloned()
     }
 
-    pub fn create_index(&self, table_name: &str, column_name: &str) -> Result<(), crate::core::table::TableError> {
+    pub fn create_index(
+        &self,
+        table_name: &str,
+        column_name: &str,
+    ) -> Result<(), crate::core::table::TableError> {
         let tables = self.tables.read();
         let table = tables
             .get(table_name)
@@ -109,7 +112,11 @@ impl Database {
         table.write().create_index(column_name)
     }
 
-    pub fn create_unique_index(&self, table_name: &str, column_name: &str) -> Result<(), crate::core::table::TableError> {
+    pub fn create_unique_index(
+        &self,
+        table_name: &str,
+        column_name: &str,
+    ) -> Result<(), crate::core::table::TableError> {
         let tables = self.tables.read();
         let table = tables
             .get(table_name)
@@ -582,22 +589,23 @@ impl Database {
             }
             return Ok(results);
         }
-        
+
         // Case 2: Probe table is the ID table
         if probe_col == "id" && probe_table.is_sequential_ids {
-             let mut results = Vec::new();
-             // Optimization: Use a small cache for probe rows to avoid redundant allocations in N:1 joins
-             let mut probe_row_cache: crate::core::FastHashMap<usize, crate::core::table::Row> = crate::core::FastHashMap::default();
+            let mut results = Vec::new();
+
+            // Pre-create build rows since it's the smaller table (e.g. 100k posts)
+            let build_rows: Vec<crate::core::table::Row> = (0..num_build_rows)
+                .map(|i| build_table.get_row_by_index(i))
+                .collect();
 
             for i in 0..num_build_rows {
                 let val = build_table.get_value_by_index(i, build_col_idx);
                 if let crate::core::Value::Integer(idx_val) = val {
                     let idx = idx_val as usize;
                     if idx < num_probe_rows {
-                        let probe_row = probe_row_cache.entry(idx)
-                            .or_insert_with(|| probe_table.get_row_by_index(idx))
-                            .clone();
-                        let build_row = build_table.get_row_by_index(i);
+                        let probe_row = probe_table.get_row_by_index(idx);
+                        let build_row = build_rows[i].clone();
                         if reversed {
                             results.push((probe_row, build_row));
                         } else {
@@ -655,13 +663,13 @@ impl Database {
                 if !val.is_null() {
                     let h = hasher.hash_one(&val);
                     let bit = (h & 0xFFFF) as usize;
- 
+
                     // Fast Bloom Filter check
                     if (bloom_filter[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
                         let bucket = (h & bucket_mask) as usize;
                         let mut build_idx = heads[bucket];
                         let mut probe_row_cache = None;
-                        
+
                         while build_idx != -1 {
                             let idx = build_idx as usize;
                             if build_hashes[idx] == h {
@@ -699,7 +707,9 @@ impl Database {
             let mut handles = Vec::new();
             for i in 0..num_threads {
                 let start_idx = i * chunk_size;
-                if start_idx >= num_probe_rows { break; }
+                if start_idx >= num_probe_rows {
+                    break;
+                }
                 let end_idx = (start_idx + chunk_size).min(num_probe_rows);
 
                 handles.push(s.spawn(move || {
@@ -709,21 +719,24 @@ impl Database {
                         if !val.is_null() {
                             let h = hasher_ref.hash_one(&val);
                             let bit = (h & 0xFFFF) as usize;
- 
+
                             if (bloom_filter_ref[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
                                 let bucket = (h & bucket_mask) as usize;
                                 let mut build_idx = heads_ref[bucket];
                                 let mut probe_row_cache = None;
-                                
+
                                 while build_idx != -1 {
                                     let idx = build_idx as usize;
                                     if build_hashes_ref[idx] == h {
-                                        if build_table.get_value_by_index(idx, build_col_idx) == val {
+                                        if build_table.get_value_by_index(idx, build_col_idx) == val
+                                        {
                                             if probe_row_cache.is_none() {
-                                                probe_row_cache = Some(probe_table.get_row_by_index(j));
+                                                probe_row_cache =
+                                                    Some(probe_table.get_row_by_index(j));
                                             }
                                             let build_row = build_rows_ref[idx].clone();
-                                            let probe_row = probe_row_cache.as_ref().unwrap().clone();
+                                            let probe_row =
+                                                probe_row_cache.as_ref().unwrap().clone();
                                             if reversed {
                                                 local_results.push((probe_row, build_row));
                                             } else {

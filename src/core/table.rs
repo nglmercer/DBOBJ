@@ -82,7 +82,7 @@ impl Table {
     pub(crate) fn get_row_by_index(&self, index: usize) -> Row {
         let start = index * self.num_columns;
         let end = start + self.num_columns;
-        
+
         // Zero-copy optimization: Directly copy values into Arc.
         // We delay string resolution to Row::to_map to avoid massive cloning in queries/joins.
         let row_data: std::sync::Arc<[Value]> = std::sync::Arc::from(&self.data[start..end]);
@@ -150,7 +150,7 @@ impl Table {
         for index_obj in self.indexes.values_mut() {
             let start = index * self.num_columns;
             let val = &self.data[start + index_obj.col_idx];
-            
+
             if index_obj.is_unique {
                 index_obj.unique_map.insert(val.clone(), index);
             } else {
@@ -286,7 +286,7 @@ impl Table {
             for index_obj in self.indexes.values_mut() {
                 let start = index * self.num_columns;
                 let val = &self.data[start + index_obj.col_idx];
-                
+
                 if index_obj.is_unique {
                     index_obj.unique_map.insert(val.clone(), index);
                 } else {
@@ -457,17 +457,23 @@ impl Table {
 
     pub fn find_unique_by_id(&self, column_idx: usize, value: &Value) -> Option<Row> {
         // Find index for this column
-        let index = self.indexes.values().find(|idx| idx.col_idx == column_idx)?;
-        
+        let index = self
+            .indexes
+            .values()
+            .find(|idx| idx.col_idx == column_idx)?;
+
         let mut lookup_val = value.clone();
         if let Value::String(s) = value {
             if let Some(id) = self.string_pool.get_id(s.as_str()) {
                 lookup_val = Value::InternedString(id);
             }
         }
-        
+
         if index.is_unique {
-            return index.unique_map.get(&lookup_val).map(|&idx| self.get_row_by_index(idx));
+            return index
+                .unique_map
+                .get(&lookup_val)
+                .map(|&idx| self.get_row_by_index(idx));
         }
         None
     }
@@ -558,7 +564,7 @@ impl Table {
                     lookup_val = Value::InternedString(id);
                 }
             }
-            
+
             if index.is_unique {
                 if let Some(&idx) = index.unique_map.get(&lookup_val) {
                     return vec![self.get_row_by_index(idx)];
@@ -592,7 +598,11 @@ impl Table {
         self.create_index_internal(column_name, true)
     }
 
-    fn create_index_internal(&mut self, column_name: &str, is_unique: bool) -> Result<(), TableError> {
+    fn create_index_internal(
+        &mut self,
+        column_name: &str,
+        is_unique: bool,
+    ) -> Result<(), TableError> {
         let col_idx = *self
             .column_map
             .get(column_name)
@@ -611,7 +621,7 @@ impl Table {
             let start = i * self.num_columns;
             let val = &self.data[start + col_idx];
             let id = &self.ids[i];
-            
+
             if is_unique {
                 index.unique_map.insert(val.clone(), i);
             } else {

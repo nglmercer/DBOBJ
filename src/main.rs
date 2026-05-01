@@ -167,7 +167,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
 
     for (user, post) in joined_rows {
-
         let user_map = user.to_map(&*db.get_table("users").unwrap().read());
         let post_map = post.to_map(&*db.get_table("posts").unwrap().read());
         println!(
