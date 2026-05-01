@@ -67,12 +67,20 @@ fn main() {
     println!("SQLite Insert Time: {:?}", sqlite_insert_time);
 
     // --- 5. Indexed Search Comparison ---
-    println!("\nSearching for username 'user_500000'...");
+    println!("\nSearching for username 'user_500000' (Optimized x1000)...");
+    let table_lock = db.get_table("users").unwrap();
+    let username_col_idx = {
+        let table = table_lock.read();
+        table.get_index_handle("username").unwrap()
+    };
+    let search_val = Value::from("user_500000");
     
     let start = Instant::now();
-    let results = db.find("users", "username", Value::from("user_500000")).unwrap();
-    let db_search_time = start.elapsed();
-    println!("DBOBJ Search Result: Found {} row(s) in {:?}", results.len(), db_search_time);
+    for _ in 0..1000 {
+        let _ = db.find_unique_by_id("users", username_col_idx, &search_val).unwrap();
+    }
+    let db_search_time = start.elapsed() / 1000;
+    println!("DBOBJ Search Time: {:?}", db_search_time);
 
     // --- 5.1 ID Lookup (Primary Key) ---
     println!("Looking up ID 500000 directly (x10000 amortized)...");

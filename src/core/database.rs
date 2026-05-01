@@ -117,6 +117,17 @@ impl Database {
         table.write().create_unique_index(column_name)
     }
 
+    pub fn find_unique_by_id(
+        &self,
+        table_name: &str,
+        column_idx: usize,
+        value: &super::Value,
+    ) -> Option<super::table::Row> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name)?;
+        table_lock.read().find_unique_by_id(column_idx, value)
+    }
+
     pub fn insert_batch(
         &self,
         table_name: &str,
