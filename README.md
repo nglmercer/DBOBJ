@@ -76,13 +76,13 @@ cargo bench
 
 | Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Postgres (Ops/sec) |
 | :--- | :--- | :--- | :--- |
-| **Insert (Single)** | **~1,460,472** | ~455,456 | ~430 |
-| **Insert (Batch)** | **~1,464,557** | ~2,700,221 | - |
-| **Insert (Batch Raw)** | **~1,595,431** | - | - |
-| **Read (ID)** | **~26,666,666** | ~409,836 | ~8,708 |
-| **Search (Scan)** | **~43,478,260** | ~13,157,894 | - |
-| **Search (Indexed)** | **~3,703,703** | ~393,700 | - |
-| **Hash Join (1k rows)** | **~5,102** | ~2,132 | - |
+| **Insert (Single)** | **~1,473,796** | ~466,245 | ~448 |
+| **Insert (Batch)** | **~1,477,104** | ~2,751,585 | - |
+| **Insert (Batch Raw)** | **~1,787,288** | - | - |
+| **Read (ID)** | **~25,796,963** | ~421,322 | ~9,350 |
+| **Search (Scan)** | **~54,920** | ~12,709 | - |
+| **Search (Indexed)** | **~7,355,308** | ~389,816 | - |
+| **Hash Join (1k rows)** | **~5,163** | ~2,137 | - |
 
 ### Conclusion
 
@@ -91,9 +91,10 @@ The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-m
 - **Postgres** is the slowest (as expected) due to the overhead of the client-server architecture and high safety guarantees.
 - **SQLite** performs exceptionally well as an embedded database but is limited by SQL parsing and B-tree page management.
 - **DBOBJ** wins across all core relational operations:
-    - **Scans** are now **~3.3x faster** than SQLite thanks to our zero-hashing positional storage.
-    - **ID Lookups** are **~65x faster** than SQLite.
-    - **Indexed Searches** are **~9.4x faster** than SQLite.
+    - **Single Inserts** are **~3.2x faster** than SQLite.
+    - **Scans** are now **~4.3x faster** than SQLite thanks to our zero-hashing positional storage.
+    - **ID Lookups** are **~61x faster** than SQLite.
+    - **Indexed Searches** are **~18.9x faster** than SQLite.
     - **Joins**: Our optimized **Hash Join** (with Bloom Filters and Dense Access) is now **~2.4x faster** than SQLite's join engine.
 
 *Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s) and a local ephemeral Postgres instance.*

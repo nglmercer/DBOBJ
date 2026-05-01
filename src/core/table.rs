@@ -67,7 +67,7 @@ impl Table {
     }
 
     pub fn insert(&mut self, data: RowData, custom_id: Option<Id>) -> Result<Id, TableError> {
-        self.validate_schema(&data)?;
+        let values = self.validate_and_convert(data)?;
 
         let id = match custom_id {
             Some(id) => {
@@ -83,8 +83,6 @@ impl Table {
             }
         };
 
-        let values = self.row_to_values(data);
-        
         let row = Row {
             id: id.clone(),
             data: std::sync::Arc::from(values),
@@ -111,11 +109,10 @@ impl Table {
         let mut ids = Vec::with_capacity(batch_size);
 
         for data in batch {
-            self.validate_schema(&data)?;
+            let values = self.validate_and_convert(data)?;
             let id = Id::Integer(self.next_int_id);
             self.next_int_id += 1;
 
-            let values = self.row_to_values(data);
             let row = Row {
                 id: id.clone(),
                 data: std::sync::Arc::from(values),
@@ -141,8 +138,10 @@ impl Table {
         &mut self,
         batch: Vec<Box<[Value]>>,
     ) -> Result<Vec<Id>, TableError> {
-        let mut ids = Vec::with_capacity(batch.len());
-        self.rows.reserve(batch.len());
+        let batch_size = batch.len();
+        let mut ids = Vec::with_capacity(batch_size);
+        self.rows.reserve(batch_size);
+        self.id_map.reserve(batch_size);
 
         for values in batch {
             // Fast validation: just check column count
@@ -215,6 +214,44 @@ impl Table {
             }
         }
         Ok(())
+    }
+
+    /// Single-pass: validates schema and converts RowData to positional Vec<Value> simultaneously.
+    /// Eliminates the double HashMap iteration of separate validate_schema + row_to_values.
+    fn validate_and_convert(&self, data: RowData) -> Result<Vec<Value>, TableError> {
+        let mut values = Vec::with_capacity(self.schema.columns.len());
+        for col_def in &self.schema.columns {
+            match data.get(&col_def.name) {
+                Some(val) => {
+                    let type_ok = match (&col_def.data_type, val) {
+                        (super::DataType::Integer, Value::Integer(_)) => true,
+                        (super::DataType::Float, Value::Float(_)) => true,
+                        (super::DataType::String, Value::String(_)) => true,
+                        (super::DataType::Boolean, Value::Boolean(_)) => true,
+                        (super::DataType::Blob, Value::Blob(_)) => true,
+                        (_, Value::Null) if col_def.nullable => true,
+                        _ => false,
+                    };
+                    if !type_ok {
+                        return Err(TableError::SchemaViolation(format!(
+                            "Type mismatch for column {}: expected {:?}, got {:?}",
+                            col_def.name, col_def.data_type, val
+                        )));
+                    }
+                    values.push(val.clone());
+                }
+                None => {
+                    if !col_def.nullable {
+                        return Err(TableError::SchemaViolation(format!(
+                            "Column {} is not nullable but is missing",
+                            col_def.name
+                        )));
+                    }
+                    values.push(Value::Null);
+                }
+            }
+        }
+        Ok(values)
     }
 
     pub fn row_to_values(&self, data: RowData) -> Vec<Value> {

@@ -130,16 +130,15 @@ impl Database {
             }
         }
 
-        // Record in version log
+        // Record in version log (lightweight: no data payload for batch inserts)
         {
             let mut log = self.version_log.write();
             for id in &ids {
-                let row = table.get(id).unwrap();
                 log.record(
                     table_name.to_string(),
                     id.clone(),
                     ChangeType::Insert,
-                    Some(table.values_to_row(&row.data)),
+                    None,
                 );
             }
         }
@@ -174,16 +173,15 @@ impl Database {
             }
         }
 
-        // Record in version log
+        // Record in version log (lightweight: no data payload for batch inserts)
         {
             let mut log = self.version_log.write();
             for id in &ids {
-                let row = table.get(id).unwrap();
                 log.record(
                     table_name.to_string(),
                     id.clone(),
                     ChangeType::Insert,
-                    Some(table.values_to_row(&row.data)),
+                    None,
                 );
             }
         }
@@ -206,12 +204,14 @@ impl Database {
         })?;
 
         let mut table = table_lock.write();
-        let id = table.insert(data.clone(), custom_id)?;
+        let id = table.insert(data, custom_id)?;
+
+        // Version log: lightweight entry (data already lives in the table)
         self.version_log.write().record(
             table_name.to_string(),
             id.clone(),
             ChangeType::Insert,
-            Some(data.clone()),
+            None,
         );
 
         if let Some(wal_lock) = &self.wal {
