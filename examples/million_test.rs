@@ -78,7 +78,7 @@ fn main() {
     // --- 5. Indexed Search Comparison ---
     println!("\nSearching for username 'user_500000' (Optimized x1000)...");
     let table_lock = db.get_table("users").unwrap();
-    let (username_col_idx, id_col_idx) = {
+    let (_username_col_idx, id_col_idx) = {
         let table = table_lock.read();
         (
             table.get_index_handle("username").unwrap(),
@@ -123,7 +123,7 @@ fn main() {
     let db_id_lookup_time = start.elapsed() / 10000;
     println!("DBOBJ ID Lookup Time: {:?}", db_id_lookup_time);
 
-    {
+    let sqlite_search_time = {
         let mut stmt = conn
             .prepare("SELECT id FROM users WHERE username = ?1")
             .unwrap();
@@ -131,12 +131,13 @@ fn main() {
         let sqlite_id: i64 = stmt
             .query_row(sqlite_params!["user_500000"], |r| r.get(0))
             .unwrap();
-        let sqlite_search_time = start.elapsed();
+        let elapsed = start.elapsed();
         println!(
             "SQLite Search Result: Found ID {} in {:?}",
-            sqlite_id, sqlite_search_time
+            sqlite_id, elapsed
         );
-    }
+        elapsed
+    };
 
     // --- 6. Memory Comparison (Approximate) ---
     println!("\n--- Performance Summary ---");

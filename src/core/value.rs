@@ -37,6 +37,10 @@ impl StringPool {
     pub fn resolve(&self, id: u32) -> Option<&CompactString> {
         self.id_to_string.get(id as usize)
     }
+    pub fn reserve(&mut self, additional: usize) {
+        self.id_to_string.reserve(additional);
+        self.string_to_id.reserve(additional);
+    }
 }
 
 impl Value {

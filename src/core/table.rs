@@ -281,6 +281,10 @@ impl Table {
         self.data.reserve(batch_size * expected_cols);
         self.ids.reserve(batch_size);
         self.versions.reserve(batch_size);
+
+        // Optimization: Pre-size the string pool
+        self.string_pool.reserve(batch_size);
+
         if !self.is_sequential_ids {
             self.id_map.reserve(batch_size);
         }
@@ -298,13 +302,13 @@ impl Table {
 
             let id = Id::Integer(self.next_int_id);
             self.next_int_id += 1;
-
             self.intern_row(&mut values);
 
             let index = self.ids.len();
             self.data.extend(values);
             self.ids.push(id.clone());
             self.versions.push(1);
+
             if !self.is_sequential_ids {
                 self.id_map.insert(id.clone(), index);
             }
@@ -317,6 +321,7 @@ impl Table {
                 if index_obj.is_unique {
                     index_obj.unique_map.insert(val.clone(), index);
                 } else {
+                    let id = &self.ids[index];
                     index_obj
                         .map
                         .entry(val.clone())
@@ -324,7 +329,7 @@ impl Table {
                         .push(id.clone());
                 }
             }
-            ids.push(id);
+            ids.push(self.ids[index].clone());
         }
         Ok(ids)
     }

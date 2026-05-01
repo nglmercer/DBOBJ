@@ -568,16 +568,13 @@ impl Database {
         // Case 1: Build table is the ID table
         if build_col == "id" && build_table.is_sequential_ids {
             let mut results = Vec::with_capacity(num_probe_rows.min(num_build_rows));
-            let build_rows: Vec<crate::core::table::Row> = (0..num_build_rows)
-                .map(|i| build_table.get_row_by_index(i))
-                .collect();
 
             for i in 0..num_probe_rows {
                 let val = probe_table.get_value_by_index(i, probe_col_idx);
                 if let crate::core::Value::Integer(idx_val) = val {
                     let idx = idx_val as usize;
                     if idx < num_build_rows {
-                        let build_row = build_rows[idx].clone();
+                        let build_row = build_table.get_row_by_index(idx);
                         let probe_row = probe_table.get_row_by_index(i);
                         if reversed {
                             results.push((probe_row, build_row));
@@ -594,21 +591,17 @@ impl Database {
         if probe_col == "id" && probe_table.is_sequential_ids {
             let mut results = Vec::with_capacity(num_build_rows.min(num_probe_rows));
 
-            // Pre-create build rows since it's the smaller table (e.g. 100k posts)
-            let build_rows: Vec<crate::core::table::Row> = (0..num_build_rows)
-                .map(|i| build_table.get_row_by_index(i))
-                .collect();
-
-            for (i, build_row) in build_rows.iter().enumerate() {
+            for i in 0..num_build_rows {
                 let val = build_table.get_value_by_index(i, build_col_idx);
                 if let crate::core::Value::Integer(idx_val) = val {
                     let idx = idx_val as usize;
                     if idx < num_probe_rows {
+                        let build_row = build_table.get_row_by_index(i);
                         let probe_row = probe_table.get_row_by_index(idx);
                         if reversed {
-                            results.push((probe_row, build_row.clone()));
+                            results.push((probe_row, build_row));
                         } else {
-                            results.push((build_row.clone(), probe_row));
+                            results.push((build_row, probe_row));
                         }
                     }
                 }
@@ -627,7 +620,7 @@ impl Database {
         let hasher = ahash::RandomState::new();
         let mut bloom_filter = [0u64; 1024]; // 64k bits
 
-        // BUILD PHASE
+        // --- BUILD PHASE ---
         for i in 0..num_build_rows {
             let val = build_table.get_value_by_index(i, build_col_idx);
             if !val.is_null() {
@@ -649,11 +642,6 @@ impl Database {
             .map(|n| n.get())
             .unwrap_or(1);
 
-        // PRE-CREATE BUILD ROWS (Optimization: avoid allocations in probe loop)
-        let build_rows: Vec<crate::core::table::Row> = (0..num_build_rows)
-            .map(|i| build_table.get_row_by_index(i))
-            .collect();
-
         // PROBE PHASE (Single-threaded fast path)
         if num_probe_rows < 5000 || num_threads <= 1 {
             let mut results = Vec::new();
@@ -666,26 +654,33 @@ impl Database {
                     // Fast Bloom Filter check
                     if (bloom_filter[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
                         let bucket = (h & bucket_mask) as usize;
-                        let mut build_idx = heads[bucket];
+                        let mut build_idx_ptr = heads[bucket];
                         let mut probe_row_cache = None;
 
-                        while build_idx != -1 {
-                            let idx = build_idx as usize;
-                            if build_hashes[idx] == h
-                                && build_table.get_value_by_index(idx, build_col_idx) == val
-                            {
-                                if probe_row_cache.is_none() {
-                                    probe_row_cache = Some(probe_table.get_row_by_index(i));
-                                }
-                                let build_row = build_rows[idx].clone();
-                                let probe_row = probe_row_cache.as_ref().unwrap().clone();
-                                if reversed {
-                                    results.push((probe_row, build_row));
+                        while build_idx_ptr != -1 {
+                            let idx = build_idx_ptr as usize;
+                            if build_hashes[idx] == h {
+                                // Optimized comparison: use get_value_ref if possible
+                                let match_ok = if build_col_idx != -1 && probe_col_idx != -1 {
+                                    build_table.get_value_ref(idx, build_col_idx as usize) == probe_table.get_value_ref(i, probe_col_idx as usize)
                                 } else {
-                                    results.push((build_row, probe_row));
+                                    build_table.get_value_by_index(idx, build_col_idx) == val
+                                };
+
+                                if match_ok {
+                                    if probe_row_cache.is_none() {
+                                        probe_row_cache = Some(probe_table.get_row_by_index(i));
+                                    }
+                                    let build_row = build_table.get_row_by_index(idx);
+                                    let probe_row = probe_row_cache.as_ref().unwrap().clone();
+                                    if reversed {
+                                        results.push((probe_row, build_row));
+                                    } else {
+                                        results.push((build_row, probe_row));
+                                    }
                                 }
                             }
-                            build_idx = nexts[idx];
+                            build_idx_ptr = nexts[idx];
                         }
                     }
                 }
@@ -700,7 +695,6 @@ impl Database {
         let build_hashes_ref = &build_hashes;
         let bloom_filter_ref = &bloom_filter;
         let hasher_ref = &hasher;
-        let build_rows_ref = &build_rows;
 
         let results = std::thread::scope(|s| {
             let mut handles = Vec::new();
@@ -721,26 +715,33 @@ impl Database {
 
                             if (bloom_filter_ref[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
                                 let bucket = (h & bucket_mask) as usize;
-                                let mut build_idx = heads_ref[bucket];
+                                let mut build_idx_ptr = heads_ref[bucket];
                                 let mut probe_row_cache = None;
 
-                                while build_idx != -1 {
-                                    let idx = build_idx as usize;
-                                    if build_hashes_ref[idx] == h
-                                        && build_table.get_value_by_index(idx, build_col_idx) == val
-                                    {
-                                        if probe_row_cache.is_none() {
-                                            probe_row_cache = Some(probe_table.get_row_by_index(j));
-                                        }
-                                        let build_row = build_rows_ref[idx].clone();
-                                        let probe_row = probe_row_cache.as_ref().unwrap().clone();
-                                        if reversed {
-                                            local_results.push((probe_row, build_row));
+                                while build_idx_ptr != -1 {
+                                    let idx = build_idx_ptr as usize;
+                                    if build_hashes_ref[idx] == h {
+                                        // Optimized comparison
+                                        let match_ok = if build_col_idx != -1 && probe_col_idx != -1 {
+                                            build_table.get_value_ref(idx, build_col_idx as usize) == probe_table.get_value_ref(j, probe_col_idx as usize)
                                         } else {
-                                            local_results.push((build_row, probe_row));
+                                            build_table.get_value_by_index(idx, build_col_idx) == val
+                                        };
+
+                                        if match_ok {
+                                            if probe_row_cache.is_none() {
+                                                probe_row_cache = Some(probe_table.get_row_by_index(j));
+                                            }
+                                            let build_row = build_table.get_row_by_index(idx);
+                                            let probe_row = probe_row_cache.as_ref().unwrap().clone();
+                                            if reversed {
+                                                local_results.push((probe_row, build_row));
+                                            } else {
+                                                local_results.push((build_row, probe_row));
+                                            }
                                         }
                                     }
-                                    build_idx = nexts_ref[idx];
+                                    build_idx_ptr = nexts_ref[idx];
                                 }
                             }
                         }

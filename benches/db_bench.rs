@@ -333,12 +333,12 @@ fn bench_search(c: &mut Criterion) {
     group.finish();
 }
 
-fn bench_joins(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Joins");
+fn bench_large_joins(c: &mut Criterion) {
+    let mut group = c.benchmark_group("LargeJoins");
     group.sample_size(10);
-    group.measurement_time(Duration::from_secs(3));
+    group.measurement_time(Duration::from_secs(5));
 
-    let row_count = 1000;
+    let row_count = 100_000;
 
     // 1. DBOBJ Hash Join
     let db = Database::new("bench_db".to_string());
@@ -377,44 +377,40 @@ fn bench_joins(c: &mut Criterion) {
         },
     );
 
+    let mut u_batch = Vec::with_capacity(row_count);
+    let mut p_batch = Vec::with_capacity(row_count);
     for i in 0..row_count {
-        let mut u = RowData::default();
-        u.insert("id".into(), Value::from(i as i64));
-        u.insert("name".into(), Value::from(format!("user{}", i)));
-        db.insert_row("users", u, None).unwrap();
-
-        let mut p = RowData::default();
-        p.insert("user_id".into(), Value::from(i as i64));
-        p.insert("title".into(), Value::from(format!("post{}", i)));
-        db.insert_row("posts", p, None).unwrap();
+        u_batch.push(vec![Value::from(i as i64), Value::from(format!("user{}", i))]);
+        p_batch.push(vec![Value::from(i as i64), Value::from(format!("post{}", i))]);
     }
+    db.insert_batch_values("users", u_batch).unwrap();
+    db.insert_batch_values("posts", p_batch).unwrap();
 
-    group.bench_function("DBOBJ Hash Join", |b| {
+    group.bench_function("DBOBJ Large Hash Join (100k)", |b| {
         b.iter(|| {
             let _ = db.hash_join("users", "id", "posts", "user_id").unwrap();
         })
     });
 
     // 2. SQLite Join
-    let conn = Connection::open_in_memory().unwrap();
+    let mut conn = Connection::open_in_memory().unwrap();
     conn.execute("CREATE TABLE users (id INTEGER, name TEXT)", [])
         .unwrap();
     conn.execute("CREATE TABLE posts (user_id INTEGER, title TEXT)", [])
         .unwrap();
-    for i in 0..row_count {
-        conn.execute(
-            "INSERT INTO users (id, name) VALUES (?1, ?2)",
-            sqlite_params![i as i64, format!("user{}", i)],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO posts (user_id, title) VALUES (?1, ?2)",
-            sqlite_params![i as i64, format!("post{}", i)],
-        )
-        .unwrap();
+    
+    let tx = conn.transaction().unwrap();
+    {
+        let mut u_stmt = tx.prepare_cached("INSERT INTO users (id, name) VALUES (?1, ?2)").unwrap();
+        let mut p_stmt = tx.prepare_cached("INSERT INTO posts (user_id, title) VALUES (?1, ?2)").unwrap();
+        for i in 0..row_count {
+            u_stmt.execute(sqlite_params![i as i64, format!("user{}", i)]).unwrap();
+            p_stmt.execute(sqlite_params![i as i64, format!("post{}", i)]).unwrap();
+        }
     }
+    tx.commit().unwrap();
 
-    group.bench_function("SQLite Join", |b| {
+    group.bench_function("SQLite Large Join (100k)", |b| {
         b.iter(|| {
             let mut stmt = conn.prepare("SELECT users.name, posts.title FROM users JOIN posts ON users.id = posts.user_id").unwrap();
             let _rows = stmt.query_map([], |_| Ok(())).unwrap().collect::<Vec<_>>();
@@ -427,6 +423,6 @@ fn bench_joins(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_inserts, bench_reads, bench_search, bench_joins
+    targets = bench_inserts, bench_reads, bench_search, bench_joins, bench_large_joins
 );
 criterion_main!(benches);
