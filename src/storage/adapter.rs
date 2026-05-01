@@ -92,7 +92,7 @@ mod tests {
             .expect("Failed to deserialize with Bincode");
         assert_eq!(db.name, loaded_db.name);
         assert_eq!(
-            loaded_db.get_table("test_table").unwrap().read().rows.len(),
+            loaded_db.get_table("test_table").unwrap().read().ids.len(),
             1
         );
     }
@@ -112,7 +112,7 @@ mod tests {
             .expect("Failed to deserialize with Postcard");
         assert_eq!(db.name, loaded_db.name);
         assert_eq!(
-            loaded_db.get_table("test_table").unwrap().read().rows.len(),
+            loaded_db.get_table("test_table").unwrap().read().ids.len(),
             1
         );
     }
@@ -132,7 +132,7 @@ mod tests {
             .expect("Failed to deserialize with FastBincode");
         assert_eq!(db.name, loaded_db.name);
         assert_eq!(
-            loaded_db.get_table("test_table").unwrap().read().rows.len(),
+            loaded_db.get_table("test_table").unwrap().read().ids.len(),
             1
         );
     }

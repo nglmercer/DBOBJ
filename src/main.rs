@@ -90,7 +90,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let loaded_db = storage.load()?;
     println!("Loaded database: {}", loaded_db.name);
     if let Some(table_lock) = loaded_db.get_table("users") {
-        println!("Table 'users' has {} rows.", table_lock.read().rows.len());
+        println!("Table 'users' has {} rows.", table_lock.read().ids.len());
     }
 
     // 8. Relational Search (Queries)
@@ -257,7 +257,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- Transactions Demo ---");
     println!(
         "Current row count in 'users': {}",
-        db.get_table("users").unwrap().read().rows.len()
+        db.get_table("users").unwrap().read().ids.len()
     );
 
     {
@@ -266,7 +266,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tx.db.delete_row("users", &Id::from("bob_unique_id"))?;
         println!(
             "Temporary count: {}",
-            tx.db.get_table("users").unwrap().read().rows.len()
+            tx.db.get_table("users").unwrap().read().ids.len()
         );
 
         println!("Rolling back transaction...");
@@ -275,7 +275,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "Count after rollback: {}",
-        db.get_table("users").unwrap().read().rows.len()
+        db.get_table("users").unwrap().read().ids.len()
     );
 
     // 13. Concurrency Stress Test
@@ -300,7 +300,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!(
         "Total rows in 'users' after stress test: {}",
-        db.get_table("users").unwrap().read().rows.len()
+        db.get_table("users").unwrap().read().ids.len()
     );
 
     // 14. WAL Recovery Demo
@@ -339,7 +339,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     recovered_db.recover_from_wal()?;
 
     if let Some(table) = recovered_db.get_table("logs") {
-        println!("Recovered {} rows from WAL.", table.read().rows.len());
+        println!("Recovered {} rows from WAL.", table.read().ids.len());
     }
 
     Ok(())

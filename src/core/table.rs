@@ -75,7 +75,7 @@ impl Table {
         }
     }
 
-    fn get_row_by_index(&self, index: usize) -> Row {
+    pub(crate) fn get_row_by_index(&self, index: usize) -> Row {
         let start = index * self.num_columns;
         let end = start + self.num_columns;
         let mut row_data = self.data[start..end].to_vec();
@@ -422,8 +422,9 @@ impl Table {
             // Move block in data vec
             let start = idx * self.num_columns;
             let last_start = last_idx * self.num_columns;
-            self.data
-                .copy_within(last_start..last_start + self.num_columns, start);
+            for i in 0..self.num_columns {
+                self.data[start + i] = self.data[last_start + i].clone();
+            }
 
             self.ids.swap_remove(idx);
             self.versions.swap_remove(idx);
