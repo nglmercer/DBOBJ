@@ -124,10 +124,16 @@ impl Table {
 
         let id = match custom_id {
             Some(id) => {
+                if self.is_sequential_ids {
+                    self.is_sequential_ids = false;
+                    for (i, existing_id) in self.ids.iter().enumerate() {
+                        self.id_map.insert(existing_id.clone(), i);
+                    }
+                }
+
                 if self.id_map.contains_key(&id) {
                     return Err(TableError::DuplicateId(id));
                 }
-                self.is_sequential_ids = false;
                 id
             }
             None => {
@@ -144,7 +150,10 @@ impl Table {
         self.data.extend(values);
         self.ids.push(id.clone());
         self.versions.push(1);
-        self.id_map.insert(id.clone(), index);
+        
+        if !self.is_sequential_ids {
+            self.id_map.insert(id.clone(), index);
+        }
 
         // Update indexes
         for index_obj in self.indexes.values_mut() {
@@ -170,7 +179,9 @@ impl Table {
         self.data.reserve(batch_size * self.num_columns);
         self.ids.reserve(batch_size);
         self.versions.reserve(batch_size);
-        self.id_map.reserve(batch_size);
+        if !self.is_sequential_ids {
+            self.id_map.reserve(batch_size);
+        }
 
         let mut ids = Vec::with_capacity(batch_size);
 
@@ -185,7 +196,9 @@ impl Table {
             self.data.extend(values);
             self.ids.push(id.clone());
             self.versions.push(1);
-            self.id_map.insert(id.clone(), index);
+            if !self.is_sequential_ids {
+                self.id_map.insert(id.clone(), index);
+            }
 
             // Update indexes
             for index_obj in self.indexes.values_mut() {
@@ -208,7 +221,9 @@ impl Table {
         self.data.reserve(batch_size * self.num_columns);
         self.ids.reserve(batch_size);
         self.versions.reserve(batch_size);
-        self.id_map.reserve(batch_size);
+        if !self.is_sequential_ids {
+            self.id_map.reserve(batch_size);
+        }
 
         let mut ids = Vec::with_capacity(batch_size);
         let expected_cols = self.num_columns;
@@ -232,7 +247,9 @@ impl Table {
             self.data.extend(values_vec);
             self.ids.push(id.clone());
             self.versions.push(1);
-            self.id_map.insert(id.clone(), index);
+            if !self.is_sequential_ids {
+                self.id_map.insert(id.clone(), index);
+            }
 
             // Update indexes
             for index_obj in self.indexes.values_mut() {
@@ -258,7 +275,9 @@ impl Table {
         self.data.reserve(batch_size * expected_cols);
         self.ids.reserve(batch_size);
         self.versions.reserve(batch_size);
-        self.id_map.reserve(batch_size);
+        if !self.is_sequential_ids {
+            self.id_map.reserve(batch_size);
+        }
 
         let mut ids = Vec::with_capacity(batch_size);
 
@@ -280,7 +299,9 @@ impl Table {
             self.data.extend(values);
             self.ids.push(id.clone());
             self.versions.push(1);
-            self.id_map.insert(id.clone(), index);
+            if !self.is_sequential_ids {
+                self.id_map.insert(id.clone(), index);
+            }
 
             // Update indexes
             for index_obj in self.indexes.values_mut() {
@@ -480,8 +501,31 @@ impl Table {
     }
 
     pub fn delete(&mut self, id: &Id) -> Option<Row> {
-        let idx = self.id_map.remove(id)?;
-        self.is_sequential_ids = false;
+        let idx = if self.is_sequential_ids {
+            if let Id::Integer(i) = id {
+                let index = *i as usize;
+                if index < self.ids.len() && self.ids[index] == *id {
+                    Some(index)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            self.id_map.get(id).copied()
+        }?;
+
+        if self.is_sequential_ids {
+            self.is_sequential_ids = false;
+            // Lazy populate id_map
+            for (i, existing_id) in self.ids.iter().enumerate() {
+                self.id_map.insert(existing_id.clone(), i);
+            }
+        }
+        
+        self.id_map.remove(id);
+        
         let row = self.get_row_by_index(idx);
 
         let last_idx = self.ids.len() - 1;

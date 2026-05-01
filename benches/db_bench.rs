@@ -1,6 +1,5 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use dbobj::core::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
-use postgres::{Client, NoTls};
 use rusqlite::{Connection, params as sqlite_params};
 use std::time::Duration;
 
@@ -64,29 +63,7 @@ fn bench_inserts(c: &mut Criterion) {
         )
     });
 
-    // 3. Postgres (Optional: Requires setup_postgres.sh to be running)
-    if let Ok(mut client) = Client::connect("host=localhost port=5433 dbname=bench_db", NoTls) {
-        group.bench_function("Postgres Insert", |b| {
-            client.execute("DROP TABLE IF EXISTS users_bench_insert", &[]).unwrap();
-            client.execute(
-                "CREATE TABLE users_bench_insert (id SERIAL PRIMARY KEY, username TEXT, age INTEGER)",
-                &[],
-            ).unwrap();
-
-            b.iter_batched(
-                || ("alice", 30i32),
-                |(name, age)| {
-                    client.execute(
-                        "INSERT INTO users_bench_insert (username, age) VALUES ($1, $2)",
-                        &[&name, &age],
-                    ).unwrap();
-                },
-                BatchSize::SmallInput,
-            )
-        });
-    }
-
-    // 4. DBOBJ Batch
+    // 3. DBOBJ Batch
     group.bench_function("DBOBJ Batch Insert (100 rows)", |b| {
         let db = Database::new("bench_db".to_string());
         let schema = Schema {
@@ -123,7 +100,7 @@ fn bench_inserts(c: &mut Criterion) {
         )
     });
 
-    // 4.5 DBOBJ Batch Values (optimized)
+    // 4. DBOBJ Batch Values (optimized)
     group.bench_function("DBOBJ Batch Raw Insert (100 rows)", |b| {
         let db = Database::new("bench_db".to_string());
         let schema = Schema {
@@ -160,7 +137,7 @@ fn bench_inserts(c: &mut Criterion) {
         )
     });
 
-    // 5. SQLite Batch
+    // 4. SQLite Batch
     group.bench_function("SQLite Batch Insert (100 rows)", |b| {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute(
@@ -267,43 +244,6 @@ fn bench_reads(c: &mut Criterion) {
             i += 1;
         })
     });
-
-    // 3. Postgres (Optional)
-    if let Ok(mut client) = Client::connect("host=localhost port=5433 dbname=bench_db", NoTls) {
-        client
-            .execute("DROP TABLE IF EXISTS users_bench_read", &[])
-            .unwrap();
-        client
-            .execute(
-                "CREATE TABLE users_bench_read (id SERIAL PRIMARY KEY, username TEXT, age INTEGER)",
-                &[],
-            )
-            .unwrap();
-        for i in 0..1000 {
-            client
-                .execute(
-                    "INSERT INTO users_bench_read (username, age) VALUES ($1, $2)",
-                    &[&format!("user{}", i), &{ i }],
-                )
-                .unwrap();
-        }
-
-        group.bench_function("Postgres Read", |b| {
-            let mut i = 1;
-            b.iter(|| {
-                let id = (i % 1000) + 1;
-                let row = client
-                    .query_one(
-                        "SELECT username, age FROM users_bench_read WHERE id = $1",
-                        &[&id],
-                    )
-                    .unwrap();
-                let _: String = row.get(0);
-                let _: i32 = row.get(1);
-                i += 1;
-            })
-        });
-    }
 
     group.finish();
 }

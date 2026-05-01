@@ -92,10 +92,10 @@ These results were obtained using the `examples/million_test.rs` script on this 
 
 | Operation | DBOBJ | SQLite (In-Memory) |
 | :--- | :--- | :--- |
-| **Batch Insert (1M)** | **~862,068 ops/sec** | ~862,068 ops/sec |
-| **Read (ID Lookup)* ** | **~333,333,333 ops/sec** | ~29,411,764 ops/sec |
-| **Search (Indexed)* **| **~27,027,027 ops/sec** | ~29,411,764 ops/sec |
-| **Hash Join (100k)** | **~30.3 ops/sec** | ~75.7 ops/sec |
+| **Batch Insert (1M)** | **~1,048,218 ops/sec** | ~922,509 ops/sec |
+| **Read (ID Lookup)* ** | **~333,333,333 ops/sec** | ~33,333,333 ops/sec |
+| **Search (Indexed)* **| **~22,727,272 ops/sec** | ~33,333,333 ops/sec |
+| **Hash Join (100k)** | **~29.1 ops/sec** | ~76.3 ops/sec |
 
 *\* Using the zero-copy `get_value_by_index` API instead of full `Row` allocation to simulate SQLite's single-column query retrieval (`SELECT id FROM users...`).*
 
