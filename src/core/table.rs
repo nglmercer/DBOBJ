@@ -2,6 +2,7 @@ use super::{ColumnDefinition, Id, RowData, Value};
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
 
 #[derive(Error, Debug)]
 pub enum TableError {
@@ -31,31 +32,89 @@ impl Row {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Index {
     pub col_idx: usize,
     pub is_unique: bool,
+    #[serde(skip)]
+    #[rkyv(with = rkyv::with::Skip)]
     pub map: crate::core::FastHashMap<Value, Vec<Id>>,
-    pub unique_map: crate::core::FastHashMap<Value, usize>, // Faster path for unique indices
+    pub map_data: Vec<(Value, Vec<Id>)>, // Surrogate
+    #[serde(skip)]
+    #[rkyv(with = rkyv::with::Skip)]
+    pub unique_map: crate::core::FastHashMap<Value, usize>,
+    pub unique_map_data: Vec<(Value, usize)>, // Surrogate
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Index {
+    pub fn prepare_for_archive(&mut self) {
+        self.map_data = self.map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        self.unique_map_data = self.unique_map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+    }
+
+    pub fn rebuild_from_archive(&mut self) {
+        self.map = self.map_data.iter().cloned().collect();
+        self.unique_map = self.unique_map_data.iter().cloned().collect();
+        self.map_data.clear();
+        self.unique_map_data.clear();
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Table {
     pub name: String,
     pub schema: Schema,
-    pub column_map: crate::core::FastHashMap<String, usize>, // Map column name to index
-    pub num_columns: usize, // Cached column count for fast validation
-    pub data: Vec<Value>,   // ALL row values stored contiguously (Flat storage)
-    pub ids: Vec<Id>,       // Contiguous IDs
-    pub versions: Vec<u64>, // Contiguous versions
-    pub id_map: crate::core::FastHashMap<Id, usize>, // Fast ID to index lookup
+    #[serde(skip)]
+    #[rkyv(with = rkyv::with::Skip)]
+    pub column_map: crate::core::FastHashMap<String, usize>,
+    pub column_map_data: Vec<(String, usize)>, // Surrogate
+    pub num_columns: usize,
+    pub data: Vec<Value>,
+    pub ids: Vec<Id>,
+    pub versions: Vec<u64>,
+    #[serde(skip)]
+    #[rkyv(with = rkyv::with::Skip)]
+    pub id_map: crate::core::FastHashMap<Id, usize>,
+    pub id_map_data: Vec<(Id, usize)>, // Surrogate
     pub string_pool: crate::core::value::StringPool,
     pub next_int_id: u64,
+    #[serde(skip)]
+    #[rkyv(with = rkyv::with::Skip)]
     pub indexes: crate::core::FastHashMap<CompactString, Index>,
-    pub is_sequential_ids: bool, // Optimization: true if IDs are 0, 1, 2...
+    pub indexes_data: Vec<(CompactString, Index)>, // Surrogate
+    pub is_sequential_ids: bool,
 }
-
 impl Table {
+    pub fn prepare_for_archive(&mut self) {
+        self.column_map_data = self.column_map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        self.id_map_data = self.id_map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        
+        self.indexes_data = self.indexes.iter().map(|(k, v)| {
+            let mut v = v.clone();
+            v.prepare_for_archive();
+            (k.clone(), v)
+        }).collect();
+        
+        self.string_pool.prepare_for_archive();
+    }
+
+    pub fn rebuild_from_archive(&mut self) {
+        self.column_map = self.column_map_data.iter().cloned().collect();
+        self.id_map = self.id_map_data.iter().cloned().collect();
+        
+        self.indexes = self.indexes_data.iter().map(|(k, v)| {
+            let mut v = v.clone();
+            v.rebuild_from_archive();
+            (k.clone(), v)
+        }).collect();
+        
+        self.string_pool.rebuild_from_archive();
+        
+        self.column_map_data.clear();
+        self.id_map_data.clear();
+        self.indexes_data.clear();
+    }
+
     pub fn new(name: String, schema: Schema) -> Self {
         let mut column_map = crate::core::FastHashMap::default();
         for (i, col) in schema.columns.iter().enumerate() {
@@ -67,14 +126,17 @@ impl Table {
             name,
             schema,
             column_map,
+            column_map_data: Vec::new(),
             num_columns,
             data: Vec::new(),
             ids: Vec::new(),
             versions: Vec::new(),
             id_map: crate::core::FastHashMap::default(),
+            id_map_data: Vec::new(),
             string_pool: crate::core::value::StringPool::default(),
             next_int_id: 0,
             indexes: crate::core::FastHashMap::default(),
+            indexes_data: Vec::new(),
             is_sequential_ids: true,
         }
     }
@@ -628,7 +690,9 @@ impl Table {
             col_idx,
             is_unique,
             map: crate::core::FastHashMap::default(),
+            map_data: Vec::new(),
             unique_map: crate::core::FastHashMap::default(),
+            unique_map_data: Vec::new(),
         };
 
         // Populate index

@@ -1,8 +1,16 @@
 use super::{FastHashMap, Id, RowData, Schema, Table, Value};
 use crate::versioning::{ChangeType, VersionLog};
 use parking_lot::RwLock;
+use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct DatabaseSnapshot {
+    pub name: String,
+    pub tables: Vec<(String, Table)>,
+    pub version_log: VersionLog,
+}
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -80,6 +88,43 @@ impl Database {
             name,
             tables: Arc::new(RwLock::new(FastHashMap::default())),
             version_log: Arc::new(RwLock::new(VersionLog::new())),
+            wal: None,
+        }
+    }
+
+    pub fn snapshot(&self) -> DatabaseSnapshot {
+        let tables_lock = self.tables.read();
+        let mut tables = Vec::with_capacity(tables_lock.len());
+        for (name, table_lock) in tables_lock.iter() {
+            let mut table = table_lock.read().clone();
+            table.prepare_for_archive();
+            tables.push((name.clone(), table));
+        }
+
+        let mut version_log = self.version_log.read().clone();
+        version_log.prepare_for_archive();
+
+        DatabaseSnapshot {
+            name: self.name.clone(),
+            tables,
+            version_log,
+        }
+    }
+
+    pub fn from_snapshot(snapshot: DatabaseSnapshot) -> Self {
+        let mut tables = FastHashMap::default();
+        for (name, mut table) in snapshot.tables {
+            table.rebuild_from_archive();
+            tables.insert(name, Arc::new(RwLock::new(table)));
+        }
+
+        let mut version_log = snapshot.version_log;
+        version_log.rebuild_from_archive();
+
+        Database {
+            name: snapshot.name,
+            tables: Arc::new(RwLock::new(tables)),
+            version_log: Arc::new(RwLock::new(version_log)),
             wal: None,
         }
     }

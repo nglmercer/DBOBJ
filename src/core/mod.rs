@@ -1,6 +1,7 @@
 pub mod database;
 pub mod id;
 pub mod query;
+use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
 pub mod table;
 pub mod value;
 

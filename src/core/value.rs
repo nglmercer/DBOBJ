@@ -1,6 +1,7 @@
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
+use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub enum Value {
     Null,
@@ -12,12 +13,26 @@ pub enum Value {
     Blob(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct StringPool {
-    interner: string_interner::StringInterner<string_interner::DefaultBackend>,
+    #[serde(skip)]
+    #[rkyv(with = rkyv::with::Skip)]
+    pub(crate) interner: string_interner::StringInterner<string_interner::DefaultBackend>,
+    pub(crate) strings: Vec<String>, // Surrogate for serialization/archiving
 }
 
 impl StringPool {
+    pub fn prepare_for_archive(&mut self) {
+        self.strings = self.interner.iter().map(|(_, s)| s.to_string()).collect();
+    }
+
+    pub fn rebuild_from_archive(&mut self) {
+        self.interner = string_interner::StringInterner::default();
+        for s in &self.strings {
+            self.interner.get_or_intern(s);
+        }
+    }
+
     pub fn intern(&mut self, s: CompactString) -> u32 {
         use string_interner::Symbol;
         self.interner.get_or_intern(s.as_str()).to_usize() as u32

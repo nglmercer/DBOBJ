@@ -20,6 +20,29 @@ impl SerializerAdapter for BitcodeAdapter {
     }
 }
 
+/// Rkyv implementation
+pub struct RkyvAdapter;
+
+impl SerializerAdapter for RkyvAdapter {
+    fn serialize(&self, db: &Database) -> Result<Vec<u8>, StorageError> {
+        let snapshot = db.snapshot();
+        Ok(rkyv::to_bytes::<rkyv::rancor::Error>(&snapshot)
+            .map_err(|e| StorageError::Serialization(e.to_string()))?
+            .to_vec())
+    }
+
+    fn deserialize(&self, bytes: &[u8]) -> Result<Database, StorageError> {
+        use crate::core::database::{DatabaseSnapshot, ArchivedDatabaseSnapshot};
+        let archived = rkyv::access::<ArchivedDatabaseSnapshot, rkyv::rancor::Error>(bytes)
+            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        
+        let snapshot: DatabaseSnapshot = rkyv::deserialize::<DatabaseSnapshot, rkyv::rancor::Error>(archived)
+            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        
+        Ok(Database::from_snapshot(snapshot))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -54,6 +77,26 @@ mod tests {
         let loaded_db = adapter
             .deserialize(&bytes)
             .expect("Failed to deserialize with Bitcode");
+        assert_eq!(db.name, loaded_db.name);
+        assert_eq!(
+            loaded_db.get_table("test_table").unwrap().read().ids.len(),
+            1
+        );
+    }
+
+    #[test]
+    fn test_rkyv_adapter() {
+        let db = create_test_db();
+        let adapter = RkyvAdapter;
+
+        let bytes = adapter
+            .serialize(&db)
+            .expect("Failed to serialize with Rkyv");
+        assert!(!bytes.is_empty());
+
+        let loaded_db = adapter
+            .deserialize(&bytes)
+            .expect("Failed to deserialize with Rkyv");
         assert_eq!(db.name, loaded_db.name);
         assert_eq!(
             loaded_db.get_table("test_table").unwrap().read().ids.len(),

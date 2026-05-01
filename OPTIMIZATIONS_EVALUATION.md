@@ -66,3 +66,22 @@ To push DBOBJ's performance even further beyond SQLite:
 1. **Explore `rkyv`** to eliminate deserialization costs entirely.
 2. **Switch the global allocator** to `mimalloc` for a free 10-20% speedup on multi-threaded operations.
 3. **Consider `mmap`** combined with `rkyv` for instant startup times, regardless of whether the database is 1MB or 10GB.
+
+## 4. Evaluation Results: Rkyv + Mmap (100,000 rows)
+
+We implemented an evaluation example (`examples/rkyv_mmap_eval.rs`) to compare our current `Bitcode` baseline against `rkyv` + `memmap2`.
+
+| Metric | Bitcode (Baseline) | Rkyv + Mmap (Zero-Copy) |
+| :--- | :--- | :--- |
+| **Serialization** | **~8.1 ms** | ~12.6 ms |
+| **Deserialization** | ~21.9 ms | **~0.0 ms (Instant)** |
+| **Data Size** | **~1.9 MB** | ~7.9 MB |
+| **Scan (100k rows)** | ~1.2 ms | **~0.5 ms** |
+
+### Insights:
+- **Instant Loading:** `rkyv` combined with `mmap` allows the database to be "loaded" in sub-millisecond time regardless of size, as it avoids the entire allocation and copying phase of deserialization.
+- **Access Speed:** Once mapped, scanning archived data is **~2.4x faster** than scanning deserialized Bitcode data due to better memory alignment and zero-copy access patterns.
+- **Storage Trade-off:** `rkyv` payloads are significantly larger (~4x) than Bitcode because they prioritize memory layout over bit-packing. For an in-memory database where performance is the primary goal, this is a highly acceptable trade-off.
+
+### Recommendation:
+Move toward a full `rkyv` implementation for the primary storage engine to achieve O(1) startup times.
