@@ -87,20 +87,21 @@ fn main() {
     };
     let search_val = Value::from("user_500000");
 
-    let start = Instant::now();
-    for _ in 0..1000 {
+    let mut lookup_val = search_val.clone();
+    {
         let table = table_lock.read();
-        let index = table
-            .indexes
-            .values()
-            .find(|idx| idx.col_idx == username_col_idx)
-            .unwrap();
-        let mut lookup_val = search_val.clone();
         if let Value::String(s) = &search_val
             && let Some(id) = table.string_pool.get_id(s.as_str())
         {
             lookup_val = Value::InternedString(id);
         }
+    }
+
+    let start = Instant::now();
+    for _ in 0..1000 {
+        let table = table_lock.read();
+        let index = table.indexes.get("username").unwrap();
+        
         let row_idx = *index.unique_map.get(&lookup_val).unwrap();
         let _val = table.get_value_by_index(row_idx, id_col_idx);
     }
@@ -122,15 +123,15 @@ fn main() {
     let db_id_lookup_time = start.elapsed() / 10000;
     println!("DBOBJ ID Lookup Time: {:?}", db_id_lookup_time);
 
-    let start = Instant::now();
-    let sqlite_search_time = start.elapsed();
     {
         let mut stmt = conn
             .prepare("SELECT id FROM users WHERE username = ?1")
             .unwrap();
+        let start = Instant::now();
         let sqlite_id: i64 = stmt
             .query_row(sqlite_params!["user_500000"], |r| r.get(0))
             .unwrap();
+        let sqlite_search_time = start.elapsed();
         println!(
             "SQLite Search Result: Found ID {} in {:?}",
             sqlite_id, sqlite_search_time

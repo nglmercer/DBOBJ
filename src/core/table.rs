@@ -110,6 +110,12 @@ impl Table {
         self.data[row_idx * self.num_columns + col_idx as usize].clone()
     }
 
+    /// Zero-copy reference to a cell value. For data columns only (not virtual ID column).
+    #[inline]
+    pub fn get_value_ref(&self, row_idx: usize, col_idx: usize) -> &Value {
+        &self.data[row_idx * self.num_columns + col_idx]
+    }
+
     fn intern_row(&mut self, values: &mut [Value]) {
         for val in values {
             if let Value::String(s) = val {
