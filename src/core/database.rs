@@ -567,7 +567,7 @@ impl Database {
         // --- FAST PATH: Direct Index Join ---
         // Case 1: Build table is the ID table
         if build_col == "id" && build_table.is_sequential_ids {
-            let mut results = Vec::new();
+            let mut results = Vec::with_capacity(num_probe_rows.min(num_build_rows));
             let build_rows: Vec<crate::core::table::Row> = (0..num_build_rows)
                 .map(|i| build_table.get_row_by_index(i))
                 .collect();
@@ -592,7 +592,7 @@ impl Database {
 
         // Case 2: Probe table is the ID table
         if probe_col == "id" && probe_table.is_sequential_ids {
-            let mut results = Vec::new();
+            let mut results = Vec::with_capacity(num_build_rows.min(num_probe_rows));
 
             // Pre-create build rows since it's the smaller table (e.g. 100k posts)
             let build_rows: Vec<crate::core::table::Row> = (0..num_build_rows)

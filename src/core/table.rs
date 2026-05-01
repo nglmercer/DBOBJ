@@ -323,45 +323,6 @@ impl Table {
         Ok(ids)
     }
 
-    #[allow(dead_code)]
-    fn validate_schema(&self, data: &RowData) -> Result<(), TableError> {
-        for col_def in &self.schema.columns {
-            match data.get(&col_def.name) {
-                Some(val) => {
-                    let type_matches = match (&col_def.data_type, val) {
-                        (super::DataType::Integer, Value::Integer(_)) => true,
-                        (super::DataType::Float, Value::Float(_)) => true,
-                        (super::DataType::String, Value::String(_)) => true,
-                        (super::DataType::Boolean, Value::Boolean(_)) => true,
-                        (super::DataType::Blob, Value::Blob(_)) => true,
-                        (super::DataType::Integer, Value::Null) if col_def.nullable => true,
-                        (super::DataType::Float, Value::Null) if col_def.nullable => true,
-                        (super::DataType::String, Value::Null) if col_def.nullable => true,
-                        (super::DataType::Boolean, Value::Null) if col_def.nullable => true,
-                        (super::DataType::Blob, Value::Null) if col_def.nullable => true,
-                        (_, Value::Null) if !col_def.nullable => false,
-                        _ => false,
-                    };
-
-                    if !type_matches {
-                        return Err(TableError::SchemaViolation(format!(
-                            "Type mismatch for column {}: expected {:?}, got {:?}",
-                            col_def.name, col_def.data_type, val
-                        )));
-                    }
-                }
-                None => {
-                    if !col_def.nullable {
-                        return Err(TableError::SchemaViolation(format!(
-                            "Column {} is not nullable but is missing",
-                            col_def.name
-                        )));
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
 
     /// Single-pass: validates schema and converts RowData to positional Vec<Value> simultaneously.
     /// Eliminates the double HashMap iteration of separate validate_schema + row_to_values.

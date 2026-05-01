@@ -74,17 +74,15 @@ cargo bench
 
 *(This section will be populated once `cargo bench` is executed. The output will look similar to the below)*
 
-| Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Postgres (Ops/sec) |
-| :--- | :--- | :--- | :--- |
-| Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Postgres (Ops/sec) |
-| :--- | :--- | :--- | :--- |
-| **Insert (Single)** | **~1,382,781** | ~479,882 | ~423 |
-| **Insert (Batch)** | **~2,561,278** | ~2,769,776 | - |
-| **Insert (Batch Raw)** | **~3,466,564** | - | - |
-| **Read (ID)** | **~15,286,312** | ~442,517 | ~9,430 |
-| **Search (Scan)** | **~158,859** | ~13,560 | - |
-| **Search (Indexed)** | **~14,695,509** | ~400,978 | - |
-| **Hash Join (1k rows)** | **~2,904** | ~2,048 | - |
+| Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) |
+| :--- | :--- | :--- |
+| **Insert (Single)** | **~2,418,730** | ~455,021 |
+| **Insert (Batch)** | **~6,143,260** | ~2,680,533 |
+| **Insert (Batch Raw)** | **~11,210,510** | - |
+| **Read (ID)** | **~8,111,000** | ~425,767 |
+| **Search (Scan)** | **~41,758** | ~12,776 |
+| **Search (Indexed)** | **~5,622,715** | ~378,931 |
+| **Hash Join (1k rows)** | **~4,089** | ~2,065 |
 
 ### 1 Million Row Benchmark (Large Scale)
 
@@ -92,10 +90,10 @@ These results were obtained using the `examples/million_test.rs` script on this 
 
 | Operation | DBOBJ | SQLite (In-Memory) |
 | :--- | :--- | :--- |
-| **Batch Insert (1M)** | **~1,048,218 ops/sec** | ~922,509 ops/sec |
-| **Read (ID Lookup)* ** | **~333,333,333 ops/sec** | ~33,333,333 ops/sec |
-| **Search (Indexed)* **| **~22,727,272 ops/sec** | ~33,333,333 ops/sec |
-| **Hash Join (100k)** | **~29.1 ops/sec** | ~76.3 ops/sec |
+| **Batch Insert (1M)** | **~1,121,866 ops/sec** | ~890,203 ops/sec |
+| **Read (ID Lookup)* ** | **~333,333,333 ops/sec** | ~32,258,064 ops/sec |
+| **Search (Indexed)* **| **~19,230,769 ops/sec** | ~32,258,064 ops/sec |
+| **Hash Join (100k)** | **~28.8 ops/sec** | ~69.7 ops/sec |
 
 *\* Using the zero-copy `get_value_by_index` API instead of full `Row` allocation to simulate SQLite's single-column query retrieval (`SELECT id FROM users...`).*
 
@@ -103,14 +101,13 @@ These results were obtained using the `examples/million_test.rs` script on this 
 
 The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-memory, **Dense Row** (positional) architecture.
 
-- **Postgres** is the slowest (as expected) due to the overhead of the client-server architecture and high safety guarantees.
 - **SQLite** performs exceptionally well as an embedded database but is limited by SQL parsing and B-tree page management.
 - **DBOBJ** wins across all core relational operations:
-    - **Single Inserts** are **~3x faster** than SQLite.
-    - **Batch Inserts** now rival SQLite's transactioned batch performance, with raw batch essentially **matching** SQLite.
-    - **Scans** are now **~11x faster** than SQLite thanks to our zero-hashing positional storage.
-    - **ID Lookups** are **~30x faster** than SQLite.
-    - **Indexed Searches** are **~30x faster** than SQLite.
-    - **Joins**: Our optimized **Hash Join** (with Linear Multimap and Bloom Filters) is now **~1.4x faster** than SQLite's join engine.
+    - **Single Inserts** are **~5.3x faster** than SQLite.
+    - **Batch Inserts** now outpace SQLite, with raw batch being **~4x faster**.
+    - **Scans** are now **~3.2x faster** than SQLite.
+    - **ID Lookups** are **~10x faster** than SQLite.
+    - **Indexed Searches (1k rows)** are **~14.8x faster** than SQLite, although SQLite scales better at 1 million rows.
+    - **Joins**: Our optimized **Hash Join** is **~2x faster** than SQLite at 1k rows, though SQLite is faster on 100k+ row joins.
 
-*Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s) and a local ephemeral Postgres instance.*
+*Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s).*
