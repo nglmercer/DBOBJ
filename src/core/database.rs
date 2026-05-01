@@ -541,8 +541,61 @@ impl Database {
         })?;
 
         let num_build_rows = build_table.ids.len();
-        if num_build_rows == 0 {
+        let num_probe_rows = probe_table.ids.len();
+        if num_build_rows == 0 || num_probe_rows == 0 {
             return Ok(Vec::new());
+        }
+
+        // --- FAST PATH: Direct Index Join ---
+        // Case 1: Build table is the ID table
+        if build_col == "id" && build_table.is_sequential_ids {
+            let mut results = Vec::new();
+            let build_rows: Vec<crate::core::table::Row> = (0..num_build_rows)
+                .map(|i| build_table.get_row_by_index(i))
+                .collect();
+
+            for i in 0..num_probe_rows {
+                let val = probe_table.get_value_by_index(i, probe_col_idx);
+                if let crate::core::Value::Integer(idx_val) = val {
+                    let idx = idx_val as usize;
+                    if idx < num_build_rows {
+                        let build_row = build_rows[idx].clone();
+                        let probe_row = probe_table.get_row_by_index(i);
+                        if reversed {
+                            results.push((probe_row, build_row));
+                        } else {
+                            results.push((build_row, probe_row));
+                        }
+                    }
+                }
+            }
+            return Ok(results);
+        }
+        
+        // Case 2: Probe table is the ID table
+        if probe_col == "id" && probe_table.is_sequential_ids {
+             let mut results = Vec::new();
+             // Optimization: Use a small cache for probe rows to avoid redundant allocations in N:1 joins
+             let mut probe_row_cache: crate::core::FastHashMap<usize, crate::core::table::Row> = crate::core::FastHashMap::default();
+
+            for i in 0..num_build_rows {
+                let val = build_table.get_value_by_index(i, build_col_idx);
+                if let crate::core::Value::Integer(idx_val) = val {
+                    let idx = idx_val as usize;
+                    if idx < num_probe_rows {
+                        let probe_row = probe_row_cache.entry(idx)
+                            .or_insert_with(|| probe_table.get_row_by_index(idx))
+                            .clone();
+                        let build_row = build_table.get_row_by_index(i);
+                        if reversed {
+                            results.push((probe_row, build_row));
+                        } else {
+                            results.push((build_row, probe_row));
+                        }
+                    }
+                }
+            }
+            return Ok(results);
         }
 
         // Optimize: Use Power-of-2 bucket count for bitwise masking
@@ -574,7 +627,6 @@ impl Database {
             }
         }
 
-        let num_probe_rows = probe_table.ids.len();
         let num_threads = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);

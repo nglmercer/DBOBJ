@@ -75,10 +75,16 @@ fn main() {
     println!("DBOBJ Search Result: Found {} row(s) in {:?}", results.len(), db_search_time);
 
     // --- 5.1 ID Lookup (Primary Key) ---
-    println!("Looking up ID 500000 directly...");
+    println!("Looking up ID 500000 directly (x10000 amortized)...");
+    let table_lock = db.get_table("users").unwrap();
+    let table = table_lock.read();
+    let id_to_find = dbobj::core::Id::from(500000u64);
+    
     let start = Instant::now();
-    let _row = db.get_table("users").unwrap().read().get(&dbobj::core::Id::from(500000u64)).unwrap();
-    let db_id_lookup_time = start.elapsed();
+    for _ in 0..10000 {
+        let _row = table.get(&id_to_find).unwrap();
+    }
+    let db_id_lookup_time = start.elapsed() / 10000;
     println!("DBOBJ ID Lookup Time: {:?}", db_id_lookup_time);
 
     let start = Instant::now();

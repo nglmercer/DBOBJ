@@ -254,13 +254,13 @@ impl Table {
     /// Vec<Value> → Arc<[Value]> in a single alloc cycle.
     pub fn insert_batch_values(&mut self, batch: Vec<Vec<Value>>) -> Result<Vec<Id>, TableError> {
         let batch_size = batch.len();
-        self.data.reserve(batch_size * self.num_columns);
+        let expected_cols = self.num_columns;
+        self.data.reserve(batch_size * expected_cols);
         self.ids.reserve(batch_size);
         self.versions.reserve(batch_size);
         self.id_map.reserve(batch_size);
 
         let mut ids = Vec::with_capacity(batch_size);
-        let expected_cols = self.num_columns;
 
         for mut values in batch {
             if values.len() != expected_cols {
@@ -286,11 +286,16 @@ impl Table {
             for index_obj in self.indexes.values_mut() {
                 let start = index * self.num_columns;
                 let val = &self.data[start + index_obj.col_idx];
-                index_obj
-                    .map
-                    .entry(val.clone())
-                    .or_default()
-                    .push(id.clone());
+                
+                if index_obj.is_unique {
+                    index_obj.unique_map.insert(val.clone(), index);
+                } else {
+                    index_obj
+                        .map
+                        .entry(val.clone())
+                        .or_default()
+                        .push(id.clone());
+                }
             }
             ids.push(id);
         }
@@ -446,6 +451,27 @@ impl Table {
         Ok(())
     }
 
+    pub fn get_index_handle(&self, column_name: &str) -> Option<usize> {
+        self.column_map.get(column_name).copied()
+    }
+
+    pub fn find_unique_by_id(&self, column_idx: usize, value: &Value) -> Option<Row> {
+        // Find index for this column
+        let index = self.indexes.values().find(|idx| idx.col_idx == column_idx)?;
+        
+        let mut lookup_val = value.clone();
+        if let Value::String(s) = value {
+            if let Some(id) = self.string_pool.get_id(s.as_str()) {
+                lookup_val = Value::InternedString(id);
+            }
+        }
+        
+        if index.is_unique {
+            return index.unique_map.get(&lookup_val).map(|&idx| self.get_row_by_index(idx));
+        }
+        None
+    }
+
     pub fn delete(&mut self, id: &Id) -> Option<Row> {
         let idx = self.id_map.remove(id)?;
         self.is_sequential_ids = false;
@@ -528,7 +554,7 @@ impl Table {
         if let Some(index) = self.indexes.get(column_name) {
             let mut lookup_val = value.clone();
             if let Value::String(s) = value {
-                if let Some(id) = self.string_pool.get_id(s) {
+                if let Some(id) = self.string_pool.get_id(s.as_str()) {
                     lookup_val = Value::InternedString(id);
                 }
             }

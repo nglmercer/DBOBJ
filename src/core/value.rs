@@ -30,7 +30,7 @@ impl StringPool {
         }
     }
  
-    pub fn get_id(&self, s: &CompactString) -> Option<u32> {
+    pub fn get_id(&self, s: &str) -> Option<u32> {
         self.string_to_id.get(s).copied()
     }
 
