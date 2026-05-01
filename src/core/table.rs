@@ -507,7 +507,13 @@ impl Table {
     pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<Row> {
         // Use index if available
         if let Some(index) = self.indexes.get(column_name) {
-            if let Some(ids) = index.map.get(value) {
+            let mut lookup_val = value.clone();
+            if let Value::String(s) = value {
+                if let Some(id) = self.string_pool.get_id(s) {
+                    lookup_val = Value::InternedString(id);
+                }
+            }
+            if let Some(ids) = index.map.get(&lookup_val) {
                 return ids.iter().filter_map(|id| self.get(id)).collect();
             }
             return Vec::new();

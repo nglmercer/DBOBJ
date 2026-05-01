@@ -29,6 +29,10 @@ impl StringPool {
             id
         }
     }
+ 
+    pub fn get_id(&self, s: &CompactString) -> Option<u32> {
+        self.string_to_id.get(s).copied()
+    }
 
     pub fn resolve(&self, id: u32) -> Option<&CompactString> {
         self.id_to_string.get(id as usize)
