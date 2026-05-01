@@ -12,32 +12,38 @@ pub struct Database {
     pub wal: Option<Arc<RwLock<crate::storage::wal::Wal>>>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct DatabaseProxy {
-    name: String,
-    tables: FastHashMap<String, Table>,
-    version_log: VersionLog,
-}
 
 impl Serialize for Database {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
+        use serde::ser::SerializeStruct;
         let tables = self.tables.read();
         let version_log = self.version_log.read();
 
-        let mut proxy_tables = FastHashMap::default();
-        for (name, table_lock) in tables.iter() {
-            proxy_tables.insert(name.clone(), table_lock.read().clone());
+        let mut state = serializer.serialize_struct("Database", 3)?;
+        state.serialize_field("name", &self.name)?;
+        
+        // Serialize tables as a map of names to Table objects (read-locked)
+        struct TablesSerializer<'a>(&'a FastHashMap<String, Arc<RwLock<Table>>>);
+        impl Serialize for TablesSerializer<'_> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                use serde::ser::SerializeMap;
+                let mut map = serializer.serialize_map(Some(self.0.len()))?;
+                for (name, table_lock) in self.0.iter() {
+                    map.serialize_entry(name, &*table_lock.read())?;
+                }
+                map.end()
+            }
         }
-
-        let proxy = DatabaseProxy {
-            name: self.name.clone(),
-            tables: proxy_tables,
-            version_log: version_log.clone(),
-        };
-        proxy.serialize(serializer)
+        
+        state.serialize_field("tables", &TablesSerializer(&*tables))?;
+        state.serialize_field("version_log", &*version_log)?;
+        state.end()
     }
 }
 
@@ -46,17 +52,24 @@ impl<'de> Deserialize<'de> for Database {
     where
         D: serde::Deserializer<'de>,
     {
-        let proxy = DatabaseProxy::deserialize(deserializer)?;
+        #[derive(Deserialize)]
+        struct DatabaseData {
+            name: String,
+            tables: FastHashMap<String, Table>,
+            version_log: VersionLog,
+        }
+
+        let data = DatabaseData::deserialize(deserializer)?;
 
         let mut tables = FastHashMap::default();
-        for (name, table) in proxy.tables {
+        for (name, table) in data.tables {
             tables.insert(name, Arc::new(RwLock::new(table)));
         }
 
         Ok(Database {
-            name: proxy.name,
+            name: data.name,
             tables: Arc::new(RwLock::new(tables)),
-            version_log: Arc::new(RwLock::new(proxy.version_log)),
+            version_log: Arc::new(RwLock::new(data.version_log)),
             wal: None,
         })
     }
