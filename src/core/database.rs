@@ -101,19 +101,20 @@ impl Database {
         self.tables.read().get(name).cloned()
     }
 
-    pub fn create_index(
-        &self,
-        table_name: &str,
-        column_name: &str,
-    ) -> Result<(), crate::core::table::TableError> {
+    pub fn create_index(&self, table_name: &str, column_name: &str) -> Result<(), crate::core::table::TableError> {
         let tables = self.tables.read();
-        let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!(
-                "Table {} not found",
-                table_name
-            ))
-        })?;
-        table_lock.write().create_index(column_name.into())
+        let table = tables
+            .get(table_name)
+            .ok_or_else(|| crate::core::table::TableError::InvalidColumn(table_name.to_string()))?;
+        table.write().create_index(column_name)
+    }
+
+    pub fn create_unique_index(&self, table_name: &str, column_name: &str) -> Result<(), crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table = tables
+            .get(table_name)
+            .ok_or_else(|| crate::core::table::TableError::InvalidColumn(table_name.to_string()))?;
+        table.write().create_unique_index(column_name)
     }
 
     pub fn insert_batch(
@@ -578,6 +579,11 @@ impl Database {
             .map(|n| n.get())
             .unwrap_or(1);
 
+        // PRE-CREATE BUILD ROWS (Optimization: avoid allocations in probe loop)
+        let build_rows: Vec<crate::core::table::Row> = (0..num_build_rows)
+            .map(|i| build_table.get_row_by_index(i))
+            .collect();
+
         // PROBE PHASE (Single-threaded fast path)
         if num_probe_rows < 5000 || num_threads <= 1 {
             let mut results = Vec::new();
@@ -591,15 +597,17 @@ impl Database {
                     if (bloom_filter[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
                         let bucket = (h & bucket_mask) as usize;
                         let mut build_idx = heads[bucket];
+                        let mut probe_row_cache = None;
                         
                         while build_idx != -1 {
                             let idx = build_idx as usize;
-                            // Check hash first (fast collision filter)
                             if build_hashes[idx] == h {
-                                // Exact value check
                                 if build_table.get_value_by_index(idx, build_col_idx) == val {
-                                    let build_row = build_table.get_row_by_index(idx);
-                                    let probe_row = probe_table.get_row_by_index(i);
+                                    if probe_row_cache.is_none() {
+                                        probe_row_cache = Some(probe_table.get_row_by_index(i));
+                                    }
+                                    let build_row = build_rows[idx].clone();
+                                    let probe_row = probe_row_cache.as_ref().unwrap().clone();
                                     if reversed {
                                         results.push((probe_row, build_row));
                                     } else {
@@ -622,6 +630,7 @@ impl Database {
         let build_hashes_ref = &build_hashes;
         let bloom_filter_ref = &bloom_filter;
         let hasher_ref = &hasher;
+        let build_rows_ref = &build_rows;
 
         let results = std::thread::scope(|s| {
             let mut handles = Vec::new();
@@ -641,13 +650,17 @@ impl Database {
                             if (bloom_filter_ref[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
                                 let bucket = (h & bucket_mask) as usize;
                                 let mut build_idx = heads_ref[bucket];
+                                let mut probe_row_cache = None;
                                 
                                 while build_idx != -1 {
                                     let idx = build_idx as usize;
                                     if build_hashes_ref[idx] == h {
                                         if build_table.get_value_by_index(idx, build_col_idx) == val {
-                                            let build_row = build_table.get_row_by_index(idx);
-                                            let probe_row = probe_table.get_row_by_index(j);
+                                            if probe_row_cache.is_none() {
+                                                probe_row_cache = Some(probe_table.get_row_by_index(j));
+                                            }
+                                            let build_row = build_rows_ref[idx].clone();
+                                            let probe_row = probe_row_cache.as_ref().unwrap().clone();
                                             if reversed {
                                                 local_results.push((probe_row, build_row));
                                             } else {

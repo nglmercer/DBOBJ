@@ -34,7 +34,9 @@ impl Row {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Index {
     pub col_idx: usize,
+    pub is_unique: bool,
     pub map: crate::core::FastHashMap<Value, Vec<Id>>,
+    pub unique_map: crate::core::FastHashMap<Value, usize>, // Faster path for unique indices
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +52,7 @@ pub struct Table {
     pub string_pool: crate::core::value::StringPool,
     pub next_int_id: u64,
     pub indexes: crate::core::FastHashMap<CompactString, Index>,
+    pub is_sequential_ids: bool, // Optimization: true if IDs are 0, 1, 2...
 }
 
 impl Table {
@@ -72,6 +75,7 @@ impl Table {
             string_pool: crate::core::value::StringPool::default(),
             next_int_id: 0,
             indexes: crate::core::FastHashMap::default(),
+            is_sequential_ids: true,
         }
     }
 
@@ -123,6 +127,7 @@ impl Table {
                 if self.id_map.contains_key(&id) {
                     return Err(TableError::DuplicateId(id));
                 }
+                self.is_sequential_ids = false;
                 id
             }
             None => {
@@ -145,11 +150,16 @@ impl Table {
         for index_obj in self.indexes.values_mut() {
             let start = index * self.num_columns;
             let val = &self.data[start + index_obj.col_idx];
-            index_obj
-                .map
-                .entry(val.clone())
-                .or_default()
-                .push(id.clone());
+            
+            if index_obj.is_unique {
+                index_obj.unique_map.insert(val.clone(), index);
+            } else {
+                index_obj
+                    .map
+                    .entry(val.clone())
+                    .or_default()
+                    .push(id.clone());
+            }
         }
 
         Ok(id)
@@ -390,6 +400,14 @@ impl Table {
     }
 
     pub fn get(&self, id: &Id) -> Option<Row> {
+        if self.is_sequential_ids {
+            if let Id::Integer(i) = id {
+                let idx = *i as usize;
+                if idx < self.ids.len() {
+                    return Some(self.get_row_by_index(idx));
+                }
+            }
+        }
         self.id_map.get(id).map(|&idx| self.get_row_by_index(idx))
     }
 
@@ -430,6 +448,7 @@ impl Table {
 
     pub fn delete(&mut self, id: &Id) -> Option<Row> {
         let idx = self.id_map.remove(id)?;
+        self.is_sequential_ids = false;
         let row = self.get_row_by_index(idx);
 
         let last_idx = self.ids.len() - 1;
@@ -513,7 +532,12 @@ impl Table {
                     lookup_val = Value::InternedString(id);
                 }
             }
-            if let Some(ids) = index.map.get(&lookup_val) {
+            
+            if index.is_unique {
+                if let Some(&idx) = index.unique_map.get(&lookup_val) {
+                    return vec![self.get_row_by_index(idx)];
+                }
+            } else if let Some(ids) = index.map.get(&lookup_val) {
                 return ids.iter().filter_map(|id| self.get(id)).collect();
             }
             return Vec::new();
@@ -534,27 +558,42 @@ impl Table {
         Vec::new()
     }
 
-    pub fn create_index(&mut self, column_name: CompactString) -> Result<(), TableError> {
-        // Validate column exists in schema
-        if !self.schema.columns.iter().any(|c| c.name == column_name) {
-            return Err(TableError::InvalidColumn(column_name.to_string()));
-        }
+    pub fn create_index(&mut self, column_name: &str) -> Result<(), TableError> {
+        self.create_index_internal(column_name, false)
+    }
 
-        let col_idx = *self.column_map.get(column_name.as_str()).unwrap();
+    pub fn create_unique_index(&mut self, column_name: &str) -> Result<(), TableError> {
+        self.create_index_internal(column_name, true)
+    }
+
+    fn create_index_internal(&mut self, column_name: &str, is_unique: bool) -> Result<(), TableError> {
+        let col_idx = *self
+            .column_map
+            .get(column_name)
+            .ok_or_else(|| TableError::InvalidColumn(column_name.to_string()))?;
+
         let mut index = Index {
             col_idx,
+            is_unique,
             map: crate::core::FastHashMap::default(),
+            unique_map: crate::core::FastHashMap::default(),
         };
-        for i in 0..self.ids.len() {
+
+        // Populate index
+        let num_rows = self.ids.len();
+        for i in 0..num_rows {
             let start = i * self.num_columns;
             let val = &self.data[start + col_idx];
-            index
-                .map
-                .entry(val.clone())
-                .or_default()
-                .push(self.ids[i].clone());
+            let id = &self.ids[i];
+            
+            if is_unique {
+                index.unique_map.insert(val.clone(), i);
+            } else {
+                index.map.entry(val.clone()).or_default().push(id.clone());
+            }
         }
-        self.indexes.insert(column_name, index);
+
+        self.indexes.insert(column_name.into(), index);
         Ok(())
     }
 }

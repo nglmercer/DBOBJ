@@ -23,7 +23,7 @@ fn main() {
         ],
     };
     db.create_table("users".to_string(), schema);
-    db.create_index("users", "username").unwrap();
+    db.create_unique_index("users", "username").unwrap();
 
     // --- 2. SQLite Setup ---
     let mut conn = Connection::open_in_memory().unwrap();
