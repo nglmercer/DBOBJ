@@ -76,13 +76,13 @@ cargo bench
 
 | Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) |
 | :--- | :--- | :--- |
-| **Insert (Single)** | **~2,418,730** | ~455,021 |
-| **Insert (Batch)** | **~6,143,260** | ~2,680,533 |
+| **Insert (Single)** | **~2,347,417** | ~543,478 |
+| **Insert (Batch)** | **~10,416,666** | ~3,875,968 |
 | **Insert (Batch Raw)** | **~11,210,510** | - |
-| **Read (ID)** | **~8,111,000** | ~425,767 |
-| **Search (Scan)** | **~41,758** | ~12,776 |
-| **Search (Indexed)** | **~5,622,715** | ~378,931 |
-| **Hash Join (1k rows)** | **~4,089** | ~2,065 |
+| **Read (ID)** | **~9,708,737** | ~513,347 |
+| **Search (Scan)** | **~231,481** | ~72,210 |
+| **Search (Indexed)** | **~6,578,947** | ~400,320 |
+| **Hash Join (1k rows)** | **~4,310** | ~2,141 |
 
 ### 1 Million Row Benchmark (Large Scale)
 
@@ -90,10 +90,10 @@ These results were obtained using the `examples/million_test.rs` script on this 
 
 | Operation | DBOBJ | SQLite (In-Memory) |
 | :--- | :--- | :--- |
-| **Batch Insert (1M)** | **~1,126,482 ops/sec** | ~932,824 ops/sec |
-| **Read (ID Lookup)* ** | **~333,333,333 ops/sec** | ~32,258,064 ops/sec |
-| **Search (Indexed)* **| **~33,333,333 ops/sec** | ~32,258,064 ops/sec |
-| **Hash Join (100k)** | **~33.7 ops/sec** | ~77.6 ops/sec |
+| **Batch Insert (1M)** | **~1,139,113 ops/sec** | ~836,859 ops/sec |
+| **Read (ID Lookup)* ** | **~200,000,000 ops/sec** | ~76,923 ops/sec |
+| **Search (Indexed)* **| **~33,333,333 ops/sec** | ~76,923 ops/sec |
+| **Hash Join (100k)** | **~48.5 ops/sec** | ~19.6 ops/sec |
 
 *\* Using the zero-copy `get_value_by_index` API instead of full `Row` allocation to simulate SQLite's single-column query retrieval (`SELECT id FROM users...`).*
 
@@ -103,11 +103,11 @@ The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-m
 
 - **SQLite** performs exceptionally well as an embedded database but is limited by SQL parsing and B-tree page management.
 - **DBOBJ** wins across all core relational operations:
-    - **Single Inserts** are **~5.3x faster** than SQLite.
+    - **Single Inserts** are **~4.3x faster** than SQLite.
     - **Batch Inserts** now outpace SQLite, with raw batch being **~4x faster**.
     - **Scans** are now **~3.2x faster** than SQLite.
-    - **ID Lookups** are **~10x faster** than SQLite.
-    - **Indexed Searches (1k rows)** are **~14.8x faster** than SQLite, although SQLite scales better at 1 million rows.
-    - **Joins**: Our optimized **Hash Join** is **~2x faster** than SQLite at 1k rows, though SQLite is faster on 100k+ row joins.
+    - **ID Lookups** are **~18.9x faster** than SQLite.
+    - **Indexed Searches (1k rows)** are **~16.4x faster** than SQLite.
+    - **Joins**: Our optimized **Hash Join** is now **~2.5x faster** than SQLite even at 100k rows.
 
 *Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s).*

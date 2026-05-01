@@ -333,6 +333,97 @@ fn bench_search(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_joins(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Joins");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(3));
+
+    let row_count = 1000;
+
+    // 1. DBOBJ Hash Join
+    let db = Database::new("bench_db".to_string());
+    db.create_table(
+        "users".to_string(),
+        Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "id".into(),
+                    data_type: DataType::Integer,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "name".into(),
+                    data_type: DataType::String,
+                    nullable: false,
+                },
+            ],
+        },
+    );
+    db.create_table(
+        "posts".to_string(),
+        Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "user_id".into(),
+                    data_type: DataType::Integer,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "title".into(),
+                    data_type: DataType::String,
+                    nullable: false,
+                },
+            ],
+        },
+    );
+
+    for i in 0..row_count {
+        let mut u = RowData::default();
+        u.insert("id".into(), Value::from(i as i64));
+        u.insert("name".into(), Value::from(format!("user{}", i)));
+        db.insert_row("users", u, None).unwrap();
+
+        let mut p = RowData::default();
+        p.insert("user_id".into(), Value::from(i as i64));
+        p.insert("title".into(), Value::from(format!("post{}", i)));
+        db.insert_row("posts", p, None).unwrap();
+    }
+
+    group.bench_function("DBOBJ Hash Join", |b| {
+        b.iter(|| {
+            let _ = db.hash_join("users", "id", "posts", "user_id").unwrap();
+        })
+    });
+
+    // 2. SQLite Join
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("CREATE TABLE users (id INTEGER, name TEXT)", [])
+        .unwrap();
+    conn.execute("CREATE TABLE posts (user_id INTEGER, title TEXT)", [])
+        .unwrap();
+    for i in 0..row_count {
+        conn.execute(
+            "INSERT INTO users (id, name) VALUES (?1, ?2)",
+            sqlite_params![i as i64, format!("user{}", i)],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO posts (user_id, title) VALUES (?1, ?2)",
+            sqlite_params![i as i64, format!("post{}", i)],
+        )
+        .unwrap();
+    }
+
+    group.bench_function("SQLite Join", |b| {
+        b.iter(|| {
+            let mut stmt = conn.prepare("SELECT users.name, posts.title FROM users JOIN posts ON users.id = posts.user_id").unwrap();
+            let _rows = stmt.query_map([], |_| Ok(())).unwrap().collect::<Vec<_>>();
+        })
+    });
+
+    group.finish();
+}
+
 fn bench_large_joins(c: &mut Criterion) {
     let mut group = c.benchmark_group("LargeJoins");
     group.sample_size(10);
