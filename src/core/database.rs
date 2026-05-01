@@ -1,11 +1,13 @@
 use super::{FastHashMap, Id, RowData, Schema, Table, Value};
 use crate::versioning::{ChangeType, VersionLog};
 use parking_lot::RwLock;
-use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct DatabaseSnapshot {
     pub name: String,
     pub tables: Vec<(String, Table)>,

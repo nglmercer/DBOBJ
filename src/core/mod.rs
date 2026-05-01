@@ -1,7 +1,7 @@
 pub mod database;
 pub mod id;
 pub mod query;
-use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 pub mod table;
 pub mod value;
 
@@ -17,14 +17,25 @@ pub type FastHashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>
 pub type NoHashHashMap<K, V> = std::collections::HashMap<K, V, nohash_hasher::BuildNoHashHasher<K>>;
 pub type RowData = FastHashMap<compact_str::CompactString, Value>;
 
-#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct ColumnDefinition {
     pub name: compact_str::CompactString,
     pub data_type: DataType,
     pub nullable: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum DataType {
     Integer,
     Float,

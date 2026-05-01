@@ -1,9 +1,9 @@
-use rkyv::{Archive, Deserialize, Serialize};
+use dbobj::core::{Id, Value};
 use memmap2::Mmap;
+use rkyv::{Archive, Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
 use std::time::Instant;
-use dbobj::core::{Value, Id};
 
 // Simplified types for Rkyv evaluation
 #[derive(Archive, Deserialize, Serialize, Debug, serde::Serialize, serde::Deserialize)]
@@ -80,12 +80,15 @@ fn main() {
     println!("\n[Rkyv + Mmap]");
     let file = File::open(path).unwrap();
     let mmap = unsafe { Mmap::map(&file).unwrap() };
-    
+
     let start = Instant::now();
     // Zero-copy access from mmap
     let archived_mmap = rkyv::access::<ArchivedEvalDatabase, rkyv::rancor::Error>(&mmap).unwrap();
     println!("Mmap Access Time: {:?}", start.elapsed());
-    println!("Mmap Sample Data: id={}", archived_mmap.tables[0].rows[99999].id);
+    println!(
+        "Mmap Sample Data: id={}",
+        archived_mmap.tables[0].rows[99999].id
+    );
 
     // Speed comparison of lookup
     let start = Instant::now();
@@ -95,7 +98,11 @@ fn main() {
             sum += i.to_native();
         }
     }
-    println!("Scan 100k rows (Archived): {:?} (sum={})", start.elapsed(), sum);
+    println!(
+        "Scan 100k rows (Archived): {:?} (sum={})",
+        start.elapsed(),
+        sum
+    );
 
     std::fs::remove_file(path).ok();
 }

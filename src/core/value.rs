@@ -1,8 +1,17 @@
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 
-use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+)]
 pub enum Value {
     Null,
     Integer(i64),
@@ -13,7 +22,9 @@ pub enum Value {
     Blob(Vec<u8>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct StringPool {
     #[serde(skip)]
     #[rkyv(with = rkyv::with::Skip)]

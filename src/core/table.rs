@@ -1,8 +1,8 @@
 use super::{ColumnDefinition, Id, RowData, Value};
 use compact_str::CompactString;
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
 
 #[derive(Error, Debug)]
 pub enum TableError {
@@ -14,7 +14,9 @@ pub enum TableError {
     SchemaViolation(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Schema {
     pub columns: Vec<ColumnDefinition>,
 }
@@ -32,7 +34,9 @@ impl Row {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Index {
     pub col_idx: usize,
     pub is_unique: bool,
@@ -48,8 +52,16 @@ pub struct Index {
 
 impl Index {
     pub fn prepare_for_archive(&mut self) {
-        self.map_data = self.map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-        self.unique_map_data = self.unique_map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        self.map_data = self
+            .map
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        self.unique_map_data = self
+            .unique_map
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
     }
 
     pub fn rebuild_from_archive(&mut self) {
@@ -60,7 +72,9 @@ impl Index {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct Table {
     pub name: String,
     pub schema: Schema,
@@ -86,30 +100,42 @@ pub struct Table {
 }
 impl Table {
     pub fn prepare_for_archive(&mut self) {
-        self.column_map_data = self.column_map.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        self.column_map_data = self
+            .column_map
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
         self.id_map_data = self.id_map.iter().map(|(k, v)| (k.clone(), *v)).collect();
-        
-        self.indexes_data = self.indexes.iter().map(|(k, v)| {
-            let mut v = v.clone();
-            v.prepare_for_archive();
-            (k.clone(), v)
-        }).collect();
-        
+
+        self.indexes_data = self
+            .indexes
+            .iter()
+            .map(|(k, v)| {
+                let mut v = v.clone();
+                v.prepare_for_archive();
+                (k.clone(), v)
+            })
+            .collect();
+
         self.string_pool.prepare_for_archive();
     }
 
     pub fn rebuild_from_archive(&mut self) {
         self.column_map = self.column_map_data.iter().cloned().collect();
         self.id_map = self.id_map_data.iter().cloned().collect();
-        
-        self.indexes = self.indexes_data.iter().map(|(k, v)| {
-            let mut v = v.clone();
-            v.rebuild_from_archive();
-            (k.clone(), v)
-        }).collect();
-        
+
+        self.indexes = self
+            .indexes_data
+            .iter()
+            .map(|(k, v)| {
+                let mut v = v.clone();
+                v.rebuild_from_archive();
+                (k.clone(), v)
+            })
+            .collect();
+
         self.string_pool.rebuild_from_archive();
-        
+
         self.column_map_data.clear();
         self.id_map_data.clear();
         self.indexes_data.clear();

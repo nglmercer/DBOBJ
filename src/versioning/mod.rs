@@ -1,9 +1,11 @@
 use crate::core::{Id, RowData};
 use chrono::{DateTime, TimeZone, Utc};
+use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
-use rkyv::{Archive, Serialize as RkyvSerialize, Deserialize as RkyvDeserialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub enum ChangeType {
     Insert,
     Update,
@@ -11,7 +13,9 @@ pub enum ChangeType {
     BatchInsert { count: usize },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct VersionEntry {
     pub timestamp_ms: i64,
     pub table_name: String,
@@ -42,7 +46,9 @@ impl VersionEntry {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, Default, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
+)]
 pub struct VersionLog {
     pub entries: Vec<VersionEntry>,
 }

@@ -32,13 +32,14 @@ impl SerializerAdapter for RkyvAdapter {
     }
 
     fn deserialize(&self, bytes: &[u8]) -> Result<Database, StorageError> {
-        use crate::core::database::{DatabaseSnapshot, ArchivedDatabaseSnapshot};
+        use crate::core::database::{ArchivedDatabaseSnapshot, DatabaseSnapshot};
         let archived = rkyv::access::<ArchivedDatabaseSnapshot, rkyv::rancor::Error>(bytes)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
-        
-        let snapshot: DatabaseSnapshot = rkyv::deserialize::<DatabaseSnapshot, rkyv::rancor::Error>(archived)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
-        
+
+        let snapshot: DatabaseSnapshot =
+            rkyv::deserialize::<DatabaseSnapshot, rkyv::rancor::Error>(archived)
+                .map_err(|e| StorageError::Serialization(e.to_string()))?;
+
         Ok(Database::from_snapshot(snapshot))
     }
 }
