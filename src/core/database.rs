@@ -599,17 +599,16 @@ impl Database {
                 .map(|i| build_table.get_row_by_index(i))
                 .collect();
 
-            for i in 0..num_build_rows {
+            for (i, build_row) in build_rows.iter().enumerate() {
                 let val = build_table.get_value_by_index(i, build_col_idx);
                 if let crate::core::Value::Integer(idx_val) = val {
                     let idx = idx_val as usize;
                     if idx < num_probe_rows {
                         let probe_row = probe_table.get_row_by_index(idx);
-                        let build_row = build_rows[i].clone();
                         if reversed {
-                            results.push((probe_row, build_row));
+                            results.push((probe_row, build_row.clone()));
                         } else {
-                            results.push((build_row, probe_row));
+                            results.push((build_row.clone(), probe_row));
                         }
                     }
                 }
@@ -673,18 +672,19 @@ impl Database {
                         while build_idx != -1 {
                             let idx = build_idx as usize;
                             if build_hashes[idx] == h
-                                && build_table.get_value_by_index(idx, build_col_idx) == val {
-                                    if probe_row_cache.is_none() {
-                                        probe_row_cache = Some(probe_table.get_row_by_index(i));
-                                    }
-                                    let build_row = build_rows[idx].clone();
-                                    let probe_row = probe_row_cache.as_ref().unwrap().clone();
-                                    if reversed {
-                                        results.push((probe_row, build_row));
-                                    } else {
-                                        results.push((build_row, probe_row));
-                                    }
+                                && build_table.get_value_by_index(idx, build_col_idx) == val
+                            {
+                                if probe_row_cache.is_none() {
+                                    probe_row_cache = Some(probe_table.get_row_by_index(i));
                                 }
+                                let build_row = build_rows[idx].clone();
+                                let probe_row = probe_row_cache.as_ref().unwrap().clone();
+                                if reversed {
+                                    results.push((probe_row, build_row));
+                                } else {
+                                    results.push((build_row, probe_row));
+                                }
+                            }
                             build_idx = nexts[idx];
                         }
                     }
@@ -728,20 +728,18 @@ impl Database {
                                     let idx = build_idx as usize;
                                     if build_hashes_ref[idx] == h
                                         && build_table.get_value_by_index(idx, build_col_idx) == val
-                                        {
-                                            if probe_row_cache.is_none() {
-                                                probe_row_cache =
-                                                    Some(probe_table.get_row_by_index(j));
-                                            }
-                                            let build_row = build_rows_ref[idx].clone();
-                                            let probe_row =
-                                                probe_row_cache.as_ref().unwrap().clone();
-                                            if reversed {
-                                                local_results.push((probe_row, build_row));
-                                            } else {
-                                                local_results.push((build_row, probe_row));
-                                            }
+                                    {
+                                        if probe_row_cache.is_none() {
+                                            probe_row_cache = Some(probe_table.get_row_by_index(j));
                                         }
+                                        let build_row = build_rows_ref[idx].clone();
+                                        let probe_row = probe_row_cache.as_ref().unwrap().clone();
+                                        if reversed {
+                                            local_results.push((probe_row, build_row));
+                                        } else {
+                                            local_results.push((build_row, probe_row));
+                                        }
+                                    }
                                     build_idx = nexts_ref[idx];
                                 }
                             }

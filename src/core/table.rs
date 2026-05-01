@@ -302,6 +302,7 @@ impl Table {
         Ok(ids)
     }
 
+    #[allow(dead_code)]
     fn validate_schema(&self, data: &RowData) -> Result<(), TableError> {
         for col_def in &self.schema.columns {
             match data.get(&col_def.name) {
@@ -394,9 +395,10 @@ impl Table {
                 let mut val = values[idx].clone();
                 // Resolve interned strings when converting back to a map
                 if let Value::InternedString(id) = val
-                    && let Some(s) = self.string_pool.resolve(id) {
-                        val = Value::String(s.clone());
-                    }
+                    && let Some(s) = self.string_pool.resolve(id)
+                {
+                    val = Value::String(s.clone());
+                }
                 data.insert(col.name.clone(), val);
             }
         }
@@ -405,12 +407,13 @@ impl Table {
 
     pub fn get(&self, id: &Id) -> Option<Row> {
         if self.is_sequential_ids
-            && let Id::Integer(i) = id {
-                let idx = *i as usize;
-                if idx < self.ids.len() {
-                    return Some(self.get_row_by_index(idx));
-                }
+            && let Id::Integer(i) = id
+        {
+            let idx = *i as usize;
+            if idx < self.ids.len() {
+                return Some(self.get_row_by_index(idx));
             }
+        }
         self.id_map.get(id).map(|&idx| self.get_row_by_index(idx))
     }
 
@@ -462,9 +465,10 @@ impl Table {
 
         let mut lookup_val = value.clone();
         if let Value::String(s) = value
-            && let Some(id) = self.string_pool.get_id(s.as_str()) {
-                lookup_val = Value::InternedString(id);
-            }
+            && let Some(id) = self.string_pool.get_id(s.as_str())
+        {
+            lookup_val = Value::InternedString(id);
+        }
 
         if index.is_unique {
             return index
@@ -557,9 +561,10 @@ impl Table {
         if let Some(index) = self.indexes.get(column_name) {
             let mut lookup_val = value.clone();
             if let Value::String(s) = value
-                && let Some(id) = self.string_pool.get_id(s.as_str()) {
-                    lookup_val = Value::InternedString(id);
-                }
+                && let Some(id) = self.string_pool.get_id(s.as_str())
+            {
+                lookup_val = Value::InternedString(id);
+            }
 
             if index.is_unique {
                 if let Some(&idx) = index.unique_map.get(&lookup_val) {

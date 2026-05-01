@@ -33,8 +33,7 @@ impl Wal {
     }
 
     pub fn append(&mut self, entry: &WalEntry) -> std::io::Result<()> {
-        let bytes = serde_json::to_vec(entry)
-            .map_err(std::io::Error::other)?;
+        let bytes = serde_json::to_vec(entry).map_err(std::io::Error::other)?;
         self.file.write_all(&bytes)?;
         self.file.write_all(b"\n")?;
         self.file.flush()?;
@@ -51,8 +50,7 @@ impl Wal {
             if line.is_empty() {
                 continue;
             }
-            let entry: WalEntry = serde_json::from_str(&line)
-                .map_err(std::io::Error::other)?;
+            let entry: WalEntry = serde_json::from_str(&line).map_err(std::io::Error::other)?;
             entries.push(entry);
         }
 
