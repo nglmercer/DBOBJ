@@ -104,7 +104,7 @@ impl Expr {
             Expr::Binary(left, Operator::And, right) => {
                 let left_plan = left.plan(table);
                 let right_plan = right.plan(table);
-                
+
                 match (left_plan, right_plan) {
                     (QueryPlan::IndexScan(t, c, v), _) => {
                         return QueryPlan::IndexFilteredScan(t, c, v, *right.clone());

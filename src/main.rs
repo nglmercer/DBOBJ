@@ -105,7 +105,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Predicate search (e.g., age > 26)
     println!("\nSearching for users with age > 26...");
-    let age_idx = *db.get_table("users").unwrap().read().column_map.get("age").unwrap();
+    let age_idx = *db
+        .get_table("users")
+        .unwrap()
+        .read()
+        .column_map
+        .get("age")
+        .unwrap();
     let older_users = db.query("users", move |row| {
         if let Value::Integer(age) = &row.data[age_idx] {
             *age > 26
@@ -145,14 +151,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Joining 'users' and 'posts' on users.id == posts.user_id...");
     let joined_rows = db.hash_join("users", "id", "posts", "user_id")?;
     println!("Join Results (User + Post):");
-    let user_name_idx = *db.get_table("users").unwrap().read().column_map.get("username").unwrap();
-    let post_title_idx = *db.get_table("posts").unwrap().read().column_map.get("title").unwrap();
-    
+    let user_name_idx = *db
+        .get_table("users")
+        .unwrap()
+        .read()
+        .column_map
+        .get("username")
+        .unwrap();
+    let post_title_idx = *db
+        .get_table("posts")
+        .unwrap()
+        .read()
+        .column_map
+        .get("title")
+        .unwrap();
+
     for (user, post) in joined_rows {
         println!(
             "User: {:?}, Post: {:?}",
-            user.data[user_name_idx],
-            post.data[post_title_idx]
+            user.data[user_name_idx], post.data[post_title_idx]
         );
     }
 
@@ -187,14 +204,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Performing Hash Join on 'username'...");
     let profiles = db.hash_join("users", "username", "metadata", "username")?;
     println!("Joined Profiles:");
-    let user_name_idx = *db.get_table("users").unwrap().read().column_map.get("username").unwrap();
-    let bio_idx = *db.get_table("metadata").unwrap().read().column_map.get("bio").unwrap();
-    
+    let user_name_idx = *db
+        .get_table("users")
+        .unwrap()
+        .read()
+        .column_map
+        .get("username")
+        .unwrap();
+    let bio_idx = *db
+        .get_table("metadata")
+        .unwrap()
+        .read()
+        .column_map
+        .get("bio")
+        .unwrap();
+
     for (user, meta) in profiles {
         println!(
             "User: {:?}, Bio: {:?}",
-            user.data[user_name_idx],
-            meta.data[bio_idx]
+            user.data[user_name_idx], meta.data[bio_idx]
         );
     }
 

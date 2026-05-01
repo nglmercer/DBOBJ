@@ -55,12 +55,7 @@ impl VersionLog {
     }
 
     /// Record a batch insert as a single entry. One timestamp, one String alloc.
-    pub fn record_batch(
-        &mut self,
-        table_name: String,
-        first_id: Id,
-        count: usize,
-    ) {
+    pub fn record_batch(&mut self, table_name: String, first_id: Id, count: usize) {
         let entry = VersionEntry {
             timestamp_ms: Utc::now().timestamp_millis(),
             table_name,

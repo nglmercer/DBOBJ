@@ -43,8 +43,8 @@ pub struct Table {
     pub schema: Schema,
     pub column_map: crate::core::FastHashMap<String, usize>, // Map column name to index
     pub num_columns: usize, // Cached column count for fast validation
-    pub data: Vec<Value>, // ALL row values stored contiguously (Flat storage)
-    pub ids: Vec<Id>, // Contiguous IDs
+    pub data: Vec<Value>,   // ALL row values stored contiguously (Flat storage)
+    pub ids: Vec<Id>,       // Contiguous IDs
     pub versions: Vec<u64>, // Contiguous versions
     pub id_map: crate::core::FastHashMap<Id, usize>, // Fast ID to index lookup
     pub string_pool: crate::core::value::StringPool,
@@ -79,7 +79,7 @@ impl Table {
         let start = index * self.num_columns;
         let end = start + self.num_columns;
         let mut row_data = self.data[start..end].to_vec();
-        
+
         // Resolve interned strings back to CompactString for the public API
         for val in &mut row_data {
             if let Value::InternedString(id) = val {
@@ -135,7 +135,11 @@ impl Table {
         for index_obj in self.indexes.values_mut() {
             let start = index * self.num_columns;
             let val = &self.data[start + index_obj.col_idx];
-            index_obj.map.entry(val.clone()).or_default().push(id.clone());
+            index_obj
+                .map
+                .entry(val.clone())
+                .or_default()
+                .push(id.clone());
         }
 
         Ok(id)
@@ -167,7 +171,11 @@ impl Table {
             for index_obj in self.indexes.values_mut() {
                 let start = index * self.num_columns;
                 let val = &self.data[start + index_obj.col_idx];
-                index_obj.map.entry(val.clone()).or_default().push(id.clone());
+                index_obj
+                    .map
+                    .entry(val.clone())
+                    .or_default()
+                    .push(id.clone());
             }
             ids.push(id);
         }
@@ -175,18 +183,17 @@ impl Table {
         Ok(ids)
     }
 
-    pub fn insert_batch_raw(
-        &mut self,
-        batch: Vec<Box<[Value]>>,
-    ) -> Result<Vec<Id>, TableError> {
+    pub fn insert_batch_raw(&mut self, batch: Vec<Box<[Value]>>) -> Result<Vec<Id>, TableError> {
         let batch_size = batch.len();
-        let mut ids = Vec::with_capacity(batch_size);
-        self.rows.reserve(batch_size);
+        self.data.reserve(batch_size * self.num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
         self.id_map.reserve(batch_size);
+
+        let mut ids = Vec::with_capacity(batch_size);
         let expected_cols = self.num_columns;
 
         for values in batch {
-            // Fast validation: just check column count
             if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
                     "Raw batch row has {} columns, expected {}",
@@ -198,41 +205,44 @@ impl Table {
             let id = Id::Integer(self.next_int_id);
             self.next_int_id += 1;
 
-            let row = Row {
-                id: id.clone(),
-                data: std::sync::Arc::from(values),
-                version: 1,
-            };
+            let mut values_vec = values.into_vec();
+            self.intern_row(&mut values_vec);
+
+            let index = self.ids.len();
+            self.data.extend(values_vec);
+            self.ids.push(id.clone());
+            self.versions.push(1);
+            self.id_map.insert(id.clone(), index);
 
             // Update indexes
-            for index in self.indexes.values_mut() {
-                let val = &row.data[index.col_idx];
-                index.map.entry(val.clone()).or_default().push(id.clone());
+            for index_obj in self.indexes.values_mut() {
+                let start = index * self.num_columns;
+                let val = &self.data[start + index_obj.col_idx];
+                index_obj
+                    .map
+                    .entry(val.clone())
+                    .or_default()
+                    .push(id.clone());
             }
-
-            let index = self.rows.len();
-            self.rows.push(row);
-            self.id_map.insert(id.clone(), index);
             ids.push(id);
         }
-
         Ok(ids)
     }
 
     /// Optimized batch insert accepting Vec<Vec<Value>> directly.
     /// Avoids the Box<[Value]> → Arc<[Value]> double-allocation by going
     /// Vec<Value> → Arc<[Value]> in a single alloc cycle.
-    pub fn insert_batch_values(
-        &mut self,
-        batch: Vec<Vec<Value>>,
-    ) -> Result<Vec<Id>, TableError> {
+    pub fn insert_batch_values(&mut self, batch: Vec<Vec<Value>>) -> Result<Vec<Id>, TableError> {
         let batch_size = batch.len();
-        let mut ids = Vec::with_capacity(batch_size);
-        self.rows.reserve(batch_size);
+        self.data.reserve(batch_size * self.num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
         self.id_map.reserve(batch_size);
+
+        let mut ids = Vec::with_capacity(batch_size);
         let expected_cols = self.num_columns;
 
-        for values in batch {
+        for mut values in batch {
             if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
                     "Batch row has {} columns, expected {}",
@@ -244,24 +254,26 @@ impl Table {
             let id = Id::Integer(self.next_int_id);
             self.next_int_id += 1;
 
-            let row = Row {
-                id: id.clone(),
-                data: std::sync::Arc::from(values),
-                version: 1,
-            };
+            self.intern_row(&mut values);
+
+            let index = self.ids.len();
+            self.data.extend(values);
+            self.ids.push(id.clone());
+            self.versions.push(1);
+            self.id_map.insert(id.clone(), index);
 
             // Update indexes
-            for index in self.indexes.values_mut() {
-                let val = &row.data[index.col_idx];
-                index.map.entry(val.clone()).or_default().push(id.clone());
+            for index_obj in self.indexes.values_mut() {
+                let start = index * self.num_columns;
+                let val = &self.data[start + index_obj.col_idx];
+                index_obj
+                    .map
+                    .entry(val.clone())
+                    .or_default()
+                    .push(id.clone());
             }
-
-            let index = self.rows.len();
-            self.rows.push(row);
-            self.id_map.insert(id.clone(), index);
             ids.push(id);
         }
-
         Ok(ids)
     }
 
@@ -360,64 +372,121 @@ impl Table {
         data
     }
 
-    pub fn get(&self, id: &Id) -> Option<&Row> {
-        self.id_map.get(id).map(|&idx| &self.rows[idx])
+    pub fn get(&self, id: &Id) -> Option<Row> {
+        self.id_map.get(id).map(|&idx| self.get_row_by_index(idx))
     }
 
     pub fn update(&mut self, id: &Id, data: RowData) -> Result<(), TableError> {
-        if let Some(&idx) = self.id_map.get(id) {
-            self.validate_schema(&data)?;
-            let values = self.row_to_values(data);
-            let row = &mut self.rows[idx];
-            row.data = std::sync::Arc::from(values);
-            row.version += 1;
-            Ok(())
-        } else {
-            Err(TableError::SchemaViolation(format!(
-                "Row with ID {} not found",
-                id
-            )))
+        let mut values = self.validate_and_convert(data)?;
+        let idx = *self
+            .id_map
+            .get(id)
+            .ok_or_else(|| TableError::SchemaViolation(format!("ID {} not found", id)))?;
+
+        self.intern_row(&mut values);
+
+        // Update indexes
+        for index_obj in self.indexes.values_mut() {
+            let start = idx * self.num_columns;
+            let old_val = &self.data[start + index_obj.col_idx];
+            let new_val = &values[index_obj.col_idx];
+
+            if old_val != new_val {
+                if let Some(list) = index_obj.map.get_mut(old_val) {
+                    list.retain(|x| x != id);
+                }
+                index_obj
+                    .map
+                    .entry(new_val.clone())
+                    .or_default()
+                    .push(id.clone());
+            }
         }
+
+        let start = idx * self.num_columns;
+        for (i, val) in values.into_iter().enumerate() {
+            self.data[start + i] = val;
+        }
+        self.versions[idx] += 1;
+        Ok(())
     }
 
     pub fn delete(&mut self, id: &Id) -> Option<Row> {
-        if let Some(idx) = self.id_map.remove(id) {
-            if idx < self.rows.len() - 1 {
-                let last_id = &self.rows.last().unwrap().id;
-                self.id_map.insert(last_id.clone(), idx);
-            }
-            Some(self.rows.swap_remove(idx))
+        let idx = self.id_map.remove(id)?;
+        let row = self.get_row_by_index(idx);
+
+        let last_idx = self.ids.len() - 1;
+        if idx < last_idx {
+            let last_id = self.ids.last().unwrap().clone();
+
+            // Move block in data vec
+            let start = idx * self.num_columns;
+            let last_start = last_idx * self.num_columns;
+            self.data
+                .copy_within(last_start..last_start + self.num_columns, start);
+
+            self.ids.swap_remove(idx);
+            self.versions.swap_remove(idx);
+            self.id_map.insert(last_id, idx);
         } else {
-            None
+            self.ids.pop();
+            self.versions.pop();
         }
+
+        self.data.truncate(self.ids.len() * self.num_columns);
+        Some(row)
     }
 
-    pub fn select<F>(&self, predicate: F) -> Vec<&Row>
+    pub fn select<F>(&self, predicate: F) -> Vec<Row>
     where
         F: Fn(&Row) -> bool + Send + Sync,
     {
-        let num_rows = self.rows.len();
-        let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
-        
-        // Only parallelize for larger datasets to avoid thread overhead
+        let num_rows = self.ids.len();
+        let num_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
         if num_rows < 5000 || num_threads <= 1 {
-            return self.rows.iter().filter(|r| predicate(r)).collect();
+            let mut results = Vec::new();
+            for i in 0..num_rows {
+                let row = self.get_row_by_index(i);
+                if predicate(&row) {
+                    results.push(row);
+                }
+            }
+            return results;
         }
 
         let chunk_size = (num_rows + num_threads - 1) / num_threads;
         let predicate_ref = &predicate;
         std::thread::scope(|s| {
             let mut handles = Vec::new();
-            for chunk in self.rows.chunks(chunk_size) {
+            for i in 0..num_threads {
+                let start = i * chunk_size;
+                if start >= num_rows {
+                    break;
+                }
+                let end = (start + chunk_size).min(num_rows);
+
                 handles.push(s.spawn(move || {
-                    chunk.iter().filter(|r| predicate_ref(r)).collect::<Vec<_>>()
+                    let mut local_results = Vec::new();
+                    for idx in start..end {
+                        let row = self.get_row_by_index(idx);
+                        if predicate_ref(&row) {
+                            local_results.push(row);
+                        }
+                    }
+                    local_results
                 }));
             }
-            handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().unwrap())
+                .collect()
         })
     }
 
-    pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<&Row> {
+    pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<Row> {
         // Use index if available
         if let Some(index) = self.indexes.get(column_name) {
             if let Some(ids) = index.map.get(value) {
@@ -428,10 +497,15 @@ impl Table {
 
         // Fallback to linear scan
         if let Some(&col_idx) = self.column_map.get(column_name) {
-            return self.rows
-                .iter()
-                .filter(|r| &r.data[col_idx] == value)
-                .collect();
+            let mut results = Vec::new();
+            for i in 0..self.ids.len() {
+                let start = i * self.num_columns;
+                // Optimized: check value in flat data before reconstructing Row
+                if &self.data[start + col_idx] == value {
+                    results.push(self.get_row_by_index(i));
+                }
+            }
+            return results;
         }
 
         Vec::new()
@@ -448,9 +522,14 @@ impl Table {
             col_idx,
             map: crate::core::FastHashMap::default(),
         };
-        for row in &self.rows {
-            let val = &row.data[col_idx];
-            index.map.entry(val.clone()).or_default().push(row.id.clone());
+        for i in 0..self.ids.len() {
+            let start = i * self.num_columns;
+            let val = &self.data[start + col_idx];
+            index
+                .map
+                .entry(val.clone())
+                .or_default()
+                .push(self.ids[i].clone());
         }
         self.indexes.insert(column_name, index);
         Ok(())

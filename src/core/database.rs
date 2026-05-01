@@ -110,12 +110,15 @@ impl Database {
     ) -> Result<Vec<Id>, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let mut table = table_lock.write();
 
         let ids = table.insert_batch(batch)?;
-        
+
         // Log changes if WAL is enabled
         if let Some(wal_lock) = &self.wal {
             let mut wal = wal_lock.write();
@@ -138,7 +141,7 @@ impl Database {
                 ids.len(),
             );
         }
-        
+
         Ok(ids)
     }
 
@@ -149,7 +152,10 @@ impl Database {
     ) -> Result<Vec<Id>, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let mut table = table_lock.write();
 
@@ -188,7 +194,10 @@ impl Database {
     ) -> Result<Vec<Id>, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let mut table = table_lock.write();
 
@@ -349,7 +358,7 @@ impl Database {
             ))
         })?;
         let table = table_lock.read();
-        Ok(table.select(predicate).into_iter().cloned().collect())
+        Ok(table.select(predicate))
     }
 
     pub fn find(
@@ -366,11 +375,7 @@ impl Database {
             ))
         })?;
         let table = table_lock.read();
-        Ok(table
-            .find_by_column(column_name, &value)
-            .into_iter()
-            .cloned()
-            .collect())
+        Ok(table.find_by_column(column_name, &value))
     }
 
     pub fn join<F>(
@@ -394,9 +399,11 @@ impl Database {
         let t2 = t2_lock.read();
 
         let mut results = Vec::new();
-        for r1 in t1.rows.iter() {
-            for r2 in t2.rows.iter() {
-                if condition(r1, r2) {
+        for i in 0..t1.ids.len() {
+            let r1 = t1.get_row_by_index(i);
+            for j in 0..t2.ids.len() {
+                let r2 = t2.get_row_by_index(j);
+                if condition(&r1, &r2) {
                     results.push((r1.clone(), r2.clone()));
                 }
             }
@@ -436,28 +443,33 @@ impl Database {
                     ))
                 })?;
                 let table = table_lock.read();
-                Ok(table.select(|r| expr.is_true(&r.data, &table.column_map)).into_iter().cloned().collect())
+                Ok(table.select(|r| expr.is_true(&r.data, &table.column_map)))
             }
             crate::core::query::QueryPlan::IndexScan(table_name, col, val) => {
                 let tables = self.tables.read();
                 let table_lock = tables.get(table_name.as_str()).ok_or_else(|| {
-                    crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+                    crate::core::table::TableError::SchemaViolation(format!(
+                        "Table {} not found",
+                        table_name
+                    ))
                 })?;
                 let table = table_lock.read();
-                Ok(table.find_by_column(&col, &val).into_iter().cloned().collect())
+                Ok(table.find_by_column(&col, &val))
             }
             crate::core::query::QueryPlan::IndexFilteredScan(table_name, col, val, expr) => {
                 let tables = self.tables.read();
                 let table_lock = tables.get(table_name.as_str()).ok_or_else(|| {
-                    crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+                    crate::core::table::TableError::SchemaViolation(format!(
+                        "Table {} not found",
+                        table_name
+                    ))
                 })?;
                 let table = table_lock.read();
                 // Get candidates from index
                 let candidates = table.find_by_column(&col, &val);
-                // Filter candidates
-                Ok(candidates.into_iter()
+                Ok(candidates
+                    .into_iter()
                     .filter(|r| expr.is_true(&r.data, &table.column_map))
-                    .cloned()
                     .collect())
             }
         }
@@ -495,20 +507,26 @@ impl Database {
         let t2 = t2_lock.read();
 
         let (build_table, build_col, probe_table, probe_col, reversed) =
-            if t1.rows.len() <= t2.rows.len() {
+            if t1.ids.len() <= t2.ids.len() {
                 (&*t1, col1, &*t2, col2, false)
             } else {
                 (&*t2, col2, &*t1, col1, true)
             };
 
         let build_col_idx = *build_table.column_map.get(build_col).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Column {} not found in {}", build_col, build_table.name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Column {} not found in {}",
+                build_col, build_table.name
+            ))
         })?;
         let probe_col_idx = *probe_table.column_map.get(probe_col).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Column {} not found in {}", probe_col, probe_table.name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Column {} not found in {}",
+                probe_col, probe_table.name
+            ))
         })?;
 
-        let num_build_rows = build_table.rows.len();
+        let num_build_rows = build_table.ids.len();
         if num_build_rows == 0 {
             return Ok(Vec::new());
         }
@@ -516,7 +534,7 @@ impl Database {
         // Optimize: Use Power-of-2 bucket count for bitwise masking
         let buckets_count = (num_build_rows * 2).next_power_of_two();
         let bucket_mask = (buckets_count - 1) as u64;
-        
+
         let mut heads = vec![-1i32; buckets_count];
         let mut nexts = vec![-1i32; num_build_rows];
         let mut build_hashes = vec![0u64; num_build_rows];
@@ -525,13 +543,14 @@ impl Database {
         let mut bloom_filter = [0u64; 1024]; // 64k bits
 
         // BUILD PHASE
-        for (i, row) in build_table.rows.iter().enumerate() {
-            let val = &row.data[build_col_idx];
+        for i in 0..num_build_rows {
+            let start = i * build_table.num_columns;
+            let val = &build_table.data[start + build_col_idx];
             if !val.is_null() {
                 let h = hasher.hash_one(val);
                 build_hashes[i] = h;
 
-                // Update Bloom Filter (h & 0xFFFF is fast bitwise mask for 64k)
+                // Update Bloom Filter
                 let bit = (h & 0xFFFF) as usize;
                 bloom_filter[bit >> 6] |= 1 << (bit & 0x3F);
 
@@ -542,14 +561,17 @@ impl Database {
             }
         }
 
-        let num_probe_rows = probe_table.rows.len();
-        let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+        let num_probe_rows = probe_table.ids.len();
+        let num_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
 
         // PROBE PHASE (Single-threaded fast path)
         if num_probe_rows < 5000 || num_threads <= 1 {
             let mut results = Vec::new();
-            for probe_row in probe_table.rows.iter() {
-                let val = &probe_row.data[probe_col_idx];
+            for i in 0..num_probe_rows {
+                let start = i * probe_table.num_columns;
+                let val = &probe_table.data[start + probe_col_idx];
                 if !val.is_null() {
                     let h = hasher.hash_one(val);
                     let bit = (h & 0xFFFF) as usize;
@@ -563,13 +585,15 @@ impl Database {
                             let idx = build_idx as usize;
                             // Check hash first (fast collision filter)
                             if build_hashes[idx] == h {
-                                let build_row = &build_table.rows[idx];
+                                let build_start = idx * build_table.num_columns;
                                 // Exact value check
-                                if &build_row.data[build_col_idx] == val {
+                                if &build_table.data[build_start + build_col_idx] == val {
+                                    let build_row = build_table.get_row_by_index(idx);
+                                    let probe_row = probe_table.get_row_by_index(i);
                                     if reversed {
-                                        results.push((probe_row.clone(), build_row.clone()));
+                                        results.push((probe_row, build_row));
                                     } else {
-                                        results.push((build_row.clone(), probe_row.clone()));
+                                        results.push((build_row, probe_row));
                                     }
                                 }
                             }
@@ -586,17 +610,21 @@ impl Database {
         let heads_ref = &heads;
         let nexts_ref = &nexts;
         let build_hashes_ref = &build_hashes;
-        let build_rows_ref = &build_table.rows;
         let bloom_filter_ref = &bloom_filter;
         let hasher_ref = &hasher;
-        
+
         let results = std::thread::scope(|s| {
             let mut handles = Vec::new();
-            for chunk in probe_table.rows.chunks(chunk_size) {
+            for i in 0..num_threads {
+                let start_idx = i * chunk_size;
+                if start_idx >= num_probe_rows { break; }
+                let end_idx = (start_idx + chunk_size).min(num_probe_rows);
+
                 handles.push(s.spawn(move || {
                     let mut local_results = Vec::new();
-                    for probe_row in chunk {
-                        let val = &probe_row.data[probe_col_idx];
+                    for j in start_idx..end_idx {
+                        let probe_start = j * probe_table.num_columns;
+                        let val = &probe_table.data[probe_start + probe_col_idx];
                         if !val.is_null() {
                             let h = hasher_ref.hash_one(val);
                             let bit = (h & 0xFFFF) as usize;
@@ -608,12 +636,14 @@ impl Database {
                                 while build_idx != -1 {
                                     let idx = build_idx as usize;
                                     if build_hashes_ref[idx] == h {
-                                        let build_row = &build_rows_ref[idx];
-                                        if &build_row.data[build_col_idx] == val {
+                                        let build_start = idx * build_table.num_columns;
+                                        if &build_table.data[build_start + build_col_idx] == val {
+                                            let build_row = build_table.get_row_by_index(idx);
+                                            let probe_row = probe_table.get_row_by_index(j);
                                             if reversed {
-                                                local_results.push((probe_row.clone(), build_row.clone()));
+                                                local_results.push((probe_row, build_row));
                                             } else {
-                                                local_results.push((build_row.clone(), probe_row.clone()));
+                                                local_results.push((build_row, probe_row));
                                             }
                                         }
                                     }
@@ -625,7 +655,10 @@ impl Database {
                     local_results
                 }));
             }
-            handles.into_iter().flat_map(|h| h.join().unwrap()).collect()
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().unwrap())
+                .collect()
         });
 
         Ok(results)

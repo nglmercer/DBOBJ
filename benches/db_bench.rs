@@ -148,7 +148,7 @@ fn bench_inserts(c: &mut Criterion) {
                 for i in 0..100 {
                     batch.push(vec![
                         Value::from(format!("user_{}", i)),
-                        Value::from(i as i64)
+                        Value::from(i as i64),
                     ]);
                 }
                 batch
@@ -180,7 +180,9 @@ fn bench_inserts(c: &mut Criterion) {
             |batch| {
                 let tx = conn.transaction().unwrap();
                 {
-                    let mut stmt = tx.prepare_cached("INSERT INTO users_batch (username, age) VALUES (?1, ?2)").unwrap();
+                    let mut stmt = tx
+                        .prepare_cached("INSERT INTO users_batch (username, age) VALUES (?1, ?2)")
+                        .unwrap();
                     for (name, age) in batch {
                         stmt.execute(sqlite_params![name, age]).unwrap();
                     }
