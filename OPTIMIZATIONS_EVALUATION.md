@@ -2,7 +2,7 @@
 
 This document evaluates potential optimizations for **DBOBJ** to further increase its performance, focusing particularly on advanced serialization techniques, alternative libraries, and architectural enhancements. 
 
-## 1. Serialization & Deserialization Optimizations
+## 1. Serialization & Deserialization Optimizations [x]
 
 Currently, DBOBJ utilizes `bincode`, `postcard`, and `serde_json`. While `bincode` and `postcard` are fast, they still require an allocation and copying phase during deserialization. We can achieve massive performance gains by evaluating the following libraries:
 
@@ -12,7 +12,7 @@ Currently, DBOBJ utilizes `bincode`, `postcard`, and `serde_json`. While `bincod
 - **Performance Impact:** Deserialization time drops to almost **O(1)** (effectively zero). Startup times for loading the database from disk would become virtually instantaneous, regardless of the database size.
 - **Trade-off:** Requires deriving `Archive`, `Serialize`, and `Deserialize` on all types. Accessing archived types has a slightly different syntax than accessing native Rust types.
 
-### B. `bitcode`
+### B. `bitcode` [x]
 If zero-copy is too invasive for the codebase, `bitcode` is an extremely fast alternative to `bincode` and `postcard`.
 - **How it works:** It uses bit-level packing and doesn't rely on `serde`'s data model, allowing it to bypass Serde's overhead.
 - **Performance Impact:** Often results in smaller payload sizes than `bincode` and can be up to 2x-5x faster at serialization/deserialization.
@@ -29,7 +29,7 @@ If zero-copy is too invasive for the codebase, `bitcode` is an extremely fast al
 
 Since DBOBJ is an in-memory database, memory allocation is likely a major bottleneck during heavy `INSERT` or `UPDATE` operations.
 
-### A. Use a Custom Global Allocator (`mimalloc` or `jemalloc`)
+### A. Use a Custom Global Allocator (`mimalloc` or `jemalloc`)[x]
 The default system allocator in Rust can struggle with high-concurrency allocations. 
 - **Implementation:** Simply drop in `mimalloc` or `jemallocator` in the `Cargo.toml` and configure it in `main.rs`/`lib.rs`.
 - **Impact:** Can improve general database throughput by 10-20% under concurrent workloads by reducing lock contention in the memory allocator.

@@ -118,14 +118,4 @@ We have implemented several low-level optimizations to push performance even fur
 2. **Serialization Engine (`bitcode`)**: Added support for the `bitcode` library, which provides faster serialization and much smaller payload sizes than `bincode` or `postcard`.
 3. **High-Performance String Interning (`string-interner`)**: Replaced the custom string pool with `string-interner`, a state-of-the-art interner for zero-allocation lookups.
 
-### Serialization Benchmarks (10,000 rows)
-
-| Engine | Serialize | Deserialize | Payload Size |
-| :--- | :--- | :--- | :--- |
-| **Bincode** | ~346 µs | ~1.39 ms | 224 KB |
-| **Postcard** | ~451 µs | ~973 µs | 218 KB |
-| **Bitcode** | **~346 µs** | **~904 µs** | **164 KB** |
-
-*Bitcode is ~27% smaller and ~35% faster than Bincode during deserialization.*
-
 *Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s).*
