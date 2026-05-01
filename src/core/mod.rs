@@ -13,6 +13,7 @@ pub use value::Value;
 use serde::{Deserialize, Serialize};
 
 pub type FastHashMap<K, V> = std::collections::HashMap<K, V, ahash::RandomState>;
+pub type NoHashHashMap<K, V> = std::collections::HashMap<K, V, nohash_hasher::BuildNoHashHasher<K>>;
 pub type RowData = FastHashMap<compact_str::CompactString, Value>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

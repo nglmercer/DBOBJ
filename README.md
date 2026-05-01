@@ -110,4 +110,22 @@ The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-m
     - **Indexed Searches (1k rows)** are **~16.4x faster** than SQLite.
     - **Joins**: Our optimized **Hash Join** is now **~2.5x faster** than SQLite even at 100k rows.
 
+## Advanced Optimizations (Implemented)
+
+We have implemented several low-level optimizations to push performance even further:
+
+1. **Global Allocator (`mimalloc`)**: Switched from the system allocator to `mimalloc`, reducing lock contention in multi-threaded environments.
+2. **Serialization Engine (`bitcode`)**: Added support for the `bitcode` library, which provides faster serialization and much smaller payload sizes than `bincode` or `postcard`.
+3. **High-Performance String Interning (`lasso`)**: Replaced the custom string pool with `lasso`, a state-of-the-art interner.
+
+### Serialization Benchmarks (10,000 rows)
+
+| Engine | Serialize | Deserialize | Payload Size |
+| :--- | :--- | :--- | :--- |
+| **Bincode** | ~2.31 ms | ~2.34 ms | 224 KB |
+| **Postcard** | ~1.86 ms | ~1.81 ms | 218 KB |
+| **Bitcode** | **~1.56 ms** | **~1.51 ms** | **164 KB** |
+
+*Bitcode is ~27% smaller and ~35% faster than Bincode.*
+
 *Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s).*

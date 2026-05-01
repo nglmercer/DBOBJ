@@ -14,32 +14,28 @@ pub enum Value {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StringPool {
-    id_to_string: Vec<CompactString>,
-    string_to_id: crate::core::FastHashMap<CompactString, u32>,
+    interner: string_interner::StringInterner<string_interner::DefaultBackend>,
 }
 
 impl StringPool {
     pub fn intern(&mut self, s: CompactString) -> u32 {
-        if let Some(&id) = self.string_to_id.get(&s) {
-            id
-        } else {
-            let id = self.id_to_string.len() as u32;
-            self.string_to_id.insert(s.clone(), id);
-            self.id_to_string.push(s);
-            id
-        }
+        use string_interner::Symbol;
+        self.interner.get_or_intern(s.as_str()).to_usize() as u32
     }
 
     pub fn get_id(&self, s: &str) -> Option<u32> {
-        self.string_to_id.get(s).copied()
+        use string_interner::Symbol;
+        self.interner.get(s).map(|s| s.to_usize() as u32)
     }
 
-    pub fn resolve(&self, id: u32) -> Option<&CompactString> {
-        self.id_to_string.get(id as usize)
+    pub fn resolve(&self, id: u32) -> Option<CompactString> {
+        use string_interner::Symbol;
+        let symbol = string_interner::DefaultSymbol::try_from_usize(id as usize)?;
+        self.interner.resolve(symbol).map(CompactString::from)
     }
-    pub fn reserve(&mut self, additional: usize) {
-        self.id_to_string.reserve(additional);
-        self.string_to_id.reserve(additional);
+
+    pub fn reserve(&mut self, _additional: usize) {
+        // string-interner handles resizing
     }
 }
 

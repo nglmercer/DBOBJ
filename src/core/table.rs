@@ -390,7 +390,7 @@ impl Table {
                 if let Value::InternedString(id) = val
                     && let Some(s) = self.string_pool.resolve(id)
                 {
-                    val = Value::String(s.clone());
+                    val = Value::String(s);
                 }
                 data.insert(col.name.clone(), val);
             }
