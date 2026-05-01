@@ -76,13 +76,13 @@ cargo bench
 
 | Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Postgres (Ops/sec) |
 | :--- | :--- | :--- | :--- |
-| **Insert (Single)** | **~1,554,001** | ~421,310 | ~423 |
-| **Insert (Batch)** | **~2,124,150** | ~2,763,088 | - |
-| **Insert (Batch Raw)** | **~2,681,965** | - | - |
-| **Read (ID)** | **~26,872,484** | ~426,119 | ~9,430 |
-| **Search (Scan)** | **~56,411** | ~12,177 | - |
-| **Search (Indexed)** | **~7,555,932** | ~381,046 | - |
-| **Hash Join (1k rows)** | **~5,018** | ~2,115 | - |
+| **Insert (Single)** | **~1,555,209** | ~421,310 | ~423 |
+| **Insert (Batch)** | **~2,127,659** | ~2,763,088 | - |
+| **Insert (Batch Raw)** | **~2,702,702** | - | - |
+| **Read (ID)** | **~27,027,027** | ~426,119 | ~9,430 |
+| **Search (Scan)** | **~54,945** | ~12,177 | - |
+| **Search (Indexed)** | **~7,518,796** | ~381,046 | - |
+| **Hash Join (1k rows)** | **~8,196** | ~2,115 | - |
 
 ### Conclusion
 
@@ -93,9 +93,9 @@ The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-m
 - **DBOBJ** wins across all core relational operations:
     - **Single Inserts** are **~3.7x faster** than SQLite.
     - **Batch Inserts** now rival SQLite's transactioned batch performance, with raw batch essentially **matching** SQLite.
-    - **Scans** are now **~4.6x faster** than SQLite thanks to our zero-hashing positional storage.
+    - **Scans** are now **~4.5x faster** than SQLite thanks to our zero-hashing positional storage.
     - **ID Lookups** are **~63x faster** than SQLite.
-    - **Indexed Searches** are **~19.8x faster** than SQLite.
-    - **Joins**: Our optimized **Hash Join** (with Bloom Filters and Dense Access) is now **~2.4x faster** than SQLite's join engine.
+    - **Indexed Searches** are **~19.7x faster** than SQLite.
+    - **Joins**: Our optimized **Hash Join** (with Linear Multimap and Bloom Filters) is now **~3.8x faster** than SQLite's join engine.
 
 *Note: These benchmarks were run on this machine with limited resources (sample size: 10, measurement time: 3s) and a local ephemeral Postgres instance.*

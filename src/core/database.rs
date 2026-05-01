@@ -508,48 +508,72 @@ impl Database {
             crate::core::table::TableError::SchemaViolation(format!("Column {} not found in {}", probe_col, probe_table.name))
         })?;
 
-        let hasher = ahash::RandomState::new();
-        let mut bloom_filter = [0u64; 1024]; // 8KB bloom filter (64k bits)
-        let mut hash_map = FastHashMap::with_capacity_and_hasher(
-            build_table.rows.len(),
-            ahash::RandomState::new(),
-        );
+        let num_build_rows = build_table.rows.len();
+        if num_build_rows == 0 {
+            return Ok(Vec::new());
+        }
 
-        for row in build_table.rows.iter() {
+        // Optimize: Use Power-of-2 bucket count for bitwise masking
+        let buckets_count = (num_build_rows * 2).next_power_of_two();
+        let bucket_mask = (buckets_count - 1) as u64;
+        
+        let mut heads = vec![-1i32; buckets_count];
+        let mut nexts = vec![-1i32; num_build_rows];
+        let mut build_hashes = vec![0u64; num_build_rows];
+
+        let hasher = ahash::RandomState::new();
+        let mut bloom_filter = [0u64; 1024]; // 64k bits
+
+        // BUILD PHASE
+        for (i, row) in build_table.rows.iter().enumerate() {
             let val = &row.data[build_col_idx];
             if !val.is_null() {
-                // Add to Bloom Filter
                 let h = hasher.hash_one(val);
-                let bit = (h % (1024 * 64)) as usize;
-                bloom_filter[bit / 64] |= 1 << (bit % 64);
+                build_hashes[i] = h;
 
-                hash_map
-                    .entry(val.clone())
-                    .or_insert_with(Vec::new)
-                    .push(row);
+                // Update Bloom Filter (h & 0xFFFF is fast bitwise mask for 64k)
+                let bit = (h & 0xFFFF) as usize;
+                bloom_filter[bit >> 6] |= 1 << (bit & 0x3F);
+
+                // Update Linear Multimap
+                let bucket = (h & bucket_mask) as usize;
+                nexts[i] = heads[bucket];
+                heads[bucket] = i as i32;
             }
         }
 
         let num_probe_rows = probe_table.rows.len();
         let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
 
+        // PROBE PHASE (Single-threaded fast path)
         if num_probe_rows < 5000 || num_threads <= 1 {
             let mut results = Vec::new();
             for probe_row in probe_table.rows.iter() {
                 let val = &probe_row.data[probe_col_idx];
                 if !val.is_null() {
-                    // Fast Bloom Filter check
                     let h = hasher.hash_one(val);
-                    let bit = (h % (1024 * 64)) as usize;
-                    if (bloom_filter[bit / 64] & (1 << (bit % 64))) != 0 {
-                        if let Some(matches) = hash_map.get(val) {
-                            for build_row in matches {
-                                if reversed {
-                                    results.push((probe_row.clone(), (*build_row).clone()));
-                                } else {
-                                    results.push(((*build_row).clone(), probe_row.clone()));
+                    let bit = (h & 0xFFFF) as usize;
+
+                    // Fast Bloom Filter check
+                    if (bloom_filter[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
+                        let bucket = (h & bucket_mask) as usize;
+                        let mut build_idx = heads[bucket];
+                        
+                        while build_idx != -1 {
+                            let idx = build_idx as usize;
+                            // Check hash first (fast collision filter)
+                            if build_hashes[idx] == h {
+                                let build_row = &build_table.rows[idx];
+                                // Exact value check
+                                if &build_row.data[build_col_idx] == val {
+                                    if reversed {
+                                        results.push((probe_row.clone(), build_row.clone()));
+                                    } else {
+                                        results.push((build_row.clone(), probe_row.clone()));
+                                    }
                                 }
                             }
+                            build_idx = nexts[idx];
                         }
                     }
                 }
@@ -557,8 +581,12 @@ impl Database {
             return Ok(results);
         }
 
+        // PROBE PHASE (Multi-threaded)
         let chunk_size = (num_probe_rows + num_threads - 1) / num_threads;
-        let hash_map_ref = &hash_map;
+        let heads_ref = &heads;
+        let nexts_ref = &nexts;
+        let build_hashes_ref = &build_hashes;
+        let build_rows_ref = &build_table.rows;
         let bloom_filter_ref = &bloom_filter;
         let hasher_ref = &hasher;
         
@@ -570,18 +598,26 @@ impl Database {
                     for probe_row in chunk {
                         let val = &probe_row.data[probe_col_idx];
                         if !val.is_null() {
-                            // Fast Bloom Filter check
                             let h = hasher_ref.hash_one(val);
-                            let bit = (h % (1024 * 64)) as usize;
-                            if (bloom_filter_ref[bit / 64] & (1 << (bit % 64))) != 0 {
-                                if let Some(matches) = hash_map_ref.get(val) {
-                                    for build_row in matches {
-                                        if reversed {
-                                            local_results.push((probe_row.clone(), (*build_row).clone()));
-                                        } else {
-                                            local_results.push(((*build_row).clone(), probe_row.clone()));
+                            let bit = (h & 0xFFFF) as usize;
+
+                            if (bloom_filter_ref[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
+                                let bucket = (h & bucket_mask) as usize;
+                                let mut build_idx = heads_ref[bucket];
+                                
+                                while build_idx != -1 {
+                                    let idx = build_idx as usize;
+                                    if build_hashes_ref[idx] == h {
+                                        let build_row = &build_rows_ref[idx];
+                                        if &build_row.data[build_col_idx] == val {
+                                            if reversed {
+                                                local_results.push((probe_row.clone(), build_row.clone()));
+                                            } else {
+                                                local_results.push((build_row.clone(), probe_row.clone()));
+                                            }
                                         }
                                     }
+                                    build_idx = nexts_ref[idx];
                                 }
                             }
                         }
