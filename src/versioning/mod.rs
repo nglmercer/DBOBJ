@@ -7,6 +7,7 @@ pub enum ChangeType {
     Insert,
     Update,
     Delete,
+    BatchInsert { count: usize },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,6 +50,23 @@ impl VersionLog {
             row_id,
             change_type,
             data,
+        };
+        self.entries.push(entry);
+    }
+
+    /// Record a batch insert as a single entry. One timestamp, one String alloc.
+    pub fn record_batch(
+        &mut self,
+        table_name: String,
+        first_id: Id,
+        count: usize,
+    ) {
+        let entry = VersionEntry {
+            timestamp_ms: Utc::now().timestamp_millis(),
+            table_name,
+            row_id: first_id,
+            change_type: ChangeType::BatchInsert { count },
+            data: None,
         };
         self.entries.push(entry);
     }

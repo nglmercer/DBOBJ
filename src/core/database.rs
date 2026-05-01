@@ -130,17 +130,13 @@ impl Database {
             }
         }
 
-        // Record in version log (lightweight: no data payload for batch inserts)
-        {
-            let mut log = self.version_log.write();
-            for id in &ids {
-                log.record(
-                    table_name.to_string(),
-                    id.clone(),
-                    ChangeType::Insert,
-                    None,
-                );
-            }
+        // Record batch in version log (single entry)
+        if let Some(first_id) = ids.first() {
+            self.version_log.write().record_batch(
+                table_name.to_string(),
+                first_id.clone(),
+                ids.len(),
+            );
         }
         
         Ok(ids)
@@ -173,17 +169,52 @@ impl Database {
             }
         }
 
-        // Record in version log (lightweight: no data payload for batch inserts)
-        {
-            let mut log = self.version_log.write();
+        // Record batch in version log (single entry)
+        if let Some(first_id) = ids.first() {
+            self.version_log.write().record_batch(
+                table_name.to_string(),
+                first_id.clone(),
+                ids.len(),
+            );
+        }
+
+        Ok(ids)
+    }
+
+    pub fn insert_batch_values(
+        &self,
+        table_name: &str,
+        batch: Vec<Vec<Value>>,
+    ) -> Result<Vec<Id>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        let mut table = table_lock.write();
+
+        let ids = table.insert_batch_values(batch)?;
+
+        // Log changes if WAL is enabled
+        if let Some(wal_lock) = &self.wal {
+            let mut wal = wal_lock.write();
             for id in &ids {
-                log.record(
-                    table_name.to_string(),
-                    id.clone(),
-                    ChangeType::Insert,
-                    None,
-                );
+                let row = table.get(id).unwrap();
+                let _ = wal.append(&crate::storage::wal::WalEntry {
+                    table_name: table_name.to_string(),
+                    row_id: id.clone(),
+                    change_type: ChangeType::Insert,
+                    data: Some(table.values_to_row(&row.data)),
+                });
             }
+        }
+
+        // Record batch in version log (single entry)
+        if let Some(first_id) = ids.first() {
+            self.version_log.write().record_batch(
+                table_name.to_string(),
+                first_id.clone(),
+                ids.len(),
+            );
         }
 
         Ok(ids)
@@ -606,6 +637,9 @@ impl Database {
                 }
                 ChangeType::Delete => {
                     let _ = self.delete_row(&entry.table_name, &entry.row_id);
+                }
+                ChangeType::BatchInsert { .. } => {
+                    // Batch inserts are replayed via WAL entries (individual inserts)
                 }
             }
         }

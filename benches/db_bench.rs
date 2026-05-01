@@ -123,7 +123,7 @@ fn bench_inserts(c: &mut Criterion) {
         )
     });
 
-    // 4.5 DBOBJ Batch Raw
+    // 4.5 DBOBJ Batch Values (optimized)
     group.bench_function("DBOBJ Batch Raw Insert (100 rows)", |b| {
         let db = Database::new("bench_db".to_string());
         let schema = Schema {
@@ -149,12 +149,12 @@ fn bench_inserts(c: &mut Criterion) {
                     batch.push(vec![
                         Value::from(format!("user_{}", i)),
                         Value::from(i as i64)
-                    ].into_boxed_slice());
+                    ]);
                 }
                 batch
             },
             |batch| {
-                db.insert_batch_raw("users_batch_raw", batch).unwrap();
+                db.insert_batch_values("users_batch_raw", batch).unwrap();
             },
             BatchSize::SmallInput,
         )

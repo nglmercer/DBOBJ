@@ -42,6 +42,7 @@ pub struct Table {
     pub name: String,
     pub schema: Schema,
     pub column_map: crate::core::FastHashMap<String, usize>, // Map column name to index
+    pub num_columns: usize, // Cached column count for fast validation
     pub rows: Vec<Row>, // Contiguous storage for better cache locality
     pub id_map: crate::core::FastHashMap<Id, usize>, // Fast ID lookup
     pub next_int_id: u64,
@@ -54,11 +55,13 @@ impl Table {
         for (i, col) in schema.columns.iter().enumerate() {
             column_map.insert(col.name.to_string(), i);
         }
+        let num_columns = schema.columns.len();
 
         Self {
             name,
             schema,
             column_map,
+            num_columns,
             rows: Vec::new(),
             id_map: crate::core::FastHashMap::default(),
             next_int_id: 1,
@@ -142,14 +145,61 @@ impl Table {
         let mut ids = Vec::with_capacity(batch_size);
         self.rows.reserve(batch_size);
         self.id_map.reserve(batch_size);
+        let expected_cols = self.num_columns;
 
         for values in batch {
             // Fast validation: just check column count
-            if values.len() != self.schema.columns.len() {
+            if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
                     "Raw batch row has {} columns, expected {}",
                     values.len(),
-                    self.schema.columns.len()
+                    expected_cols
+                )));
+            }
+
+            let id = Id::Integer(self.next_int_id);
+            self.next_int_id += 1;
+
+            let row = Row {
+                id: id.clone(),
+                data: std::sync::Arc::from(values),
+                version: 1,
+            };
+
+            // Update indexes
+            for index in self.indexes.values_mut() {
+                let val = &row.data[index.col_idx];
+                index.map.entry(val.clone()).or_default().push(id.clone());
+            }
+
+            let index = self.rows.len();
+            self.rows.push(row);
+            self.id_map.insert(id.clone(), index);
+            ids.push(id);
+        }
+
+        Ok(ids)
+    }
+
+    /// Optimized batch insert accepting Vec<Vec<Value>> directly.
+    /// Avoids the Box<[Value]> → Arc<[Value]> double-allocation by going
+    /// Vec<Value> → Arc<[Value]> in a single alloc cycle.
+    pub fn insert_batch_values(
+        &mut self,
+        batch: Vec<Vec<Value>>,
+    ) -> Result<Vec<Id>, TableError> {
+        let batch_size = batch.len();
+        let mut ids = Vec::with_capacity(batch_size);
+        self.rows.reserve(batch_size);
+        self.id_map.reserve(batch_size);
+        let expected_cols = self.num_columns;
+
+        for values in batch {
+            if values.len() != expected_cols {
+                return Err(TableError::SchemaViolation(format!(
+                    "Batch row has {} columns, expected {}",
+                    values.len(),
+                    expected_cols
                 )));
             }
 
