@@ -1,7 +1,6 @@
 use super::{FastHashMap, Id, RowData, Schema, Table, Value};
 use crate::versioning::{ChangeType, VersionLog};
 use parking_lot::RwLock;
-use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

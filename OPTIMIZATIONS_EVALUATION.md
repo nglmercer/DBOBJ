@@ -6,7 +6,7 @@ This document evaluates potential optimizations for **DBOBJ** to further increas
 
 Currently, DBOBJ utilizes `bincode`, `postcard`, and `serde_json`. While `bincode` and `postcard` are fast, they still require an allocation and copying phase during deserialization. We can achieve massive performance gains by evaluating the following libraries:
 
-### A. Zero-Copy Deserialization with `rkyv` (Highly Recommended)
+### A. Zero-Copy Deserialization with `rkyv` (Highly Recommended) [x]
 `rkyv` is widely considered the fastest serialization framework in the Rust ecosystem. 
 - **How it works:** Instead of allocating memory and copying bytes into Rust structs, `rkyv` formats the serialized data so that it matches the memory layout of the structs. You can simply cast a byte buffer to the struct type and access it immediately.
 - **Performance Impact:** Deserialization time drops to almost **O(1)** (effectively zero). Startup times for loading the database from disk would become virtually instantaneous, regardless of the database size.
@@ -34,7 +34,7 @@ The default system allocator in Rust can struggle with high-concurrency allocati
 - **Implementation:** Simply drop in `mimalloc` or `jemallocator` in the `Cargo.toml` and configure it in `main.rs`/`lib.rs`.
 - **Impact:** Can improve general database throughput by 10-20% under concurrent workloads by reducing lock contention in the memory allocator.
 
-### B. Memory-Mapped Files (`mmap`)
+### B. Memory-Mapped Files (`mmap`) 
 Instead of reading the entire database file into memory via standard file I/O:
 - **Implementation:** Use the `memmap2` crate. Map the `.db` file directly into memory and pair this with a zero-copy library like `rkyv`.
 - **Impact:** The OS handles paging data in and out of RAM. This significantly reduces memory overhead, prevents Out-Of-Memory (OOM) crashes on large datasets, and enables instant database loading.

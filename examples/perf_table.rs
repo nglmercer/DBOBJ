@@ -1,6 +1,6 @@
 use dbobj::core::{ColumnDefinition, DataType, Database, Schema, Value};
 use rusqlite::{Connection, params as sqlite_params};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 fn main() {
     let row_count = 100_000;

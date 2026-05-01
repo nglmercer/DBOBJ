@@ -1,6 +1,5 @@
 use super::{ColumnDefinition, Id, RowData, Value};
 use compact_str::CompactString;
-use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
