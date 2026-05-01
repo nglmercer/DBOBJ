@@ -2,6 +2,9 @@ use dbobj::core::{Database, Expr, Id, Operator, RowData, Schema, Value};
 use dbobj::storage::{Storage, wal::Wal};
 use std::sync::Arc;
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- DBOBJ Proof of Concept (Optimized) ---");
 
@@ -48,8 +51,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Inserted Bob with ID: {}", id2);
 
     // 4. Persistence
-    use dbobj::storage::PostcardAdapter;
-    let storage = Storage::new("my_database.db", PostcardAdapter);
+    use dbobj::storage::BitcodeAdapter;
+    let storage = Storage::new("my_database.db", BitcodeAdapter);
     println!("Saving database to my_database.db...");
     storage.save(&db)?;
 
@@ -57,12 +60,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let postcard_bytes = postcard::to_stdvec(&*db)?;
     let bincode_config = bincode::config::standard();
     let bincode_bytes = bincode::serde::encode_to_vec(&*db, bincode_config)?;
+    let bitcode_bytes = bitcode::serialize(&*db)?;
     println!("--- Size Comparison ---");
     println!("Bincode size: {} bytes", bincode_bytes.len());
     println!("Postcard size: {} bytes", postcard_bytes.len());
+    println!("Bitcode size: {} bytes", bitcode_bytes.len());
     println!(
-        "Postcard is {:.1}% smaller",
-        (1.0 - (postcard_bytes.len() as f64 / bincode_bytes.len() as f64)) * 100.0
+        "Bitcode is {:.1}% smaller than Bincode",
+        (1.0 - (bitcode_bytes.len() as f64 / bincode_bytes.len() as f64)) * 100.0
     );
 
     // 5. Demonstrate Backups

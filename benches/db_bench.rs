@@ -511,9 +511,83 @@ fn bench_large_joins(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_serialization(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Serialization");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(3));
+
+    let db = Database::new("bench_db".to_string());
+    db.create_table(
+        "users".to_string(),
+        Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "id".into(),
+                    data_type: DataType::Integer,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "name".into(),
+                    data_type: DataType::String,
+                    nullable: false,
+                },
+            ],
+        },
+    );
+
+    let mut batch = Vec::with_capacity(10_000);
+    for i in 0..10_000 {
+        batch.push(vec![Value::from(i as i64), Value::from(format!("user_{}", i))]);
+    }
+    db.insert_batch_values("users", batch).unwrap();
+
+    let bincode_config = bincode::config::standard();
+    let bincode_bytes = bincode::serde::encode_to_vec(&db, bincode_config).unwrap();
+    let postcard_bytes = postcard::to_stdvec(&db).unwrap();
+    let bitcode_bytes = bitcode::serialize(&db).unwrap();
+
+    group.bench_function("Bincode Serialize", |b| {
+        b.iter(|| {
+            bincode::serde::encode_to_vec(&db, bincode_config).unwrap();
+        })
+    });
+
+    group.bench_function("Postcard Serialize", |b| {
+        b.iter(|| {
+            postcard::to_stdvec(&db).unwrap();
+        })
+    });
+
+    group.bench_function("Bitcode Serialize", |b| {
+        b.iter(|| {
+            bitcode::serialize(&db).unwrap();
+        })
+    });
+
+    group.bench_function("Bincode Deserialize", |b| {
+        b.iter(|| {
+            let _: (Database, usize) = bincode::serde::decode_from_slice(&bincode_bytes, bincode_config).unwrap();
+        })
+    });
+
+    group.bench_function("Postcard Deserialize", |b| {
+        b.iter(|| {
+            let _: Database = postcard::from_bytes(&postcard_bytes).unwrap();
+        })
+    });
+
+    group.bench_function("Bitcode Deserialize", |b| {
+        b.iter(|| {
+            let _: Database = bitcode::deserialize(&bitcode_bytes).unwrap();
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_inserts, bench_reads, bench_search, bench_joins, bench_large_joins
+    targets = bench_inserts, bench_reads, bench_search, bench_joins, bench_large_joins, bench_serialization
 );
 criterion_main!(benches);
