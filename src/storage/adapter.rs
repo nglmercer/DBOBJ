@@ -12,11 +12,14 @@ pub struct BitcodeAdapter;
 
 impl SerializerAdapter for BitcodeAdapter {
     fn serialize(&self, db: &Database) -> Result<Vec<u8>, StorageError> {
-        bitcode::serialize(db).map_err(|e| StorageError::Serialization(e.to_string()))
+        let snapshot = db.snapshot();
+        bitcode::serialize(&snapshot).map_err(|e| StorageError::Serialization(e.to_string()))
     }
 
     fn deserialize(&self, bytes: &[u8]) -> Result<Database, StorageError> {
-        bitcode::deserialize(bytes).map_err(|e| StorageError::Serialization(e.to_string()))
+        let snapshot: crate::core::database::DatabaseSnapshot =
+            bitcode::deserialize(bytes).map_err(|e| StorageError::Serialization(e.to_string()))?;
+        Ok(Database::from_snapshot(snapshot))
     }
 }
 
