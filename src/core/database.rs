@@ -537,7 +537,7 @@ impl Database {
                     ))
                 })?;
                 let table = table_lock.read();
-                Ok(table.select(|r| expr.is_true(r, &table.column_map)))
+                Ok(table.select(|r| expr.is_true(r, &table.column_map, &table)))
             }
             crate::core::query::QueryPlan::IndexScan(table_name, col, val) => {
                 let tables = self.tables.read();
@@ -563,7 +563,7 @@ impl Database {
                 let candidates = table.find_by_column(&col, &val);
                 Ok(candidates
                     .into_iter()
-                    .filter(|r| expr.is_true(r, &table.column_map))
+                    .filter(|r| expr.is_true(r, &table.column_map, &table))
                     .collect())
             }
         }

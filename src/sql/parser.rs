@@ -46,6 +46,13 @@ impl SqlParser {
     pub fn map_expr(sql_expr: &SqlExpr) -> Result<Expr, String> {
         match sql_expr {
             SqlExpr::Identifier(ident) => Ok(Expr::Column(CompactString::from(ident.value.clone()))),
+            SqlExpr::CompoundIdentifier(parts) => {
+                // If it's table.column, we try to match just column if possible,
+                // but for now let's just use the last part as the column name
+                // to match our internal RowData which is just column names.
+                // In a more complex system, we'd need to know the table context.
+                Ok(Expr::Column(CompactString::from(parts.last().unwrap().value.clone())))
+            }
             SqlExpr::Value(val_with_span) => Ok(Expr::Literal(Self::map_value(&val_with_span.value)?)),
             SqlExpr::BinaryOp { left, op, right } => {
                 let l = Box::new(Self::map_expr(left)?);

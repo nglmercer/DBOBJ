@@ -1,6 +1,9 @@
-use crate::core::{Database, RowData, ColumnDefinition, Schema};
+use crate::core::{Database, RowData, ColumnDefinition, Schema, Value};
 use crate::sql::parser::SqlParser;
-use sqlparser::ast::{Statement, SetExpr, Query, TableFactor, Expr as SqlExpr, TableObject};
+use sqlparser::ast::{
+    AlterTableOperation, AssignmentTarget, Expr as SqlExpr, FromTable, Join, JoinConstraint,
+    JoinOperator, Query, SetExpr, Statement, TableFactor, TableObject,
+};
 use compact_str::CompactString;
 
 pub struct SqlExecutor<'a> {
@@ -72,16 +75,186 @@ impl<'a> SqlExecutor<'a> {
                             rows.push(row_data);
                         }
                         for row in rows {
-                            self.db.insert_row(&table_name_str, row, None)
+                                self.db
+                                    .insert_row(&table_name_str, row, None)
                                 .map_err(|e| e.to_string())?;
                         }
                     }
                 }
                 Ok(SqlResult::Ok)
             }
-            Statement::Query(query) => {
-                self.execute_query(*query)
+            Statement::Update(update) => {
+                let table_name = match &update.table.relation {
+                    TableFactor::Table { name, .. } => name.to_string(),
+                    _ => return Err("Unsupported table relation in UPDATE".to_string()),
+                };
+
+                let table_lock = self
+                    .db
+                    .get_table(&table_name)
+                    .ok_or_else(|| format!("Table {} not found", table_name))?;
+
+                // Pre-populate id_map if needed before read lock
+                {
+                    let mut table = table_lock.write();
+                    if table.is_sequential_ids {
+                        table.is_sequential_ids = false;
+                        let ids = table.ids.clone();
+                        for (i, id) in ids.into_iter().enumerate() {
+                            table.id_map.insert(id, i);
+                        }
+                    }
+                }
+
+                let (ids, rows_data): (Vec<_>, Vec<_>) = {
+                    let table_ref = table_lock.read();
+                    let rows_to_update = if let Some(selection) = update.selection {
+                        let expr = SqlParser::map_expr(&selection)?;
+                        let mut mapping = table_ref.column_map.clone();
+                        for (col, idx) in &table_ref.column_map {
+                            mapping.insert(format!("{}.{}", table_name, col), *idx);
+                        }
+                        if !mapping.contains_key("id") {
+                            mapping.insert("id".to_string(), usize::MAX);
+                        }
+                        table_ref.select(|r| expr.is_true(r, &mapping, &table_ref))
+                    } else {
+                        (0..table_ref.ids.len())
+                            .map(|i| table_ref.get_row_by_index(i))
+                            .collect()
+                    };
+                    rows_to_update
+                        .into_iter()
+                        .map(|r| (r.id.clone(), r.to_map(&table_ref)))
+                        .unzip()
+                };
+
+                for (id, mut row_data) in ids.into_iter().zip(rows_data) {
+                    for assignment in &update.assignments {
+                        let col_name = match &assignment.target {
+                            AssignmentTarget::ColumnName(name) => name.to_string(),
+                            _ => return Err("Unsupported assignment target".to_string()),
+                        };
+                        let val = SqlParser::map_expr(&assignment.value)?;
+                        // Only supporting literal updates for now in this simple executor
+                        if let crate::core::Expr::Literal(v) = val {
+                            row_data.insert(CompactString::from(col_name), v);
+                        }
+                    }
+                    self.db
+                        .update_row(&table_name, &id, row_data)
+                        .map_err(|e| e.to_string())?;
+                }
+
+                Ok(SqlResult::Ok)
             }
+            Statement::Delete(delete) => {
+                let table_with_joins = match delete.from {
+                    FromTable::WithFromKeyword(v) => v,
+                    FromTable::WithoutKeyword(v) => v,
+                };
+                let table_with_join = table_with_joins.first().ok_or("Empty FROM in DELETE")?;
+                let table_name = match &table_with_join.relation {
+                    TableFactor::Table { name, .. } => name.to_string(),
+                    _ => return Err("Unsupported table relation in DELETE".to_string()),
+                };
+
+                let table_lock = self
+                    .db
+                    .get_table(&table_name)
+                    .ok_or_else(|| format!("Table {} not found", table_name))?;
+
+                // Pre-populate id_map if needed before read lock
+                {
+                    let mut table = table_lock.write();
+                    if table.is_sequential_ids {
+                        table.is_sequential_ids = false;
+                        let ids = table.ids.clone();
+                        for (i, id) in ids.into_iter().enumerate() {
+                            table.id_map.insert(id, i);
+                        }
+                    }
+                }
+
+                let ids: Vec<_> = {
+                    let table_ref = table_lock.read();
+                    let rows_to_delete = if let Some(selection) = delete.selection {
+                        let expr = SqlParser::map_expr(&selection)?;
+                        let mut mapping = table_ref.column_map.clone();
+                        for (col, idx) in &table_ref.column_map {
+                            mapping.insert(format!("{}.{}", table_name, col), *idx);
+                        }
+                        if !mapping.contains_key("id") {
+                            mapping.insert("id".to_string(), usize::MAX);
+                        }
+                        table_ref.select(|r| expr.is_true(r, &mapping, &table_ref))
+                    } else {
+                        (0..table_ref.ids.len())
+                            .map(|i| table_ref.get_row_by_index(i))
+                            .collect()
+                    };
+                    rows_to_delete.into_iter().map(|r| r.id.clone()).collect()
+                };
+
+                for id in ids {
+                    self.db
+                        .delete_row(&table_name, &id)
+                        .map_err(|e| e.to_string())?;
+                }
+
+                Ok(SqlResult::Ok)
+            }
+            Statement::AlterTable(alter_table) => {
+                let table_name = alter_table.name.to_string();
+                for op in alter_table.operations {
+                    if let AlterTableOperation::AddColumn { column_def, .. } = op {
+                        let table_lock = self
+                            .db
+                            .get_table(&table_name)
+                            .ok_or_else(|| format!("Table {} not found", table_name))?;
+                        let mut table = table_lock.write();
+
+                        let col_name = CompactString::from(column_def.name.value.clone());
+                        let data_type = SqlParser::map_data_type(&column_def.data_type)?;
+
+                        // dbobj Table doesn't have a direct "add column" method yet, we have to rebuild schema
+                        let mut new_columns = table.schema.columns.clone();
+                        new_columns.push(ColumnDefinition {
+                            name: col_name.clone(),
+                            data_type,
+                            nullable: true,
+                        });
+
+                        let old_num_columns = table.num_columns;
+                        table.schema.columns = new_columns;
+                        table.num_columns += 1;
+                        table.column_map.insert(col_name.to_string(), old_num_columns);
+
+                        // Fill existing rows with Null
+                        let num_rows = table.ids.len();
+                        let mut new_data = Vec::with_capacity(num_rows * table.num_columns);
+                        for i in 0..num_rows {
+                            let old_start = i * old_num_columns;
+                            let old_end = old_start + old_num_columns;
+                            for j in old_start..old_end {
+                                new_data.push(table.data[j].clone());
+                            }
+                            new_data.push(Value::Null);
+                        }
+                        table.data = new_data;
+                        // Populate id_map if it was empty (sequential ids)
+                        if table.is_sequential_ids {
+                            table.is_sequential_ids = false;
+                            let ids = table.ids.clone();
+                            for (i, id) in ids.into_iter().enumerate() {
+                                table.id_map.insert(id, i);
+                            }
+                        }
+                    }
+                }
+                Ok(SqlResult::Ok)
+            }
+            Statement::Query(query) => self.execute_query(*query),
             _ => Err(format!("Unsupported statement: {:?}", stmt)),
         }
     }
@@ -89,28 +262,119 @@ impl<'a> SqlExecutor<'a> {
     fn execute_query(&self, query: Query) -> Result<SqlResult, String> {
         if let SetExpr::Select(select) = *query.body {
             let select = *select;
-            if let Some(TableFactor::Table { name, .. }) = select.from.first().map(|f| &f.relation) {
-                let table_name = name.to_string();
+            if let Some(table_with_joins) = select.from.first() {
+                let table_name = match &table_with_joins.relation {
+                    TableFactor::Table { name, .. } => name.to_string(),
+                    _ => return Err("Unsupported FROM clause".to_string()),
+                };
+
+                // Simple Join support
+                if let Some(join) = table_with_joins.joins.first() {
+                    return self.execute_join(&table_name, join);
+                }
+
+                let table_lock = self
+                    .db
+                    .get_table(&table_name)
+                    .ok_or_else(|| format!("Table {} not found", table_name))?;
+                let table_ref = table_lock.read();
 
                 let rows = if let Some(selection) = select.selection {
                     let expr = SqlParser::map_expr(&selection)?;
-                    self.db.query_expr(&table_name, expr).map_err(|e| e.to_string())?
+                    let mut mapping = table_ref.column_map.clone();
+                    for (col, idx) in &table_ref.column_map {
+                        mapping.insert(format!("{}.{}", table_name, col), *idx);
+                    }
+                    if !mapping.contains_key("id") {
+                        mapping.insert("id".to_string(), usize::MAX);
+                    }
+                    table_ref.select(|r| expr.is_true(r, &mapping, &table_ref))
                 } else {
-                    let table_lock = self.db.get_table(&table_name)
-                        .ok_or_else(|| format!("Table {} not found", table_name))?;
-                    let table = table_lock.read();
-                    (0..table.ids.len()).map(|i| table.get_row_by_index(i)).collect()
+                    (0..table_ref.ids.len())
+                        .map(|i| table_ref.get_row_by_index(i))
+                        .collect()
                 };
 
-                let table_lock = self.db.get_table(&table_name).unwrap();
-                let table = table_lock.read();
-                let results = rows.into_iter().map(|r| r.to_map(&table)).collect();
+                let results = rows.into_iter().map(|r| r.to_map(&table_ref)).collect();
                 Ok(SqlResult::Rows(results))
             } else {
-                Err("Unsupported FROM clause".to_string())
+                Err("Missing FROM clause".to_string())
             }
         } else {
             Err("Unsupported query body".to_string())
+        }
+    }
+
+    fn execute_join(&self, table1_name: &str, join: &Join) -> Result<SqlResult, String> {
+        let table2_name = match &join.relation {
+            TableFactor::Table { name, .. } => name.to_string(),
+            _ => return Err("Unsupported join relation".to_string()),
+        };
+
+        match &join.join_operator {
+            JoinOperator::Inner(constraint) => {
+                if let JoinConstraint::On(expr) = constraint {
+                    // Try to optimize to hash_join if it's an equality on columns
+                    if let SqlExpr::BinaryOp { left, op, right } = expr {
+                        if matches!(op, sqlparser::ast::BinaryOperator::Eq) {
+                            if let (
+                                SqlExpr::CompoundIdentifier(left_parts),
+                                SqlExpr::CompoundIdentifier(right_parts),
+                            ) = (left.as_ref(), right.as_ref())
+                            {
+                                // e.g. users.id = orders.user_id
+                                let (t1_col, t2_col) = if left_parts[0].value == table1_name {
+                                    (
+                                        left_parts[1].value.as_str(),
+                                        right_parts[1].value.as_str(),
+                                    )
+                                } else {
+                                    (
+                                        right_parts[1].value.as_str(),
+                                        left_parts[1].value.as_str(),
+                                    )
+                                };
+
+                                let joined_rows = self
+                                    .db
+                                    .hash_join(table1_name, t1_col, &table2_name, t2_col)
+                                    .map_err(|e| e.to_string())?;
+
+                                let t1_lock = self.db.get_table(table1_name).unwrap();
+                                let t1 = t1_lock.read();
+                                let t2_lock = self.db.get_table(&table2_name).unwrap();
+                                let t2 = t2_lock.read();
+
+                                let mut results = Vec::new();
+                                for (r1, r2) in joined_rows {
+                                    let mut m1 = r1.to_map(&t1);
+                                    let m2 = r2.to_map(&t2);
+                                    // Merge maps, prefixing with table name to avoid collisions
+                                    let mut combined = RowData::default();
+                                    for (k, v) in m1.drain() {
+                                        combined.insert(
+                                            CompactString::from(format!("{}.{}", table1_name, k)),
+                                            v,
+                                        );
+                                    }
+                                    for (k, v) in m2 {
+                                        combined.insert(
+                                            CompactString::from(format!("{}.{}", table2_name, k)),
+                                            v,
+                                        );
+                                    }
+                                    results.push(combined);
+                                }
+                                return Ok(SqlResult::Rows(results));
+                            }
+                        }
+                    }
+                    Err("Only simple equality joins on columns are supported".to_string())
+                } else {
+                    Err("Unsupported join constraint".to_string())
+                }
+            }
+            _ => Err("Unsupported join operator".to_string()),
         }
     }
 }
