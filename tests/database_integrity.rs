@@ -189,3 +189,197 @@ fn test_persistence_integrity() {
 
     std::fs::remove_file(path).ok();
 }
+
+#[test]
+fn test_direct_batch_insert_integrity() {
+    let db = Database::new("BatchDB".to_string());
+    let schema = Schema {
+        columns: vec![
+            ColumnDefinition {
+                name: "name".into(),
+                data_type: DataType::String,
+                nullable: false,
+            },
+            ColumnDefinition {
+                name: "age".into(),
+                data_type: DataType::Integer,
+                nullable: true,
+            },
+        ],
+    };
+    db.create_table("users".to_string(), schema);
+
+    let mut batch = Vec::with_capacity(100);
+    for i in 0..100 {
+        batch.push(vec![
+            Value::from(format!("user_{}", i)),
+            Value::from(i as i64),
+        ]);
+    }
+    db.insert_batch_values("users", batch).unwrap();
+
+    let table = db.get_table("users").unwrap();
+    let table_read = table.read();
+    assert_eq!(table_read.ids.len(), 100);
+
+    // Verify a few rows
+    for i in [0, 50, 99] {
+        let row = table_read.get(&(i as u64).into()).unwrap();
+        let data = table_read.values_to_row(&row.data);
+        assert_eq!(data.get("name").unwrap(), &Value::from(format!("user_{}", i)));
+        assert_eq!(data.get("age").unwrap(), &Value::from(i as i64));
+    }
+}
+
+#[test]
+fn test_direct_update_integrity() {
+    let db = Database::new("UpdateDB".to_string());
+    let schema = Schema {
+        columns: vec![
+            ColumnDefinition {
+                name: "name".into(),
+                data_type: DataType::String,
+                nullable: false,
+            },
+            ColumnDefinition {
+                name: "age".into(),
+                data_type: DataType::Integer,
+                nullable: false,
+            },
+        ],
+    };
+    db.create_table("users".to_string(), schema);
+
+    let id = db
+        .insert_row(
+            "users",
+            {
+                let mut r = RowData::default();
+                r.insert("name".into(), Value::from("Alice"));
+                r.insert("age".into(), Value::from(30));
+                r
+            },
+            None,
+        )
+        .unwrap();
+
+    // Pre-populate id_map so direct update works
+    {
+        let table_lock = db.get_table("users").unwrap();
+        let mut table = table_lock.write();
+        if table.is_sequential_ids {
+            table.is_sequential_ids = false;
+            for (i, existing_id) in table.ids.clone().into_iter().enumerate() {
+                table.id_map.insert(existing_id, i);
+            }
+        }
+    }
+
+    // Update age — must include all non-nullable columns
+    let mut new_data = RowData::default();
+    new_data.insert("name".into(), Value::from("Alice"));
+    new_data.insert("age".into(), Value::from(31));
+    db.update_row("users", &id, new_data).unwrap();
+
+    let table = db.get_table("users").unwrap();
+    let row = table.read().get(&id).unwrap();
+    let data = table.read().values_to_row(&row.data);
+    assert_eq!(data.get("age").unwrap(), &Value::from(31));
+    assert_eq!(data.get("name").unwrap(), &Value::from("Alice"));
+}
+
+#[test]
+fn test_direct_delete_integrity() {
+    let db = Database::new("DeleteDB".to_string());
+    let schema = Schema {
+        columns: vec![
+            ColumnDefinition {
+                name: "name".into(),
+                data_type: DataType::String,
+                nullable: false,
+            },
+        ],
+    };
+    db.create_table("users".to_string(), schema);
+
+    let id = db
+        .insert_row(
+            "users",
+            {
+                let mut r = RowData::default();
+                r.insert("name".into(), Value::from("Alice"));
+                r
+            },
+            None,
+        )
+        .unwrap();
+
+    // Pre-populate id_map so direct delete works
+    {
+        let table_lock = db.get_table("users").unwrap();
+        let mut table = table_lock.write();
+        if table.is_sequential_ids {
+            table.is_sequential_ids = false;
+            for (i, existing_id) in table.ids.clone().into_iter().enumerate() {
+                table.id_map.insert(existing_id, i);
+            }
+        }
+    }
+
+    db.delete_row("users", &id).unwrap();
+    assert_eq!(db.get_table("users").unwrap().read().ids.len(), 0);
+}
+
+#[test]
+fn test_index_operations_integrity() {
+    let db = Database::new("IndexDB".to_string());
+    let schema = Schema {
+        columns: vec![
+            ColumnDefinition {
+                name: "username".into(),
+                data_type: DataType::String,
+                nullable: false,
+            },
+            ColumnDefinition {
+                name: "age".into(),
+                data_type: DataType::Integer,
+                nullable: false,
+            },
+        ],
+    };
+    db.create_table("users".to_string(), schema);
+
+    for i in 0..100 {
+        let mut r = RowData::default();
+        r.insert("username".into(), Value::from(format!("user{}", i)));
+        r.insert("age".into(), Value::from(i as i64));
+        db.insert_row("users", r, None).unwrap();
+    }
+
+    // Scan search before index (O(N))
+    let table = db.get_table("users").unwrap();
+    let table_ref = table.read();
+
+    let results = db.find("users", "age", Value::from(50)).unwrap();
+    assert_eq!(results.len(), 1);
+    let row_data = table_ref.values_to_row(&results[0].data);
+    assert_eq!(row_data.get("username").unwrap(), &Value::from("user50"));
+
+    drop(table_ref);
+
+    // Create index and search again (O(log N))
+    db.create_index("users", "username").unwrap();
+    let results = db
+        .find("users", "username", Value::from("user75"))
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    let table_ref = table.read();
+    let row_data = table_ref.values_to_row(&results[0].data);
+    assert_eq!(row_data.get("age").unwrap(), &Value::from(75));
+
+    // Non-existent value returns empty
+    let results = db
+        .find("users", "username", Value::from("nonexistent"))
+        .unwrap();
+    assert!(results.is_empty());
+}

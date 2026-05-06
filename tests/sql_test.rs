@@ -40,6 +40,83 @@ fn test_sql_basic_flow() {
 }
 
 #[test]
+fn test_sql_batch_insert() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+
+    executor
+        .execute("CREATE TABLE scores (id INTEGER, value INTEGER)")
+        .unwrap();
+
+    // Insert 100 rows via SQL, one at a time
+    for i in 0..100 {
+        let sql = format!("INSERT INTO scores (id, value) VALUES ({}, {})", i, i * 10);
+        executor.execute(&sql).unwrap();
+    }
+
+    let result = executor.execute("SELECT * FROM scores").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 100);
+    } else {
+        panic!("Expected Rows result");
+    }
+
+    // Verify with WHERE
+    let result = executor
+        .execute("SELECT * FROM scores WHERE value = 500")
+        .unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get("id").unwrap().clone(), 50.into());
+    } else {
+        panic!("Expected Rows result");
+    }
+}
+
+#[test]
+fn test_sql_indexed_search() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+
+    executor
+        .execute("CREATE TABLE users (name TEXT, age INTEGER)")
+        .unwrap();
+
+    for i in 0..100 {
+        let sql = format!(
+            "INSERT INTO users (name, age) VALUES ('user{}', {})",
+            i, i
+        );
+        executor.execute(&sql).unwrap();
+    }
+
+    // Create index via direct API (SQL executor doesn't support CREATE INDEX)
+    db.create_index("users", "name").unwrap();
+
+    // SQL SELECT with WHERE on indexed column should still work
+    let result = executor
+        .execute("SELECT * FROM users WHERE name = 'user42'")
+        .unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get("age").unwrap().clone(), 42.into());
+    } else {
+        panic!("Expected Rows result");
+    }
+
+    // SQL SELECT with WHERE on non-indexed column
+    let result = executor
+        .execute("SELECT * FROM users WHERE age = 77")
+        .unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get("name").unwrap().clone(), "user77".into());
+    } else {
+        panic!("Expected Rows result");
+    }
+}
+
+#[test]
 fn test_sql_update_delete() {
     let db = Database::new("test_db".to_string());
     let executor = SqlExecutor::new(&db);
