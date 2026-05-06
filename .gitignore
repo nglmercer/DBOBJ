@@ -3,3 +3,4 @@
 *.db
 *.bak
 *.log
+.commandcode/

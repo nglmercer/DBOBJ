@@ -40,8 +40,6 @@ impl Expr {
                         return Value::Null;
                     }
                     data[idx].clone()
-                } else if name == "id" {
-                    Value::Null
                 } else {
                     Value::Null
                 }

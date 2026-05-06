@@ -23,6 +23,10 @@ memmap2 = "0.9.5"
 name = "db_bench"
 harness = false
 
+[[bench]]
+name = "sql_bench"
+harness = false
+
 [dev-dependencies]
 criterion = "0.8.2"
 rusqlite = "0.31.0"

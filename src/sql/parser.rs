@@ -1,8 +1,10 @@
-use sqlparser::ast::{DataType as SqlDataType, Statement, Expr as SqlExpr, Value as SqlValue, BinaryOperator};
+use crate::core::{DataType, Expr, Operator, Value};
+use compact_str::CompactString;
+use sqlparser::ast::{
+    BinaryOperator, DataType as SqlDataType, Expr as SqlExpr, Statement, Value as SqlValue,
+};
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser;
-use crate::core::{DataType, Value, Expr, Operator};
-use compact_str::CompactString;
 
 pub struct SqlParser;
 
@@ -14,11 +16,21 @@ impl SqlParser {
 
     pub fn map_data_type(sql_type: &SqlDataType) -> Result<DataType, String> {
         match sql_type {
-            SqlDataType::Integer(_) | SqlDataType::Int(_) | SqlDataType::BigInt(_) => Ok(DataType::Integer),
-            SqlDataType::Float(_) | SqlDataType::Double(_) | SqlDataType::Real => Ok(DataType::Float),
-            SqlDataType::String(_) | SqlDataType::Text | SqlDataType::Varchar(_) | SqlDataType::Char(_) => Ok(DataType::String),
+            SqlDataType::Integer(_) | SqlDataType::Int(_) | SqlDataType::BigInt(_) => {
+                Ok(DataType::Integer)
+            }
+            SqlDataType::Float(_) | SqlDataType::Double(_) | SqlDataType::Real => {
+                Ok(DataType::Float)
+            }
+            SqlDataType::String(_)
+            | SqlDataType::Text
+            | SqlDataType::Varchar(_)
+            | SqlDataType::Char(_) => Ok(DataType::String),
             SqlDataType::Boolean => Ok(DataType::Boolean),
-            SqlDataType::Blob(_) | SqlDataType::Bytea | SqlDataType::Varbinary(_) | SqlDataType::Binary(_) => Ok(DataType::Blob),
+            SqlDataType::Blob(_)
+            | SqlDataType::Bytea
+            | SqlDataType::Varbinary(_)
+            | SqlDataType::Binary(_) => Ok(DataType::Blob),
             _ => Err(format!("Unsupported data type: {:?}", sql_type)),
         }
     }
@@ -45,15 +57,21 @@ impl SqlParser {
 
     pub fn map_expr(sql_expr: &SqlExpr) -> Result<Expr, String> {
         match sql_expr {
-            SqlExpr::Identifier(ident) => Ok(Expr::Column(CompactString::from(ident.value.clone()))),
+            SqlExpr::Identifier(ident) => {
+                Ok(Expr::Column(CompactString::from(ident.value.clone())))
+            }
             SqlExpr::CompoundIdentifier(parts) => {
                 // If it's table.column, we try to match just column if possible,
                 // but for now let's just use the last part as the column name
                 // to match our internal RowData which is just column names.
                 // In a more complex system, we'd need to know the table context.
-                Ok(Expr::Column(CompactString::from(parts.last().unwrap().value.clone())))
+                Ok(Expr::Column(CompactString::from(
+                    parts.last().unwrap().value.clone(),
+                )))
             }
-            SqlExpr::Value(val_with_span) => Ok(Expr::Literal(Self::map_value(&val_with_span.value)?)),
+            SqlExpr::Value(val_with_span) => {
+                Ok(Expr::Literal(Self::map_value(&val_with_span.value)?))
+            }
             SqlExpr::BinaryOp { left, op, right } => {
                 let l = Box::new(Self::map_expr(left)?);
                 let r = Box::new(Self::map_expr(right)?);

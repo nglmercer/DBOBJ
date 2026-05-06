@@ -1,10 +1,10 @@
-use crate::core::{Database, RowData, ColumnDefinition, Schema, Value};
+use crate::core::{ColumnDefinition, Database, RowData, Schema, Value};
 use crate::sql::parser::SqlParser;
+use compact_str::CompactString;
 use sqlparser::ast::{
     AlterTableOperation, AssignmentTarget, Expr as SqlExpr, FromTable, Join, JoinConstraint,
     JoinOperator, Query, SetExpr, Statement, TableFactor, TableObject,
 };
-use compact_str::CompactString;
 
 pub struct SqlExecutor<'a> {
     db: &'a Database,
@@ -47,27 +47,37 @@ impl<'a> SqlExecutor<'a> {
                     _ => return Err("Unsupported table object in INSERT".to_string()),
                 };
 
-                if let Some(source) = insert.source {
-                    if let SetExpr::Values(values) = *source.body {
+                if let Some(source) = insert.source
+                    && let SetExpr::Values(values) = *source.body
+                {
                         let mut rows = Vec::new();
                         for row_values in values.rows {
                             let mut row_data = RowData::default();
-                            let table_lock = if insert.columns.is_empty() {
-                                Some(self.db.get_table(&table_name_str).ok_or_else(|| format!("Table {} not found", table_name_str))?)
-                            } else {
-                                None
-                            };
+                            let table_lock =
+                                if insert.columns.is_empty() {
+                                    Some(self.db.get_table(&table_name_str).ok_or_else(|| {
+                                        format!("Table {} not found", table_name_str)
+                                    })?)
+                                } else {
+                                    None
+                                };
                             let table_guard = table_lock.as_ref().map(|l| l.read());
 
                             for (i, val_expr) in row_values.into_iter().enumerate() {
                                 if let SqlExpr::Value(val_with_span) = val_expr {
                                     let value = SqlParser::map_value(&val_with_span.value)?;
                                     if i < insert.columns.len() {
-                                        row_data.insert(CompactString::from(insert.columns[i].value.clone()), value);
+                                        row_data.insert(
+                                            CompactString::from(insert.columns[i].value.clone()),
+                                            value,
+                                        );
                                     } else if let Some(table) = &table_guard {
                                         // Handle positional insert if columns are not specified
                                         if i < table.schema.columns.len() {
-                                            row_data.insert(table.schema.columns[i].name.clone(), value);
+                                            row_data.insert(
+                                                table.schema.columns[i].name.clone(),
+                                                value,
+                                            );
                                         }
                                     }
                                 }
@@ -75,12 +85,11 @@ impl<'a> SqlExecutor<'a> {
                             rows.push(row_data);
                         }
                         for row in rows {
-                                self.db
-                                    .insert_row(&table_name_str, row, None)
+                            self.db
+                                .insert_row(&table_name_str, row, None)
                                 .map_err(|e| e.to_string())?;
                         }
                     }
-                }
                 Ok(SqlResult::Ok)
             }
             Statement::Update(update) => {
@@ -228,7 +237,9 @@ impl<'a> SqlExecutor<'a> {
                         let old_num_columns = table.num_columns;
                         table.schema.columns = new_columns;
                         table.num_columns += 1;
-                        table.column_map.insert(col_name.to_string(), old_num_columns);
+                        table
+                            .column_map
+                            .insert(col_name.to_string(), old_num_columns);
 
                         // Fill existing rows with Null
                         let num_rows = table.ids.len();
@@ -315,24 +326,15 @@ impl<'a> SqlExecutor<'a> {
             JoinOperator::Inner(constraint) => {
                 if let JoinConstraint::On(expr) = constraint {
                     // Try to optimize to hash_join if it's an equality on columns
-                    if let SqlExpr::BinaryOp { left, op, right } = expr {
-                        if matches!(op, sqlparser::ast::BinaryOperator::Eq) {
-                            if let (
-                                SqlExpr::CompoundIdentifier(left_parts),
-                                SqlExpr::CompoundIdentifier(right_parts),
-                            ) = (left.as_ref(), right.as_ref())
-                            {
+                    if let SqlExpr::BinaryOp { left, op, right } = expr
+                        && matches!(op, sqlparser::ast::BinaryOperator::Eq)
+                        && let (SqlExpr::CompoundIdentifier(left_parts), SqlExpr::CompoundIdentifier(right_parts)) = (left.as_ref(), right.as_ref())
+                    {
                                 // e.g. users.id = orders.user_id
                                 let (t1_col, t2_col) = if left_parts[0].value == table1_name {
-                                    (
-                                        left_parts[1].value.as_str(),
-                                        right_parts[1].value.as_str(),
-                                    )
+                                    (left_parts[1].value.as_str(), right_parts[1].value.as_str())
                                 } else {
-                                    (
-                                        right_parts[1].value.as_str(),
-                                        left_parts[1].value.as_str(),
-                                    )
+                                    (right_parts[1].value.as_str(), left_parts[1].value.as_str())
                                 };
 
                                 let joined_rows = self
@@ -367,8 +369,6 @@ impl<'a> SqlExecutor<'a> {
                                 }
                                 return Ok(SqlResult::Rows(results));
                             }
-                        }
-                    }
                     Err("Only simple equality joins on columns are supported".to_string())
                 } else {
                     Err("Unsupported join constraint".to_string())
