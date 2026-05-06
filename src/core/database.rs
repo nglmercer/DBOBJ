@@ -162,6 +162,21 @@ impl Database {
         self.tables.read().get(name).cloned()
     }
 
+    pub fn list_tables(&self) -> Vec<String> {
+        self.tables.read().keys().cloned().collect()
+    }
+
+    pub fn table_info(&self, name: &str) -> Option<crate::core::TableInfo> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(name)?;
+        let table = table_lock.read();
+        Some(crate::core::TableInfo {
+            name: table.name.clone(),
+            columns: table.schema.columns.clone(),
+            row_count: table.ids.len(),
+        })
+    }
+
     pub fn create_index(
         &self,
         table_name: &str,
