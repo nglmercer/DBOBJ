@@ -50,46 +50,45 @@ impl<'a> SqlExecutor<'a> {
                 if let Some(source) = insert.source
                     && let SetExpr::Values(values) = *source.body
                 {
-                        let mut rows = Vec::new();
-                        for row_values in values.rows {
-                            let mut row_data = RowData::default();
-                            let table_lock =
-                                if insert.columns.is_empty() {
-                                    Some(self.db.get_table(&table_name_str).ok_or_else(|| {
-                                        format!("Table {} not found", table_name_str)
-                                    })?)
-                                } else {
-                                    None
-                                };
-                            let table_guard = table_lock.as_ref().map(|l| l.read());
+                    let mut rows = Vec::new();
+                    for row_values in values.rows {
+                        let mut row_data = RowData::default();
+                        let table_lock = if insert.columns.is_empty() {
+                            Some(
+                                self.db
+                                    .get_table(&table_name_str)
+                                    .ok_or_else(|| format!("Table {} not found", table_name_str))?,
+                            )
+                        } else {
+                            None
+                        };
+                        let table_guard = table_lock.as_ref().map(|l| l.read());
 
-                            for (i, val_expr) in row_values.into_iter().enumerate() {
-                                if let SqlExpr::Value(val_with_span) = val_expr {
-                                    let value = SqlParser::map_value(&val_with_span.value)?;
-                                    if i < insert.columns.len() {
-                                        row_data.insert(
-                                            CompactString::from(insert.columns[i].value.clone()),
-                                            value,
-                                        );
-                                    } else if let Some(table) = &table_guard {
-                                        // Handle positional insert if columns are not specified
-                                        if i < table.schema.columns.len() {
-                                            row_data.insert(
-                                                table.schema.columns[i].name.clone(),
-                                                value,
-                                            );
-                                        }
+                        for (i, val_expr) in row_values.into_iter().enumerate() {
+                            if let SqlExpr::Value(val_with_span) = val_expr {
+                                let value = SqlParser::map_value(&val_with_span.value)?;
+                                if i < insert.columns.len() {
+                                    row_data.insert(
+                                        CompactString::from(insert.columns[i].value.clone()),
+                                        value,
+                                    );
+                                } else if let Some(table) = &table_guard {
+                                    // Handle positional insert if columns are not specified
+                                    if i < table.schema.columns.len() {
+                                        row_data
+                                            .insert(table.schema.columns[i].name.clone(), value);
                                     }
                                 }
                             }
-                            rows.push(row_data);
                         }
-                        for row in rows {
-                            self.db
-                                .insert_row(&table_name_str, row, None)
-                                .map_err(|e| e.to_string())?;
-                        }
+                        rows.push(row_data);
                     }
+                    for row in rows {
+                        self.db
+                            .insert_row(&table_name_str, row, None)
+                            .map_err(|e| e.to_string())?;
+                    }
+                }
                 Ok(SqlResult::Ok)
             }
             Statement::Update(update) => {
@@ -328,47 +327,50 @@ impl<'a> SqlExecutor<'a> {
                     // Try to optimize to hash_join if it's an equality on columns
                     if let SqlExpr::BinaryOp { left, op, right } = expr
                         && matches!(op, sqlparser::ast::BinaryOperator::Eq)
-                        && let (SqlExpr::CompoundIdentifier(left_parts), SqlExpr::CompoundIdentifier(right_parts)) = (left.as_ref(), right.as_ref())
+                        && let (
+                            SqlExpr::CompoundIdentifier(left_parts),
+                            SqlExpr::CompoundIdentifier(right_parts),
+                        ) = (left.as_ref(), right.as_ref())
                     {
-                                // e.g. users.id = orders.user_id
-                                let (t1_col, t2_col) = if left_parts[0].value == table1_name {
-                                    (left_parts[1].value.as_str(), right_parts[1].value.as_str())
-                                } else {
-                                    (right_parts[1].value.as_str(), left_parts[1].value.as_str())
-                                };
+                        // e.g. users.id = orders.user_id
+                        let (t1_col, t2_col) = if left_parts[0].value == table1_name {
+                            (left_parts[1].value.as_str(), right_parts[1].value.as_str())
+                        } else {
+                            (right_parts[1].value.as_str(), left_parts[1].value.as_str())
+                        };
 
-                                let joined_rows = self
-                                    .db
-                                    .hash_join(table1_name, t1_col, &table2_name, t2_col)
-                                    .map_err(|e| e.to_string())?;
+                        let joined_rows = self
+                            .db
+                            .hash_join(table1_name, t1_col, &table2_name, t2_col)
+                            .map_err(|e| e.to_string())?;
 
-                                let t1_lock = self.db.get_table(table1_name).unwrap();
-                                let t1 = t1_lock.read();
-                                let t2_lock = self.db.get_table(&table2_name).unwrap();
-                                let t2 = t2_lock.read();
+                        let t1_lock = self.db.get_table(table1_name).unwrap();
+                        let t1 = t1_lock.read();
+                        let t2_lock = self.db.get_table(&table2_name).unwrap();
+                        let t2 = t2_lock.read();
 
-                                let mut results = Vec::new();
-                                for (r1, r2) in joined_rows {
-                                    let mut m1 = r1.to_map(&t1);
-                                    let m2 = r2.to_map(&t2);
-                                    // Merge maps, prefixing with table name to avoid collisions
-                                    let mut combined = RowData::default();
-                                    for (k, v) in m1.drain() {
-                                        combined.insert(
-                                            CompactString::from(format!("{}.{}", table1_name, k)),
-                                            v,
-                                        );
-                                    }
-                                    for (k, v) in m2 {
-                                        combined.insert(
-                                            CompactString::from(format!("{}.{}", table2_name, k)),
-                                            v,
-                                        );
-                                    }
-                                    results.push(combined);
-                                }
-                                return Ok(SqlResult::Rows(results));
+                        let mut results = Vec::new();
+                        for (r1, r2) in joined_rows {
+                            let mut m1 = r1.to_map(&t1);
+                            let m2 = r2.to_map(&t2);
+                            // Merge maps, prefixing with table name to avoid collisions
+                            let mut combined = RowData::default();
+                            for (k, v) in m1.drain() {
+                                combined.insert(
+                                    CompactString::from(format!("{}.{}", table1_name, k)),
+                                    v,
+                                );
                             }
+                            for (k, v) in m2 {
+                                combined.insert(
+                                    CompactString::from(format!("{}.{}", table2_name, k)),
+                                    v,
+                                );
+                            }
+                            results.push(combined);
+                        }
+                        return Ok(SqlResult::Rows(results));
+                    }
                     Err("Only simple equality joins on columns are supported".to_string())
                 } else {
                     Err("Unsupported join constraint".to_string())

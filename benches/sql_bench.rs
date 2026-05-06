@@ -337,7 +337,7 @@ fn bench_update(c: &mut Criterion) {
             let id = &ids[i % ids.len()];
             let mut data = RowData::default();
             data.insert("age".into(), Value::from(99i64));
-            let _ = db.update_row("users", id, data).unwrap();
+            db.update_row("users", id, data).unwrap();
             i += 1;
         })
     });
@@ -402,8 +402,7 @@ fn bench_delete(c: &mut Criterion) {
                 let mut data = RowData::default();
                 data.insert("username".into(), Value::from("user_new"));
                 data.insert("age".into(), Value::from(99i64));
-                let id = db.insert_row("users", data, None).unwrap();
-                id
+                db.insert_row("users", data, None).unwrap()
             },
             |id| {
                 db.delete_row("users", &id).unwrap();
@@ -443,8 +442,7 @@ fn bench_delete(c: &mut Criterion) {
                 let mut data = RowData::default();
                 data.insert("username".into(), Value::from("user_new"));
                 data.insert("age".into(), Value::from(99i64));
-                let id = db.insert_row("users", data, None).unwrap();
-                id
+                db.insert_row("users", data, None).unwrap()
             },
             |id| {
                 let sql = format!("DELETE FROM users WHERE id = {}", id);
