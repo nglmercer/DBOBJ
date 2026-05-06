@@ -1,4 +1,5 @@
 pub mod core;
+pub mod sql;
 pub mod storage;
 pub mod versioning;
 
