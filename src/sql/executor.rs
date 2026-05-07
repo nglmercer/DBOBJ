@@ -16,6 +16,9 @@ pub type StatementCache = crate::core::FastHashMap<String, Vec<Statement>>;
 pub struct SqlExecutor<'a> {
     db: &'a Database,
     stmt_cache: RefCell<StatementCache>,
+    /// Tables whose id_map has already been populated from sequential IDs.
+    /// Avoids repeated write-lock acquisitions for the no-op populate check.
+    populated: RefCell<Vec<String>>,
 }
 
 impl<'a> SqlExecutor<'a> {
@@ -23,6 +26,7 @@ impl<'a> SqlExecutor<'a> {
         Self {
             db,
             stmt_cache: RefCell::new(crate::core::FastHashMap::default()),
+            populated: RefCell::new(Vec::new()),
         }
     }
 
@@ -79,6 +83,12 @@ impl<'a> SqlExecutor<'a> {
     }
 
     fn populate_id_map_once(&self, table_name: &str) -> Result<(), String> {
+        {
+            let populated = self.populated.borrow();
+            if populated.contains(&table_name.to_string()) {
+                return Ok(());
+            }
+        }
         let table_lock = self
             .db
             .get_table(table_name)
@@ -86,11 +96,12 @@ impl<'a> SqlExecutor<'a> {
         let mut table = table_lock.write();
         if table.is_sequential_ids {
             table.is_sequential_ids = false;
-            let ids = table.ids.clone();
-            for (i, id) in ids.into_iter().enumerate() {
+            let id_pairs: Vec<_> = table.ids.iter().enumerate().map(|(i, id)| (i, id.clone())).collect();
+            for (i, id) in id_pairs {
                 table.id_map.insert(id, i);
             }
         }
+        self.populated.borrow_mut().push(table_name.to_string());
         Ok(())
     }
 
@@ -186,7 +197,12 @@ impl<'a> SqlExecutor<'a> {
                         }
                         rows.push(row_data);
                     }
-                    for row in rows {
+                    // Batch insert when multiple rows
+                    if rows.len() > 1 {
+                        self.db
+                            .insert_batch(&table_name_str, rows)
+                            .map_err(|e| e.to_string())?;
+                    } else if let Some(row) = rows.into_iter().next() {
                         self.db
                             .insert_row(&table_name_str, row, None)
                             .map_err(|e| e.to_string())?;
@@ -221,8 +237,10 @@ impl<'a> SqlExecutor<'a> {
                         }
                     } else if let Some(selection) = &update.selection {
                         let expr = SqlParser::map_expr(selection)?;
-                        let mut mapping = table_ref.column_map.clone();
+                        let cap = table_ref.column_map.len() * 2 + 1;
+                        let mut mapping = crate::core::FastHashMap::with_capacity_and_hasher(cap, Default::default());
                         for (col, idx) in &table_ref.column_map {
+                            mapping.insert(col.clone(), *idx);
                             mapping.insert(format!("{}.{}", table_name, col), *idx);
                         }
                         if !mapping.contains_key("id") {
@@ -289,8 +307,10 @@ impl<'a> SqlExecutor<'a> {
                         }
                     } else if let Some(selection) = &delete.selection {
                         let expr = SqlParser::map_expr(selection)?;
-                        let mut mapping = table_ref.column_map.clone();
+                        let cap = table_ref.column_map.len() * 2 + 1;
+                        let mut mapping = crate::core::FastHashMap::with_capacity_and_hasher(cap, Default::default());
                         for (col, idx) in &table_ref.column_map {
+                            mapping.insert(col.clone(), *idx);
                             mapping.insert(format!("{}.{}", table_name, col), *idx);
                         }
                         if !mapping.contains_key("id") {
@@ -391,35 +411,47 @@ impl<'a> SqlExecutor<'a> {
                     .as_ref()
                     .and_then(|s| Self::try_extract_id_filter(s, has_id_column));
 
-                // If fast path would be used, ensure id_map is populated first
-                if fast_id.is_some() {
+                let already_populated = self.populated.borrow().contains(&table_name);
+
+                if fast_id.is_some() && !already_populated {
                     drop(table_ref);
                     drop(table_lock);
                     self.populate_id_map_once(&table_name)?;
-                }
-
-                let table_lock = self
-                    .db
-                    .get_table(&table_name)
-                    .ok_or_else(|| format!("Table {} not found", table_name))?;
-                let table_ref = table_lock.read();
-
-                let rows = if let Some(direct_id) = fast_id {
-                    if let Some(row) = table_ref.get(&direct_id) {
-                        vec![row]
+                    let table_lock = self
+                        .db
+                        .get_table(&table_name)
+                        .ok_or_else(|| format!("Table {} not found", table_name))?;
+                    let table_ref = table_lock.read();
+                    let results: Vec<RowData> = if let Some(direct_id) = fast_id
+                        && let Some(row) = table_ref.get(&direct_id)
+                    {
+                        vec![row.to_map(&table_ref)]
                     } else {
                         Vec::new()
-                    }
+                    };
+                    return Ok(SqlResult::Rows(results));
+                }
+
+                let rows = if let Some(direct_id) = fast_id
+                    && let Some(row) = table_ref.get(&direct_id)
+                {
+                    vec![row]
                 } else if let Some(selection) = &select.selection {
-                    let expr = SqlParser::map_expr(selection)?;
-                    let mut mapping = table_ref.column_map.clone();
-                    for (col, idx) in &table_ref.column_map {
-                        mapping.insert(format!("{}.{}", table_name, col), *idx);
+                    if let Some((col_name, value)) = Self::try_extract_eq_literal(selection) {
+                        Self::lookup_indexed_or_scan(&table_ref, &col_name, &value)
+                    } else {
+                        let expr = SqlParser::map_expr(selection)?;
+                        let cap = table_ref.column_map.len() * 2 + 1;
+                        let mut mapping = crate::core::FastHashMap::with_capacity_and_hasher(cap, Default::default());
+                        for (col, idx) in &table_ref.column_map {
+                            mapping.insert(col.clone(), *idx);
+                            mapping.insert(format!("{}.{}", table_name, col), *idx);
+                        }
+                        if !mapping.contains_key("id") {
+                            mapping.insert("id".to_string(), usize::MAX);
+                        }
+                        table_ref.select(|r| expr.is_true(r, &mapping, &table_ref))
                     }
-                    if !mapping.contains_key("id") {
-                        mapping.insert("id".to_string(), usize::MAX);
-                    }
-                    table_ref.select(|r| expr.is_true(r, &mapping, &table_ref))
                 } else {
                     (0..table_ref.ids.len())
                         .map(|i| table_ref.get_row_by_index(i))
@@ -434,6 +466,61 @@ impl<'a> SqlExecutor<'a> {
         } else {
             Err("Unsupported query body".to_string())
         }
+    }
+
+    /// Try to extract `column = literal` from a simple WHERE expression. Returns (col_name, value).
+    fn try_extract_eq_literal(selection: &SqlExpr) -> Option<(String, Value)> {
+        if let SqlExpr::BinaryOp { left, op, right } = selection
+            && matches!(op, sqlparser::ast::BinaryOperator::Eq)
+        {
+            let (col_name, val_expr) = match (left.as_ref(), right.as_ref()) {
+                (SqlExpr::Identifier(id), SqlExpr::Value(v)) => (id.value.clone(), v),
+                (SqlExpr::Value(v), SqlExpr::Identifier(id)) => (id.value.clone(), v),
+                (SqlExpr::CompoundIdentifier(parts), SqlExpr::Value(v)) => {
+                    (parts.last()?.value.clone(), v)
+                }
+                (SqlExpr::Value(v), SqlExpr::CompoundIdentifier(parts)) => {
+                    (parts.last()?.value.clone(), v)
+                }
+                _ => return None,
+            };
+            if let Ok(value) = SqlParser::map_value(&val_expr.value) {
+                return Some((col_name, value));
+            }
+        }
+        None
+    }
+
+    /// Use index if available, otherwise fall back to column scan.
+    fn lookup_indexed_or_scan(
+        table: &crate::core::table::Table,
+        column_name: &str,
+        value: &Value,
+    ) -> Vec<crate::core::table::Row> {
+        let mut lookup_val = value.clone();
+        if let Value::String(s) = value
+            && let Some(id) = table.string_pool.get_id(s.as_str())
+        {
+            lookup_val = Value::InternedString(id);
+        }
+        if let Some(col_idx) = table.column_map.get(column_name) {
+            if let Some(index) = table.indexes.values().find(|idx| idx.col_idx == *col_idx) {
+                if index.is_unique {
+                    return index
+                        .unique_map
+                        .get(&lookup_val)
+                        .map(|&i| vec![table.get_row_by_index(i)])
+                        .unwrap_or_default();
+                } else {
+                    return index
+                        .map
+                        .get(&lookup_val)
+                        .map(|ids| ids.iter().filter_map(|id| table.get(id)).collect())
+                        .unwrap_or_default();
+                }
+            }
+        }
+        table.find_by_column(column_name, &lookup_val)
     }
 
     fn execute_join(&self, table1_name: &str, join: &Join) -> Result<SqlResult, String> {

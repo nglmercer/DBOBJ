@@ -181,12 +181,18 @@ impl Table {
         }
     }
 
-    /// Get a column index, supporting "id" as a special virtual column.
+    /// Get a column index, supporting "id" as a special virtual column
+    /// when the table does not have a real column named "id".
     pub fn get_column_index(&self, name: &str) -> Option<isize> {
         if name == "id" {
-            return Some(-1); // Special sentinel for ID
+            if self.column_map.contains_key("id") {
+                self.column_map.get("id").map(|&idx| idx as isize)
+            } else {
+                Some(-1)
+            }
+        } else {
+            self.column_map.get(name).map(|&idx| idx as isize)
         }
-        self.column_map.get(name).map(|&idx| idx as isize)
     }
 
     /// Get a value from a row by column index (supports -1 for ID).
