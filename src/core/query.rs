@@ -10,7 +10,7 @@ pub enum QueryPlan {
     IndexFilteredScan(CompactString, CompactString, Value, Expr),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Operator {
     Eq,
     Neq,
