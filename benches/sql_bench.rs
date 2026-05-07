@@ -155,6 +155,86 @@ fn bench_batch_insert(c: &mut Criterion) {
         )
     });
 
+    // SQL API — Multi-value INSERT (single statement, 100 rows)
+    group.bench_function("SQL Multi-value INSERT (100 rows)", |b| {
+        let db = Database::new("bench_db".to_string());
+        let schema = Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "username".into(),
+                    data_type: DataType::String,
+                    nullable: true,
+                },
+                ColumnDefinition {
+                    name: "age".into(),
+                    data_type: DataType::Integer,
+                    nullable: true,
+                },
+            ],
+        };
+        db.create_table("users".to_string(), schema);
+        let executor = SqlExecutor::new(&db);
+
+        b.iter_batched(
+            || {
+                let mut values = String::with_capacity(3000);
+                for i in 0..100 {
+                    if i > 0 {
+                        values.push_str(", ");
+                    }
+                    values.push_str(&format!("('user_{}', {})", i, i));
+                }
+                format!(
+                    "INSERT INTO users (username, age) VALUES {}",
+                    values
+                )
+            },
+            |sql| {
+                executor.execute(&sql).unwrap();
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    // SQL API — Prepared INSERT loop (100× execute_prepared, no re-parse)
+    group.bench_function("SQL Prepared INSERT ×100", |b| {
+        let db = Database::new("bench_db".to_string());
+        let schema = Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "username".into(),
+                    data_type: DataType::String,
+                    nullable: true,
+                },
+                ColumnDefinition {
+                    name: "age".into(),
+                    data_type: DataType::Integer,
+                    nullable: true,
+                },
+            ],
+        };
+        db.create_table("users".to_string(), schema);
+        let executor = SqlExecutor::new(&db);
+        let stmt = executor
+            .prepare("INSERT INTO users (username, age) VALUES (?, ?)")
+            .unwrap();
+
+        b.iter_batched(
+            || (0..100).collect::<Vec<_>>(),
+            |indices| {
+                for i in indices {
+                    executor
+                        .execute_prepared(
+                            &stmt,
+                            &[Value::from(format!("user_{}", i)), Value::from(i as i64)],
+                        )
+                        .unwrap();
+                }
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
     group.finish();
 }
 

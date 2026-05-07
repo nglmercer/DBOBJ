@@ -9,11 +9,13 @@ use sqlparser::parser::Parser;
 pub struct SqlParser;
 
 impl SqlParser {
+    #[inline]
     pub fn parse(sql: &str) -> Result<Vec<Statement>, String> {
         let dialect = SQLiteDialect {};
         Parser::parse_sql(&dialect, sql).map_err(|e| e.to_string())
     }
 
+    #[inline]
     pub fn map_data_type(sql_type: &SqlDataType) -> Result<DataType, String> {
         match sql_type {
             SqlDataType::Integer(_) | SqlDataType::Int(_) | SqlDataType::BigInt(_) => {
@@ -35,6 +37,7 @@ impl SqlParser {
         }
     }
 
+    #[inline]
     pub fn map_value(sql_value: &SqlValue) -> Result<Value, String> {
         match sql_value {
             SqlValue::Number(n, _) => {
@@ -47,7 +50,7 @@ impl SqlParser {
                 }
             }
             SqlValue::SingleQuotedString(s) | SqlValue::DoubleQuotedString(s) => {
-                Ok(Value::String(CompactString::from(s)))
+                Ok(Value::String(CompactString::from(s.as_str())))
             }
             SqlValue::Boolean(b) => Ok(Value::Boolean(*b)),
             SqlValue::Null => Ok(Value::Null),
@@ -55,18 +58,15 @@ impl SqlParser {
         }
     }
 
+    #[inline]
     pub fn map_expr(sql_expr: &SqlExpr) -> Result<Expr, String> {
         match sql_expr {
             SqlExpr::Identifier(ident) => {
-                Ok(Expr::Column(CompactString::from(ident.value.clone())))
+                Ok(Expr::Column(CompactString::from(ident.value.as_str())))
             }
             SqlExpr::CompoundIdentifier(parts) => {
-                // If it's table.column, we try to match just column if possible,
-                // but for now let's just use the last part as the column name
-                // to match our internal RowData which is just column names.
-                // In a more complex system, we'd need to know the table context.
                 Ok(Expr::Column(CompactString::from(
-                    parts.last().unwrap().value.clone(),
+                    parts.last().unwrap().value.as_str(),
                 )))
             }
             SqlExpr::Value(val_with_span) => {

@@ -472,45 +472,77 @@ impl<'a> SqlExecutor<'a> {
                 if let Some(source) = insert.source
                     && let SetExpr::Values(values) = *source.body
                 {
-                    let mut rows = Vec::new();
-                    for row_values in values.rows {
-                        let mut row_data = RowData::default();
-                        let table_lock = if insert.columns.is_empty() {
-                            Some(
-                                self.db
-                                    .get_table(&table_name_str)
-                                    .ok_or_else(|| format!("Table {} not found", table_name_str))?,
-                            )
-                        } else {
-                            None
-                        };
-                        let table_guard = table_lock.as_ref().map(|l| l.read());
+                    let num_rows = values.rows.len();
+                    // For batch inserts, bypass RowData and build Vec<Vec<Value>> directly
+                    if num_rows > 1 {
+                        let col_indices: Vec<usize>;
+                        let num_cols: usize;
+                        {
+                            let table_lock = self
+                                .db
+                                .get_table(&table_name_str)
+                                .ok_or_else(|| format!("Table {} not found", table_name_str))?;
+                            let table_ref = table_lock.read();
+                            num_cols = table_ref.num_columns;
+                            col_indices = if insert.columns.is_empty() {
+                                (0..num_cols).collect()
+                            } else {
+                                insert.columns.iter().map(|col| {
+                                    table_ref.column_map.get(col.value.as_str())
+                                        .copied()
+                                        .ok_or_else(|| format!("Column {} not found in table {}", col.value, table_name_str))
+                                }).collect::<Result<Vec<_>, _>>()?
+                            };
+                        }
 
-                        for (i, val_expr) in row_values.into_iter().enumerate() {
-                            if let SqlExpr::Value(val_with_span) = val_expr {
-                                let value = SqlParser::map_value(&val_with_span.value)?;
-                                if i < insert.columns.len() {
-                                    row_data.insert(
-                                        CompactString::from(insert.columns[i].value.clone()),
-                                        value,
-                                    );
-                                } else if let Some(table) = &table_guard
-                                    && i < table.schema.columns.len() {
-                                        row_data
-                                            .insert(table.schema.columns[i].name.clone(), value);
-                                    }
+                        let mut batch: Vec<Vec<Value>> = Vec::with_capacity(num_rows);
+                        for row_values in values.rows {
+                            let mut vals = vec![Value::Null; num_cols];
+                            for (i, val_expr) in row_values.into_iter().enumerate() {
+                                if let SqlExpr::Value(val_with_span) = val_expr {
+                                    let value = SqlParser::map_value(&val_with_span.value)?;
+                                    vals[col_indices[i]] = value;
+                                }
+                            }
+                            batch.push(vals);
+                        }
+                        self.db
+                            .insert_batch_values(&table_name_str, batch)
+                            .map_err(|e| e.to_string())?;
+                    } else {
+                        // Single row: use existing RowData path (simpler, handles edge cases)
+                        let mut row_data = RowData::default();
+                        {
+                            let table_lock = if insert.columns.is_empty() {
+                                Some(
+                                    self.db
+                                        .get_table(&table_name_str)
+                                        .ok_or_else(|| format!("Table {} not found", table_name_str))?,
+                                )
+                            } else {
+                                None
+                            };
+                            let table_guard = table_lock.as_ref().map(|l| l.read());
+                            let row_values = values.rows.into_iter().next().unwrap_or_default();
+
+                            for (i, val_expr) in row_values.into_iter().enumerate() {
+                                if let SqlExpr::Value(val_with_span) = val_expr {
+                                    let value = SqlParser::map_value(&val_with_span.value)?;
+                                    if i < insert.columns.len() {
+                                        row_data.insert(
+                                            CompactString::from(insert.columns[i].value.clone()),
+                                            value,
+                                        );
+                                    } else if let Some(table) = &table_guard
+                                        && i < table.schema.columns.len() {
+                                            row_data
+                                                .insert(table.schema.columns[i].name.clone(), value);
+                                        }
+                                }
                             }
                         }
-                        rows.push(row_data);
-                    }
-                    // Batch insert when multiple rows
-                    if rows.len() > 1 {
                         self.db
-                            .insert_batch(&table_name_str, rows)
-                            .map_err(|e| e.to_string())?;
-                    } else if let Some(row) = rows.into_iter().next() {
-                        self.db
-                            .insert_row(&table_name_str, row, None)
+                            .insert_row(&table_name_str, row_data, None)
                             .map_err(|e| e.to_string())?;
                     }
                 }

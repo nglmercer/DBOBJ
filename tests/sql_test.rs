@@ -333,3 +333,24 @@ fn test_sql_positional_insert() {
     }
 }
 
+
+#[test]
+fn test_multi_value_insert() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+
+    executor
+        .execute("CREATE TABLE users (name TEXT, age INTEGER)")
+        .unwrap();
+
+    // Multi-value INSERT
+    let result = executor
+        .execute("INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25), ('Carol', 35)")
+        .unwrap();
+    assert!(matches!(result, SqlResult::Ok));
+
+    let result = executor.execute("SELECT * FROM users").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 3);
+    }
+}

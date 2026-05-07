@@ -474,18 +474,15 @@ impl Table {
     }
 
     pub fn values_to_row(&self, values: &[Value]) -> RowData {
-        let mut data = RowData::default();
-        for col in &self.schema.columns {
-            if let Some(&idx) = self.column_map.get(col.name.as_str()) {
-                let mut val = values[idx].clone();
-                // Resolve interned strings when converting back to a map
-                if let Value::InternedString(id) = val
-                    && let Some(s) = self.string_pool.resolve(id)
-                {
-                    val = Value::String(s);
-                }
-                data.insert(col.name.clone(), val);
+        let mut data = RowData::with_capacity_and_hasher(self.schema.columns.len(), Default::default());
+        for (idx, col) in self.schema.columns.iter().enumerate() {
+            let mut val = values[idx].clone();
+            if let Value::InternedString(id) = val
+                && let Some(s) = self.string_pool.resolve(id)
+            {
+                val = Value::String(s);
             }
+            data.insert(col.name.clone(), val);
         }
         data
     }
