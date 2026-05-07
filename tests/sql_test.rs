@@ -40,6 +40,74 @@ fn test_sql_basic_flow() {
 }
 
 #[test]
+fn test_prepared_statements() {
+    use dbobj::core::Value;
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+
+    executor
+        .execute("CREATE TABLE users (name TEXT, age INTEGER)")
+        .unwrap();
+
+    // Prepared INSERT
+    let insert_stmt = executor
+        .prepare("INSERT INTO users (name, age) VALUES (?, ?)")
+        .unwrap();
+    executor
+        .execute_prepared(
+            &insert_stmt,
+            &[Value::from("Alice"), Value::from(30i64)],
+        )
+        .unwrap();
+    executor
+        .execute_prepared(&insert_stmt, &[Value::from("Bob"), Value::from(25i64)])
+        .unwrap();
+
+    // Prepared SELECT
+    let select_stmt = executor
+        .prepare("SELECT * FROM users WHERE age > ?")
+        .unwrap();
+    let result = executor
+        .execute_prepared(&select_stmt, &[Value::from(27i64)])
+        .unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get("name").unwrap().clone(), "Alice".into());
+    } else {
+        panic!("Expected Rows");
+    }
+
+    // Prepared UPDATE
+    let update_stmt = executor
+        .prepare("UPDATE users SET age = ? WHERE name = ?")
+        .unwrap();
+    executor
+        .execute_prepared(&update_stmt, &[Value::from(31i64), Value::from("Alice")])
+        .unwrap();
+
+    let result = executor
+        .execute_prepared(&select_stmt, &[Value::from(30i64)])
+        .unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].get("name").unwrap().clone(), "Alice".into());
+    }
+
+    // Prepared DELETE
+    let delete_stmt = executor
+        .prepare("DELETE FROM users WHERE name = ?")
+        .unwrap();
+    executor
+        .execute_prepared(&delete_stmt, &[Value::from("Alice")])
+        .unwrap();
+
+    let result = executor.execute("SELECT * FROM users").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 1);
+    }
+}
+
+#[test]
 fn test_sql_batch_insert() {
     let db = Database::new("test_db".to_string());
     let executor = SqlExecutor::new(&db);
@@ -264,3 +332,4 @@ fn test_sql_positional_insert() {
         panic!("Expected Rows result");
     }
 }
+

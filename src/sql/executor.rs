@@ -5,13 +5,266 @@ use crate::sql::parser::SqlParser;
 use compact_str::CompactString;
 use sqlparser::ast::{
     AlterTableOperation, AssignmentTarget, Expr as SqlExpr, FromTable, Join, JoinConstraint,
-    JoinOperator, Query, SetExpr, Statement, TableFactor, TableObject,
+    JoinOperator, Query, SetExpr, Statement, TableFactor, TableObject, Value as SqlValue,
+    ValueWithSpan,
 };
 
 const MAX_CACHE_SIZE: usize = 512;
 
 /// Type for SQL statement cache: maps SQL text to parsed AST.
 pub type StatementCache = crate::core::FastHashMap<String, Vec<Statement>>;
+
+/// A pre-parsed SQL statement with parameter placeholders.
+/// Call `execute(&[Value::from(1), Value::from("alice")])` to run with bound parameters.
+#[derive(Clone)]
+pub struct PreparedStatement {
+    statements: Vec<Statement>,
+    param_count: usize,
+}
+
+impl PreparedStatement {
+    /// Count the number of `?` placeholders in the SQL AST.
+    fn count_params(stmts: &[Statement]) -> usize {
+        let mut count = 0;
+        for stmt in stmts {
+            count_stmt_placeholders(stmt, &mut count);
+        }
+        count
+    }
+}
+
+fn count_stmt_placeholders(stmt: &Statement, count: &mut usize) {
+    match stmt {
+        Statement::Query(q) => count_query_placeholders(q, count),
+        Statement::Insert(insert) => {
+            if let Some(source) = &insert.source
+                && let SetExpr::Values(values) = &*source.body
+            {
+                for row in &values.rows {
+                    for val in row {
+                        count_expr_placeholders(val, count);
+                    }
+                }
+            }
+        }
+        Statement::Update(update) => {
+            for assign in &update.assignments {
+                count_expr_placeholders(&assign.value, count);
+            }
+            if let Some(sel) = &update.selection {
+                count_expr_placeholders(sel, count);
+            }
+        }
+        Statement::Delete(delete) => {
+            if let Some(sel) = &delete.selection {
+                count_expr_placeholders(sel, count);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn count_query_placeholders(q: &Query, count: &mut usize) {
+    if let SetExpr::Select(select) = &*q.body {
+        if let Some(sel) = &select.selection {
+            count_expr_placeholders(sel, count);
+        }
+    } else if let SetExpr::Values(values) = &*q.body {
+        for row in &values.rows {
+            for val in row {
+                count_expr_placeholders(val, count);
+            }
+        }
+    }
+}
+
+fn count_expr_placeholders(expr: &SqlExpr, count: &mut usize) {
+    match expr {
+        SqlExpr::Value(v) => {
+            if matches!(&v.value, SqlValue::Placeholder(_)) {
+                *count += 1;
+            }
+        }
+        SqlExpr::BinaryOp { left, op: _, right } => {
+            count_expr_placeholders(left, count);
+            count_expr_placeholders(right, count);
+        }
+        SqlExpr::UnaryOp { op: _, expr } => count_expr_placeholders(expr, count),
+        SqlExpr::Nested(expr) => count_expr_placeholders(expr, count),
+        SqlExpr::IsNull(expr) | SqlExpr::IsNotNull(expr) => count_expr_placeholders(expr, count),
+        SqlExpr::Between { expr, low, high, .. } => {
+            count_expr_placeholders(expr, count);
+            count_expr_placeholders(low, count);
+            count_expr_placeholders(high, count);
+        }
+        SqlExpr::InList { expr, list, .. } => {
+            count_expr_placeholders(expr, count);
+            for item in list {
+                count_expr_placeholders(item, count);
+            }
+        }
+        SqlExpr::Function(_) => {}
+        SqlExpr::Cast { expr, .. } => count_expr_placeholders(expr, count),
+        SqlExpr::Subquery(q) => count_query_placeholders(q, count),
+        _ => {}
+    }
+}
+
+/// Substitute parameter values into a cloned Statement AST.
+fn substitute_statement(stmt: &Statement, params: &[Value], idx: &mut usize) -> Statement {
+    match stmt {
+        Statement::Query(q) => Statement::Query(Box::new(substitute_query(q, params, idx))),
+        Statement::Insert(insert) => {
+            let mut insert = insert.clone();
+            if let Some(source) = &insert.source
+                && let SetExpr::Values(values) = source.body.as_ref()
+            {
+                let mut new_values = values.clone();
+                for row in &mut new_values.rows {
+                    for val in row {
+                        *val = substitute_expr(val, params, idx);
+                    }
+                }
+                insert.source = Some(Box::new(Query {
+                    body: Box::new(SetExpr::Values(new_values)),
+                    ..*source.clone()
+                }));
+            }
+            Statement::Insert(insert)
+        }
+        Statement::Update(update) => {
+            let mut update = update.clone();
+            for assign in &mut update.assignments {
+                assign.value = substitute_expr(&assign.value, params, idx);
+            }
+            if let Some(sel) = &update.selection {
+                update.selection = Some(substitute_expr(sel, params, idx));
+            }
+            Statement::Update(update)
+        }
+        Statement::Delete(delete) => {
+            let mut delete = delete.clone();
+            if let Some(sel) = &delete.selection {
+                delete.selection = Some(substitute_expr(sel, params, idx));
+            }
+            Statement::Delete(delete)
+        }
+        _ => stmt.clone(),
+    }
+}
+
+fn substitute_query(q: &Query, params: &[Value], idx: &mut usize) -> Query {
+    let mut q = q.clone();
+    match q.body.as_mut() {
+        SetExpr::Select(select) => {
+            if let Some(sel) = &select.selection {
+                select.selection = Some(substitute_expr(sel, params, idx));
+            }
+            q.body = Box::new(SetExpr::Select(select.clone()));
+        }
+        SetExpr::Values(values) => {
+            let mut new_values = values.clone();
+            for row in &mut new_values.rows {
+                for val in row {
+                    *val = substitute_expr(val, params, idx);
+                }
+            }
+            q.body = Box::new(SetExpr::Values(new_values));
+        }
+        _ => {}
+    }
+    q
+}
+
+fn substitute_expr(expr: &SqlExpr, params: &[Value], idx: &mut usize) -> SqlExpr {
+    match expr {
+        SqlExpr::Value(v) => {
+            if let SqlValue::Placeholder(_) = &v.value {
+                let val = &params[*idx];
+                *idx += 1;
+                SqlExpr::Value(ValueWithSpan {
+                    value: core_value_to_sql_value(val),
+                    span: v.span,
+                })
+            } else {
+                SqlExpr::Value(v.clone())
+            }
+        }
+        SqlExpr::BinaryOp { left, op, right } => SqlExpr::BinaryOp {
+            left: Box::new(substitute_expr(left, params, idx)),
+            op: op.clone(),
+            right: Box::new(substitute_expr(right, params, idx)),
+        },
+        SqlExpr::UnaryOp { op, expr: inner } => SqlExpr::UnaryOp {
+            op: op.clone(),
+            expr: Box::new(substitute_expr(inner, params, idx)),
+        },
+        SqlExpr::Nested(inner) => SqlExpr::Nested(Box::new(substitute_expr(inner, params, idx))),
+        SqlExpr::IsNull(inner) => SqlExpr::IsNull(Box::new(substitute_expr(inner, params, idx))),
+        SqlExpr::IsNotNull(inner) => {
+            SqlExpr::IsNotNull(Box::new(substitute_expr(inner, params, idx)))
+        }
+        SqlExpr::Between {
+            expr: e,
+            negated,
+            low,
+            high,
+        } => SqlExpr::Between {
+            expr: Box::new(substitute_expr(e, params, idx)),
+            negated: *negated,
+            low: Box::new(substitute_expr(low, params, idx)),
+            high: Box::new(substitute_expr(high, params, idx)),
+        },
+        SqlExpr::InList {
+            expr: e,
+            list,
+            negated,
+        } => SqlExpr::InList {
+            expr: Box::new(substitute_expr(e, params, idx)),
+            list: list
+                .iter()
+                .map(|item| substitute_expr(item, params, idx))
+                .collect(),
+            negated: *negated,
+        },
+        SqlExpr::Function(_) => expr.clone(),
+        SqlExpr::Cast {
+            expr: e,
+            data_type,
+            format,
+            kind,
+            array,
+        } => SqlExpr::Cast {
+            expr: Box::new(substitute_expr(e, params, idx)),
+            data_type: data_type.clone(),
+            format: format.clone(),
+            kind: kind.clone(),
+            array: *array,
+        },
+        SqlExpr::Subquery(q) => SqlExpr::Subquery(Box::new(substitute_query(q, params, idx))),
+        _ => expr.clone(),
+    }
+}
+
+/// Convert a DBOBJ core Value to a sqlparser Value representation.
+fn core_value_to_sql_value(val: &Value) -> SqlValue {
+    match val {
+        Value::Integer(n) => SqlValue::Number(n.to_string(), false),
+        Value::Float(f) => {
+            let s = if f.is_nan() {
+                "NaN".to_string()
+            } else {
+                format!("{}", f)
+            };
+            SqlValue::Number(s, false)
+        }
+        Value::String(s) => SqlValue::SingleQuotedString(s.to_string()),
+        Value::InternedString(_) => SqlValue::SingleQuotedString("".to_string()),
+        Value::Boolean(b) => SqlValue::Boolean(*b),
+        Value::Null => SqlValue::Null,
+        Value::Blob(_) => SqlValue::SingleQuotedString("".to_string()),
+    }
+}
 
 pub struct SqlExecutor<'a> {
     db: &'a Database,
@@ -63,6 +316,59 @@ impl<'a> SqlExecutor<'a> {
         let mut last_result = SqlResult::Ok;
         for stmt in statements {
             last_result = self.execute_statement(stmt)?;
+        }
+        Ok(last_result)
+    }
+
+    /// Parse and cache a SQL statement with `?` placeholders for later execution
+    /// with bound parameter values. Returns a `PreparedStatement` that can be
+    /// executed repeatedly with different parameters without re-parsing.
+    ///
+    /// ```ignore
+    /// let stmt = executor.prepare("SELECT * FROM users WHERE id = ?")?;
+    /// let result = executor.execute_prepared(&stmt, &[Value::from(42)])?;
+    /// ```
+    pub fn prepare(&self, sql: &str) -> Result<PreparedStatement, String> {
+        let statements = {
+            let cache = self.stmt_cache.borrow();
+            if let Some(cached) = cache.get(sql) {
+                cached.clone()
+            } else {
+                drop(cache);
+                let parsed = SqlParser::parse(sql)?;
+                let mut cache = self.stmt_cache.borrow_mut();
+                if cache.len() >= MAX_CACHE_SIZE {
+                    cache.clear();
+                }
+                cache.insert(sql.to_string(), parsed.clone());
+                parsed
+            }
+        };
+        Ok(PreparedStatement {
+            param_count: PreparedStatement::count_params(&statements),
+            statements,
+        })
+    }
+
+    /// Execute a prepared statement with bound parameter values.
+    /// The number of parameters must match the number of `?` placeholders.
+    pub fn execute_prepared(
+        &self,
+        stmt: &PreparedStatement,
+        params: &[Value],
+    ) -> Result<SqlResult, String> {
+        if params.len() != stmt.param_count {
+            return Err(format!(
+                "Expected {} parameters, got {}",
+                stmt.param_count,
+                params.len()
+            ));
+        }
+        let mut param_idx = 0;
+        let mut last_result = SqlResult::Ok;
+        for statement in &stmt.statements {
+            let resolved = substitute_statement(statement, params, &mut param_idx);
+            last_result = self.execute_statement(resolved)?;
         }
         Ok(last_result)
     }

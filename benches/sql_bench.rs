@@ -210,6 +210,20 @@ fn bench_read(c: &mut Criterion) {
         })
     });
 
+    // SQL API — Prepared SELECT
+    group.bench_function("SQL Prepared SELECT ... WHERE id = ?", |b| {
+        let stmt = executor
+            .prepare("SELECT username, age FROM users WHERE id = ?")
+            .unwrap();
+        let mut i = 1;
+        b.iter(|| {
+            let _ = executor
+                .execute_prepared(&stmt, &[Value::from(i as i64)])
+                .unwrap();
+            i = (i % 1000) + 1;
+        })
+    });
+
     group.finish();
 }
 
@@ -258,6 +272,18 @@ fn bench_search(c: &mut Criterion) {
         b.iter(|| {
             let _ = executor
                 .execute("SELECT username FROM users WHERE age = 2500")
+                .unwrap();
+        })
+    });
+
+    // SQL API — Prepared SELECT (static, same benefit as cached)
+    group.bench_function("SQL Prepared SELECT ... WHERE age = ?", |b| {
+        let stmt = executor
+            .prepare("SELECT username FROM users WHERE age = ?")
+            .unwrap();
+        b.iter(|| {
+            let _ = executor
+                .execute_prepared(&stmt, &[Value::from(2500i64)])
                 .unwrap();
         })
     });
@@ -348,6 +374,20 @@ fn bench_update(c: &mut Criterion) {
         b.iter(|| {
             let sql = format!("UPDATE users SET age = 99 WHERE id = {}", i);
             let _ = executor.execute(&sql).unwrap();
+            i = (i % row_count) + 1;
+        })
+    });
+
+    // SQL API — Prepared UPDATE
+    group.bench_function("SQL Prepared UPDATE ... SET ... WHERE id = ?", |b| {
+        let stmt = executor
+            .prepare("UPDATE users SET age = 99 WHERE id = ?")
+            .unwrap();
+        let mut i = 1;
+        b.iter(|| {
+            let _ = executor
+                .execute_prepared(&stmt, &[Value::from(i as i64)])
+                .unwrap();
             i = (i % row_count) + 1;
         })
     });
@@ -447,6 +487,51 @@ fn bench_delete(c: &mut Criterion) {
             |id| {
                 let sql = format!("DELETE FROM users WHERE id = {}", id);
                 executor.execute(&sql).unwrap();
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    // SQL API — Prepared DELETE
+    group.bench_function("SQL Prepared DELETE ... WHERE id = ?", |b| {
+        let db = Database::new("bench_db".to_string());
+        let schema = Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "username".into(),
+                    data_type: DataType::String,
+                    nullable: true,
+                },
+                ColumnDefinition {
+                    name: "age".into(),
+                    data_type: DataType::Integer,
+                    nullable: true,
+                },
+            ],
+        };
+        db.create_table("users".to_string(), schema);
+        for i in 0..100 {
+            let mut data = RowData::default();
+            data.insert("username".into(), Value::from(format!("user{}", i)));
+            data.insert("age".into(), Value::from(i as i64));
+            db.insert_row("users", data, None).unwrap();
+        }
+        let executor = SqlExecutor::new(&db);
+        let stmt = executor
+            .prepare("DELETE FROM users WHERE id = ?")
+            .unwrap();
+
+        b.iter_batched(
+            || {
+                let mut data = RowData::default();
+                data.insert("username".into(), Value::from("user_new"));
+                data.insert("age".into(), Value::from(99i64));
+                db.insert_row("users", data, None).unwrap()
+            },
+            |id| {
+                executor
+                    .execute_prepared(&stmt, &[id.to_value()])
+                    .unwrap();
             },
             BatchSize::SmallInput,
         )
