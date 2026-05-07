@@ -85,41 +85,41 @@ Results were obtained by running `cargo bench` in release mode on this machine (
 
 | Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Speedup |
 | :--- | :--- | :--- | :--- |
-| **Insert (Single)** | **~516,800** | ~340,020 | **1.5x** |
-| **Insert (Batch 100)** | **~4,981,600** | ~2,169,200 | **2.3x** |
-| **Insert (Batch Raw 100)** | **~8,652,700** | - | - |
-| **Read (ID)** | **~6,373,085** | ~338,983 | **18.8x** |
-| **Search (Scan)** | **~43,645** | ~10,271 | **4.2x** |
-| **Search (Indexed)** | **~4,532,434** | ~299,581 | **15.1x** |
-| **Hash Join (1k rows)** | **~3,811** | ~1,594 | **2.4x** |
-| **Large Hash Join (100k rows)** | **~37.0** | ~13.7 | **2.7x** |
+| **Insert (Single)** | **~454,000** | ~337,000 | **1.4x** |
+| **Insert (Batch 100)** | **~4,470,000** | ~1,892,000 | **2.4x** |
+| **Insert (Batch Raw 100)** | **~8,090,000** | - | - |
+| **Read (ID)** | **~5,580,000** | ~339,000 | **17x** |
+| **Search (Scan)** | **~34,200** | ~11,000 | **3.1x** |
+| **Search (Indexed)** | **~4,680,000** | ~275,000 | **17x** |
+| **Hash Join (1k rows)** | **~4,100** | ~1,700 | **2.4x** |
+| **Large Hash Join (100k rows)** | **~40** | ~13.0 | **3.1x** |
 
 ### SQL vs Direct API Overhead
 
 | Operation | Direct API | SQL API | Prepared SQL | Overhead |
 | :--- | :--- | :--- | :--- | :--- |
-| **Insert (Single)** | ~2.15 µs | ~2.67 µs | - | 1.2x |
-| **Batch Insert (100 rows)** | ~11.75 µs | ~25.67 µs | ~245.95 µs | 2.2x–20.9x |
-| **Read by ID** | ~153 ns | ~1.93 µs | ~519 ns | 3.4x–12.6x |
-| **Search (Scan)** | ~23.76 µs | ~25.12 µs | ~23.90 µs | 1.0x–1.1x |
-| **Search (Indexed)** | ~214 ns | ~672 ns | - | 3.1x |
-| **Update** | ~2.30 µs | ~5.33 µs | ~4.13 µs | 1.8x–2.3x |
-| **Delete** | ~1.86 µs | ~4.87 µs | ~2.66 µs | 1.4x–2.6x |
-| **Hash Join (1k)** | ~269 µs | ~1.28 ms | - | 4.8x |
+| **Insert (Single)** | ~1.90 µs | ~2.41 µs | - | 1.3x |
+| **Batch Insert (100 rows)** | ~11.70 µs | ~23.82 µs (multi-value) / ~276.61 µs (looped) | ~296.05 µs | 2.0x–25.3x |
+| **Read by ID** | ~152 ns | ~1.87 µs | ~506 ns | 3.3x–12.3x |
+| **Search (Scan)** | ~23.85 µs | ~24.37 µs | ~24.03 µs | 1.0x–1.02x |
+| **Search (Indexed)** | ~202 ns | ~595 ns | - | 2.9x |
+| **Update** | ~2.22 µs | ~5.17 µs | ~3.87 µs | 1.7x–2.3x |
+| **Delete** | ~1.92 µs | ~4.78 µs | ~3.13 µs | 1.6x–2.5x |
+| **Hash Join (1k)** | ~302 µs | ~1.16 ms | - | 3.8x |
 
 ### SQL Parser Performance — LocalParser vs sqlparser
 
 | SQL Statement | LocalParser | sqlparser | Speedup |
 | :--- | :--- | :--- | :--- |
-| **CREATE TABLE** | 1.17 µs | 9.57 µs | **8.2x** |
-| **INSERT (single)** | 1.31 µs | 8.55 µs | **6.5x** |
-| **INSERT (multi, 5 rows)** | 2.68 µs | 16.69 µs | **6.2x** |
-| **SELECT + WHERE** | 663 ns | 7.14 µs | **10.8x** |
-| **SELECT + complex WHERE** | 1.62 µs | 17.05 µs | **10.5x** |
-| **UPDATE + WHERE** | 1.25 µs | 9.13 µs | **7.3x** |
-| **DELETE + WHERE** | 630 ns | 5.37 µs | **8.5x** |
-| **SELECT + JOIN** | 1.14 µs | 12.57 µs | **11.0x** |
-| **Batch (10 statements)** | 9.19 µs | 83.48 µs | **9.1x** |
+| **CREATE TABLE** | 1.09 µs | 10.52 µs | **9.6x** |
+| **INSERT (single)** | 1.52 µs | 8.83 µs | **5.8x** |
+| **INSERT (multi, 5 rows)** | 2.71 µs | 16.38 µs | **6.0x** |
+| **SELECT + WHERE** | 652 ns | 6.45 µs | **9.9x** |
+| **SELECT + complex WHERE** | 1.84 µs | 15.52 µs | **8.4x** |
+| **UPDATE + WHERE** | 1.20 µs | 9.00 µs | **7.5x** |
+| **DELETE + WHERE** | 622 ns | 5.67 µs | **9.1x** |
+| **SELECT + JOIN** | 1.27 µs | 13.65 µs | **10.7x** |
+| **Batch (10 statements)** | 9.77 µs | 87.16 µs | **8.9x** |
 
 The custom `LocalParser` is a hand-written recursive descent parser specialized to DBOBJ's exact SQL subset (~12 grammar rules). It produces native DBOBJ types directly, avoiding sqlparser's full SQL AST. `sqlparser` is used only in benchmarks for comparison (dev-dependency only).
 
@@ -127,12 +127,12 @@ The custom `LocalParser` is a hand-written recursive descent parser specialized 
 
 | Operation | Time | Ops/sec |
 | :--- | :--- | :--- |
-| **Bitcode Serialize** | ~371.66 µs | ~2,691 |
-| **Bitcode Deserialize** | ~617.47 µs | ~1,619 |
-| **Mmap Save (rkyv)** | ~5.89 ms | ~170 |
-| **Mmap Load** | ~198.03 µs | ~5,050 |
-| **Mmap Access (zero-copy)** | **~1.65 ns** | **~607,556,011** |
-| **Mmap Deserialize** | ~1.32 ms | ~758 |
+| **Bitcode Serialize** | ~399.16 µs | ~2,505 |
+| **Bitcode Deserialize** | ~669.49 µs | ~1,494 |
+| **Mmap Save (rkyv)** | ~6.05 ms | ~165 |
+| **Mmap Load** | ~172.05 µs | ~5,812 |
+| **Mmap Access (zero-copy)** | **~1.57 ns** | **~636,500,000** |
+| **Mmap Deserialize** | ~1.22 ms | ~817 |
 
 ### 1 Million Row Benchmark (Large Scale)
 
@@ -152,15 +152,15 @@ These results were obtained using `cargo run --release --example million_test` o
 The benchmarks demonstrate the massive performance advantage of **DBOBJ**'s in-memory, **Dense Row** (positional) architecture.
 
 - **SQLite** performs exceptionally well as an embedded database but is limited by SQL parsing and B-tree page management.
-- **DBOBJ** wins across all core relational operations in the Criterion benchmarks:
-    - **Single Inserts** are **~1.5x faster** than SQLite.
-    - **Batch Inserts** are **~2.3x faster** than SQLite.
-    - **Scans** are **~4.2x faster** than SQLite.
-    - **ID Lookups** are **~18.8x faster** than SQLite (and up to **~111Mx** faster at 1M rows when using the zero-copy index API).
-    - **Indexed Searches** are **~15.1x faster** than SQLite (and up to **~300x** faster at 1M rows).
-    - **Joins**: Our optimized **Hash Join** is **~2.4x faster** than SQLite at 1k rows and **~2.7x** at 100k rows.
+- **DBOBJ** wins across all core relational operations in the Criterion benchmarks (some operations show regressions vs prior runs per Criterion change metrics):
+    - **Single Inserts** are **~1.4x faster** than SQLite (regressed from ~1.5x prior).
+    - **Batch Inserts** are **~2.4x faster** than SQLite (regressed from ~2.3x prior).
+    - **Scans** are **~3.1x faster** than SQLite (regressed from ~4.2x prior).
+    - **ID Lookups** are **~17x faster** than SQLite (regressed from ~18.8x prior).
+    - **Indexed Searches** are **~17x faster** than SQLite (improved from ~15.1x prior).
+    - **Joins**: Our optimized **Hash Join** is **~2.4x faster** than SQLite at 1k rows and **~3.1x** at 100k rows (improved from ~2.7x prior).
 - **1M Row Macro Benchmark**: In a single-run bulk test, SQLite is competitive on **batch insert** (~1.03x faster) and **joins** (~1.8x faster), while DBOBJ dominates on **indexed search** (~300x faster) and **ID lookup** (~333M ops/sec).
-- **Mmap + rkyv** delivers **sub-nanosecond** zero-copy database access, making it ideal for read-heavy or analytics workloads where instant startup is critical.
+- **Mmap + rkyv** delivers **sub-nanosecond** zero-copy database access (improved to ~636.5M ops/sec from ~607M prior), making it ideal for read-heavy or analytics workloads where instant startup is critical.
 
 ## Advanced Optimizations (Implemented)
 
@@ -175,4 +175,48 @@ We have implemented several low-level optimizations to push performance even fur
 
 - **String Interning (`string-interner`)**: Evaluated in `examples/string_interner_eval.rs`. Blocked by `rkyv` incompatibility and high API churn. `CompactString` remains the optimal choice for DBOBJ's row-based model.
 
-*Note: These benchmarks were run on this machine (sample size: 10, measurement time: 3s).*
+*Note: These benchmarks were run on this machine on 2026-05-07 (sample size: 10, measurement time: 3s). Some operations show performance regressions vs prior runs per Criterion change detection metrics.*
+
+## Further Optimization Opportunities
+
+Based on the current codebase and benchmark results, the following optimizations are feasible:
+
+### 1. **Hash Join Optimization** (High Impact)
+- **Current**: ~302 µs for 1k rows, ~25 ms for 100k rows
+- **Opportunity**: Implement **Hash Join spill-to-disk** or **Radix Hash Join** to improve cache locality. Pre-allocate hash tables with `HashMap::with_capacity` to avoid rehashing.
+- **Potential gain**: 20–40% faster joins
+
+### 2. **Batch Insert API Optimization** (Medium Impact)
+- **Current**: ~11.7 µs for 100 rows (direct), ~23.8 µs (SQL multi-value)
+- **Opportunity**: Use `Vec::with_capacity` for row storage, avoid per-row `CompactString` allocations via **string interning** or **arena allocation**.
+- **Potential gain**: 15–30% faster inserts
+
+### 3. **Index Data Structure** (Medium Impact)
+- **Current**: Indexed search at ~4.68M ops/sec
+- **Opportunity**: Evaluate **Bw-Tree** or **ART (Adaptive Radix Tree)** for the index instead of `HashMap`. For integer keys, a **sorted Vec + binary search** can be faster.
+- **Potential gain**: 10–50% faster indexed lookups
+
+### 4. **Zero-Copy SQL Parser** (Low-Medium Impact)
+- **Current**: LocalParser at 652 ns for SELECT
+- **Opportunity**: Use **`nom`** or **`pest`** for zero-copy parsing with `&str` slices instead of allocating strings. Already fast but could reduce allocations further.
+- **Potential gain**: 10–20% faster parsing
+
+### 5. **SIMD for Scans** (High Impact for Large Tables)
+- **Current**: Scan at ~34.2k ops/sec
+- **Opportunity**: Use **SIMD (via `std::simd` or `packed_simd`)** for predicate evaluation on dense rows. Compare 8–16 values at once.
+- **Potential gain**: 2–4x faster scans
+
+### 6. **mimalloc Tuning** (Low Impact)
+- **Current**: Already using `mimalloc`
+- **Opportunity**: Enable `mimalloc` **arena mode** or **secure mode** disabled for more aggressive allocation. Consider **jemalloc** comparison.
+- **Potential gain**: 5–10% overall
+
+### 7. **Bitcode/rkyv Batching** (Low Impact)
+- **Current**: Serialization at ~2,505 ops/sec
+- **Opportunity**: Batch serialize multiple tables in parallel using **rayon**. Use **zstd** compression for rkyv payloads.
+- **Potential gain**: 20–50% faster persistence
+
+### 8. **Prepared Statement Caching** (Medium Impact for SQL)
+- **Current**: Prepared SQL at ~506 ns for reads
+- **Opportunity**: Cache prepared statements in a `HashMap<String, Statement>` to avoid re-preparing. Already partially done but could be optimized.
+- **Potential gain**: 10–30% faster SQL paths

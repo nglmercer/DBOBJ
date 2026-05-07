@@ -487,6 +487,31 @@ impl Table {
         data
     }
 
+    /// Return a row's values as a flat Vec<Value>, resolving interned strings.
+    /// Much faster than values_to_row() for bulk reads — avoids HashMap and
+    /// column-name cloning.
+    pub fn get_row_values(&self, row_idx: usize) -> Option<Vec<Value>> {
+        if row_idx >= self.ids.len() {
+            return None;
+        }
+        let start = row_idx * self.num_columns;
+        let end = start + self.num_columns;
+        let mut values = Vec::with_capacity(self.num_columns);
+        for val in &self.data[start..end] {
+            let v = if let Value::InternedString(id) = val {
+                if let Some(s) = self.string_pool.resolve(*id) {
+                    Value::String(s)
+                } else {
+                    val.clone()
+                }
+            } else {
+                val.clone()
+            };
+            values.push(v);
+        }
+        Some(values)
+    }
+
     pub fn get(&self, id: &Id) -> Option<Row> {
         if self.is_sequential_ids
             && let Id::Integer(i) = id
