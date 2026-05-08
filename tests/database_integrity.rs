@@ -226,7 +226,10 @@ fn test_direct_batch_insert_integrity() {
     for i in [0, 50, 99] {
         let row = table_read.get(&(i as u64).into()).unwrap();
         let data = table_read.values_to_row(&row.data);
-        assert_eq!(data.get("name").unwrap(), &Value::from(format!("user_{}", i)));
+        assert_eq!(
+            data.get("name").unwrap(),
+            &Value::from(format!("user_{}", i))
+        );
         assert_eq!(data.get("age").unwrap(), &Value::from(i as i64));
     }
 }
@@ -292,13 +295,11 @@ fn test_direct_update_integrity() {
 fn test_direct_delete_integrity() {
     let db = Database::new("DeleteDB".to_string());
     let schema = Schema {
-        columns: vec![
-            ColumnDefinition {
-                name: "name".into(),
-                data_type: DataType::String,
-                nullable: false,
-            },
-        ],
+        columns: vec![ColumnDefinition {
+            name: "name".into(),
+            data_type: DataType::String,
+            nullable: false,
+        }],
     };
     db.create_table("users".to_string(), schema);
 
@@ -369,9 +370,7 @@ fn test_index_operations_integrity() {
 
     // Create index and search again (O(log N))
     db.create_index("users", "username").unwrap();
-    let results = db
-        .find("users", "username", Value::from("user75"))
-        .unwrap();
+    let results = db.find("users", "username", Value::from("user75")).unwrap();
     assert_eq!(results.len(), 1);
     let table_ref = table.read();
     let row_data = table_ref.values_to_row(&results[0].data);

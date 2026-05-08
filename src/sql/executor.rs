@@ -28,11 +28,15 @@ impl PreparedStatement {
 
 fn count_stmt_placeholders(stmt: &Statement, count: &mut usize) {
     match stmt {
-        Statement::Select { selection, .. } => {
-            if let Some(sel) = selection {
-                count_expr_placeholders(sel, count);
-            }
+        Statement::Select {
+            selection: Some(sel),
+            ..
+        } => {
+            count_expr_placeholders(sel, count);
         }
+        Statement::Select {
+            selection: None, ..
+        } => {}
         Statement::Insert { values, .. } => {
             for row in values {
                 for val in row {
@@ -52,11 +56,15 @@ fn count_stmt_placeholders(stmt: &Statement, count: &mut usize) {
                 count_expr_placeholders(sel, count);
             }
         }
-        Statement::Delete { selection, .. } => {
-            if let Some(sel) = selection {
-                count_expr_placeholders(sel, count);
-            }
+        Statement::Delete {
+            selection: Some(sel),
+            ..
+        } => {
+            count_expr_placeholders(sel, count);
         }
+        Statement::Delete {
+            selection: None, ..
+        } => {}
         _ => {}
     }
 }
@@ -188,9 +196,7 @@ impl<'a> SqlExecutor<'a> {
             } else {
                 drop(cache);
                 let mut parser = LocalParser::new(sql);
-                let parsed = parser
-                    .parse_statements()
-                    .map_err(|e| e.to_string())?;
+                let parsed = parser.parse_statements().map_err(|e| e.to_string())?;
                 let mut cache = ext_cache.borrow_mut();
                 if cache.len() >= MAX_CACHE_SIZE {
                     cache.clear();
@@ -214,9 +220,7 @@ impl<'a> SqlExecutor<'a> {
             } else {
                 drop(cache);
                 let mut parser = LocalParser::new(sql);
-                let parsed = parser
-                    .parse_statements()
-                    .map_err(|e| e.to_string())?;
+                let parsed = parser.parse_statements().map_err(|e| e.to_string())?;
                 let mut cache = self.stmt_cache.borrow_mut();
                 if cache.len() >= MAX_CACHE_SIZE {
                     cache.clear();
@@ -259,9 +263,7 @@ impl<'a> SqlExecutor<'a> {
         }
         drop(cache);
         let mut parser = LocalParser::new(sql);
-        let parsed = parser
-            .parse_statements()
-            .map_err(|e| e.to_string())?;
+        let parsed = parser.parse_statements().map_err(|e| e.to_string())?;
         let mut cache = self.stmt_cache.borrow_mut();
         if cache.len() >= MAX_CACHE_SIZE {
             cache.clear();
@@ -347,9 +349,7 @@ impl<'a> SqlExecutor<'a> {
                         let table_lock = self
                             .db
                             .get_table(&table_name_str)
-                            .ok_or_else(|| {
-                                format!("Table {} not found", table_name_str)
-                            })?;
+                            .ok_or_else(|| format!("Table {} not found", table_name_str))?;
                         let table_ref = table_lock.read();
                         num_cols = table_ref.num_columns;
                         col_indices = if columns.is_empty() {
@@ -358,16 +358,14 @@ impl<'a> SqlExecutor<'a> {
                             columns
                                 .iter()
                                 .map(|col| {
-                                    table_ref
-                                        .column_map
-                                        .get(col.as_str())
-                                        .copied()
-                                        .ok_or_else(|| {
+                                    table_ref.column_map.get(col.as_str()).copied().ok_or_else(
+                                        || {
                                             format!(
                                                 "Column {} not found in table {}",
                                                 col, table_name_str
                                             )
-                                        })
+                                        },
+                                    )
                                 })
                                 .collect::<Result<Vec<_>, _>>()?
                         };
@@ -393,9 +391,7 @@ impl<'a> SqlExecutor<'a> {
                             Some(
                                 self.db
                                     .get_table(&table_name_str)
-                                    .ok_or_else(|| {
-                                        format!("Table {} not found", table_name_str)
-                                    })?,
+                                    .ok_or_else(|| format!("Table {} not found", table_name_str))?,
                             )
                         } else {
                             None
@@ -410,10 +406,7 @@ impl<'a> SqlExecutor<'a> {
                                 } else if let Some(table) = &table_guard
                                     && i < table.schema.columns.len()
                                 {
-                                    row_data.insert(
-                                        table.schema.columns[i].name.clone(),
-                                        value,
-                                    );
+                                    row_data.insert(table.schema.columns[i].name.clone(), value);
                                 }
                             }
                         }
@@ -451,8 +444,10 @@ impl<'a> SqlExecutor<'a> {
                     } else if let Some(selection) = &selection {
                         let mapped = map_expr_to_core(selection)?;
                         let cap = table_ref.column_map.len() * 2 + 1;
-                        let mut mapping =
-                            crate::core::FastHashMap::with_capacity_and_hasher(cap, Default::default());
+                        let mut mapping = crate::core::FastHashMap::with_capacity_and_hasher(
+                            cap,
+                            Default::default(),
+                        );
                         for (col, idx) in &table_ref.column_map {
                             mapping.insert(col.clone(), *idx);
                             mapping.insert(format!("{}.{}", table_name, col), *idx);
@@ -508,8 +503,10 @@ impl<'a> SqlExecutor<'a> {
                     } else if let Some(selection) = &selection {
                         let mapped = map_expr_to_core(selection)?;
                         let cap = table_ref.column_map.len() * 2 + 1;
-                        let mut mapping =
-                            crate::core::FastHashMap::with_capacity_and_hasher(cap, Default::default());
+                        let mut mapping = crate::core::FastHashMap::with_capacity_and_hasher(
+                            cap,
+                            Default::default(),
+                        );
                         for (col, idx) in &table_ref.column_map {
                             mapping.insert(col.clone(), *idx);
                             mapping.insert(format!("{}.{}", table_name, col), *idx);
@@ -687,16 +684,10 @@ impl<'a> SqlExecutor<'a> {
             let m2 = r2.to_map(&t2);
             let mut combined = RowData::default();
             for (k, v) in m1.drain() {
-                combined.insert(
-                    CompactString::from(format!("{}.{}", table1_name, k)),
-                    v,
-                );
+                combined.insert(CompactString::from(format!("{}.{}", table1_name, k)), v);
             }
             for (k, v) in m2 {
-                combined.insert(
-                    CompactString::from(format!("{}.{}", table2_name, k)),
-                    v,
-                );
+                combined.insert(CompactString::from(format!("{}.{}", table2_name, k)), v);
             }
             results.push(combined);
         }
@@ -729,21 +720,21 @@ fn lookup_indexed_or_scan(
     {
         lookup_val = Value::InternedString(id);
     }
-    if let Some(col_idx) = table.column_map.get(column_name) {
-        if let Some(index) = table.indexes.values().find(|idx| idx.col_idx == *col_idx) {
-            if index.is_unique {
-                return index
-                    .unique_map
-                    .get(&lookup_val)
-                    .map(|&i| vec![table.get_row_by_index(i)])
-                    .unwrap_or_default();
-            } else {
-                return index
-                    .map
-                    .get(&lookup_val)
-                    .map(|ids| ids.iter().filter_map(|id| table.get(id)).collect())
-                    .unwrap_or_default();
-            }
+    if let Some(col_idx) = table.column_map.get(column_name)
+        && let Some(index) = table.indexes.values().find(|idx| idx.col_idx == *col_idx)
+    {
+        if index.is_unique {
+            return index
+                .unique_map
+                .get(&lookup_val)
+                .map(|&i| vec![table.get_row_by_index(i)])
+                .unwrap_or_default();
+        } else {
+            return index
+                .map
+                .get(&lookup_val)
+                .map(|ids| ids.iter().filter_map(|id| table.get(id)).collect())
+                .unwrap_or_default();
         }
     }
     table.find_by_column(column_name, &lookup_val)

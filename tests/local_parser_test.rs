@@ -1,6 +1,6 @@
+use compact_str::CompactString;
 use dbobj::core::{DataType, Operator, Value};
 use dbobj::sql::local_parser::{Expr, Parser, Statement, Token, Tokenizer};
-use compact_str::CompactString;
 
 // ── Tokenizer tests ──
 
@@ -20,53 +20,70 @@ fn collect_tokens(input: &str) -> Vec<Token> {
 #[test]
 fn test_tokenize_keywords() {
     let tokens = collect_tokens("CREATE TABLE INSERT SELECT");
-    assert_eq!(tokens, vec![
-        Token::KwCreate, Token::KwTable,
-        Token::KwInsert, Token::KwSelect,
-    ]);
+    assert_eq!(
+        tokens,
+        vec![
+            Token::KwCreate,
+            Token::KwTable,
+            Token::KwInsert,
+            Token::KwSelect,
+        ]
+    );
 }
 
 #[test]
 fn test_tokenize_identifiers() {
     let tokens = collect_tokens("users user_name _private");
-    assert_eq!(tokens, vec![
-        Token::Ident(CompactString::from("users")),
-        Token::Ident(CompactString::from("user_name")),
-        Token::Ident(CompactString::from("_private")),
-    ]);
+    assert_eq!(
+        tokens,
+        vec![
+            Token::Ident(CompactString::from("users")),
+            Token::Ident(CompactString::from("user_name")),
+            Token::Ident(CompactString::from("_private")),
+        ]
+    );
 }
 
 #[test]
 fn test_tokenize_numbers() {
     let tokens = collect_tokens("42 3.14 100");
-    assert_eq!(tokens, vec![
-        Token::Number(CompactString::from("42")),
-        Token::Number(CompactString::from("3.14")),
-        Token::Number(CompactString::from("100")),
-    ]);
+    assert_eq!(
+        tokens,
+        vec![
+            Token::Number(CompactString::from("42")),
+            Token::Number(CompactString::from("3.14")),
+            Token::Number(CompactString::from("100")),
+        ]
+    );
 }
 
 #[test]
 fn test_tokenize_strings() {
     let tokens = collect_tokens("'hello' 'it''s'");
-    assert_eq!(tokens, vec![
-        Token::SingleQuotedString(CompactString::from("hello")),
-        Token::SingleQuotedString(CompactString::from("it's")),
-    ]);
+    assert_eq!(
+        tokens,
+        vec![
+            Token::SingleQuotedString(CompactString::from("hello")),
+            Token::SingleQuotedString(CompactString::from("it's")),
+        ]
+    );
 }
 
 #[test]
 fn test_tokenize_operators() {
     let tokens = collect_tokens("= != <> > >= < <=");
-    assert_eq!(tokens, vec![
-        Token::Equals,
-        Token::OpNotEq,
-        Token::OpNotEq,
-        Token::OpGt,
-        Token::OpGtEq,
-        Token::OpLt,
-        Token::OpLtEq,
-    ]);
+    assert_eq!(
+        tokens,
+        vec![
+            Token::Equals,
+            Token::OpNotEq,
+            Token::OpNotEq,
+            Token::OpGt,
+            Token::OpGtEq,
+            Token::OpLt,
+            Token::OpLtEq,
+        ]
+    );
 }
 
 #[test]
@@ -159,7 +176,12 @@ fn test_parse_alter_table_without_column_keyword() {
 #[test]
 fn test_parse_insert_named_cols() {
     let stmt = parse_one("INSERT INTO users (name, age) VALUES ('Alice', 30)");
-    if let Statement::Insert { table, columns, values } = &stmt {
+    if let Statement::Insert {
+        table,
+        columns,
+        values,
+    } = &stmt
+    {
         assert_eq!(table.as_str(), "users");
         assert_eq!(columns.len(), 2);
         assert_eq!(columns[0].as_str(), "name");
@@ -174,7 +196,12 @@ fn test_parse_insert_named_cols() {
 #[test]
 fn test_parse_insert_positional() {
     let stmt = parse_one("INSERT INTO items VALUES (1, 10.5)");
-    if let Statement::Insert { table, columns, values } = &stmt {
+    if let Statement::Insert {
+        table,
+        columns,
+        values,
+    } = &stmt
+    {
         assert_eq!(table.as_str(), "items");
         assert!(columns.is_empty());
         assert_eq!(values.len(), 1);
@@ -186,9 +213,8 @@ fn test_parse_insert_positional() {
 
 #[test]
 fn test_parse_insert_multi_value() {
-    let stmt = parse_one(
-        "INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25), ('Carol', 35)"
-    );
+    let stmt =
+        parse_one("INSERT INTO users (name, age) VALUES ('Alice', 30), ('Bob', 25), ('Carol', 35)");
     if let Statement::Insert { values, .. } = &stmt {
         assert_eq!(values.len(), 3);
         assert_eq!(values[0].len(), 2);
@@ -202,7 +228,12 @@ fn test_parse_insert_multi_value() {
 #[test]
 fn test_parse_update() {
     let stmt = parse_one("UPDATE users SET age = 31 WHERE name = 'Alice'");
-    if let Statement::Update { table, assignments, selection } = &stmt {
+    if let Statement::Update {
+        table,
+        assignments,
+        selection,
+    } = &stmt
+    {
         assert_eq!(table.as_str(), "users");
         assert_eq!(assignments.len(), 1);
         assert_eq!(assignments[0].column.as_str(), "age");
@@ -248,7 +279,10 @@ fn test_parse_delete_no_where() {
 fn test_parse_select_star() {
     let stmt = parse_one("SELECT * FROM users");
     if let Statement::Select { columns, table, .. } = &stmt {
-        assert!(matches!(columns, dbobj::sql::local_parser::SelectColumns::Star));
+        assert!(matches!(
+            columns,
+            dbobj::sql::local_parser::SelectColumns::Star
+        ));
         assert_eq!(table.as_str(), "users");
     } else {
         panic!("Expected Select");
@@ -313,9 +347,7 @@ fn test_parse_where_parens() {
 
 #[test]
 fn test_parse_join() {
-    let stmt = parse_one(
-        "SELECT * FROM users INNER JOIN orders ON users.user_id = orders.user_id"
-    );
+    let stmt = parse_one("SELECT * FROM users INNER JOIN orders ON users.user_id = orders.user_id");
     if let Statement::Select { join, .. } = &stmt {
         let j = join.as_ref().unwrap();
         assert_eq!(j.table.as_str(), "orders");
@@ -371,15 +403,23 @@ fn test_parse_errors() {
     // Invalid syntax
     assert!(Parser::new("CREATE TABLE (id)").parse_statements().is_err());
     assert!(Parser::new("SELECT FROM").parse_statements().is_err());
-    assert!(Parser::new("INSERT INTO t VALUES").parse_statements().is_err());
+    assert!(
+        Parser::new("INSERT INTO t VALUES")
+            .parse_statements()
+            .is_err()
+    );
     assert!(Parser::new("UNKNOWN COMMAND").parse_statements().is_err());
-    assert!(Parser::new("SELECT * FROM t WHERE 1 = 'unterminated").parse_statements().is_err());
+    assert!(
+        Parser::new("SELECT * FROM t WHERE 1 = 'unterminated")
+            .parse_statements()
+            .is_err()
+    );
 }
 
 #[test]
 fn test_parse_multiple_statements() {
     let mut parser = Parser::new(
-        "CREATE TABLE users (id INT); INSERT INTO users VALUES (1); SELECT * FROM users"
+        "CREATE TABLE users (id INT); INSERT INTO users VALUES (1); SELECT * FROM users",
     );
     let stmts = parser.parse_statements().unwrap();
     assert_eq!(stmts.len(), 3);
@@ -401,7 +441,8 @@ fn test_parse_number_values() {
 
 #[test]
 fn test_parse_boolean_and_null() {
-    let stmt = parse_one("SELECT * FROM t WHERE active = TRUE AND deleted = FALSE AND extra = NULL");
+    let stmt =
+        parse_one("SELECT * FROM t WHERE active = TRUE AND deleted = FALSE AND extra = NULL");
     if let Statement::Select { selection, .. } = &stmt {
         assert!(selection.is_some());
         // Verify it parsed without error
@@ -431,10 +472,13 @@ fn test_roundtrip_vs_sqlparser_create_table() {
     let sql = "CREATE TABLE users (id INTEGER, name TEXT)";
     let local = parse_one(sql);
     let parsed = SqlParser::parse_sql(&SQLiteDialect {}, sql).unwrap();
-    
+
     // Both should produce a create table statement
     assert!(matches!(local, Statement::CreateTable { .. }));
-    assert!(matches!(&parsed[0], sqlparser::ast::Statement::CreateTable(_)));
+    assert!(matches!(
+        &parsed[0],
+        sqlparser::ast::Statement::CreateTable(_)
+    ));
 }
 
 #[test]
@@ -445,7 +489,7 @@ fn test_roundtrip_vs_sqlparser_select() {
     let sql = "SELECT * FROM users WHERE id = 1";
     let local = parse_one(sql);
     let parsed = SqlParser::parse_sql(&SQLiteDialect {}, sql).unwrap();
-    
+
     assert!(matches!(local, Statement::Select { .. }));
     assert!(matches!(&parsed[0], sqlparser::ast::Statement::Query(_)));
 }
@@ -458,7 +502,7 @@ fn test_roundtrip_vs_sqlparser_insert() {
     let sql = "INSERT INTO users (name, age) VALUES ('Alice', 30)";
     let local = parse_one(sql);
     let parsed = SqlParser::parse_sql(&SQLiteDialect {}, sql).unwrap();
-    
+
     assert!(matches!(local, Statement::Insert { .. }));
     assert!(matches!(&parsed[0], sqlparser::ast::Statement::Insert(_)));
 }
@@ -471,7 +515,7 @@ fn test_roundtrip_vs_sqlparser_join() {
     let sql = "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id";
     let local = parse_one(sql);
     let parsed = SqlParser::parse_sql(&SQLiteDialect {}, sql).unwrap();
-    
+
     assert!(matches!(local, Statement::Select { .. }));
     assert!(matches!(&parsed[0], sqlparser::ast::Statement::Query(_)));
 }
@@ -488,10 +532,16 @@ fn test_local_parser_produces_executable_ast() {
 
     // This will use the existing SqlParser (which delegates to sqlparser for now)
     // We're just verifying the test infrastructure works
-    executor.execute("CREATE TABLE users (id INTEGER, name TEXT)").unwrap();
-    executor.execute("INSERT INTO users VALUES (1, 'Alice')").unwrap();
-    
-    let result = executor.execute("SELECT * FROM users WHERE id = 1").unwrap();
+    executor
+        .execute("CREATE TABLE users (id INTEGER, name TEXT)")
+        .unwrap();
+    executor
+        .execute("INSERT INTO users VALUES (1, 'Alice')")
+        .unwrap();
+
+    let result = executor
+        .execute("SELECT * FROM users WHERE id = 1")
+        .unwrap();
     if let SqlResult::Rows(rows) = result {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].get("name").unwrap().clone(), "Alice".into());

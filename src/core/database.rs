@@ -338,6 +338,42 @@ impl Database {
         Ok(ids)
     }
 
+    /// Single-row insert from positional values — no RowData/HashMap overhead.
+    /// Skips the JSON→RowData→Vec<Value> double conversion.
+    pub fn insert_values(
+        &self,
+        table_name: &str,
+        values: Vec<Value>,
+    ) -> Result<Id, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
+        })?;
+        let mut table = table_lock.write();
+        let id = table.insert_values(values)?;
+
+        if let Some(wal_lock) = &self.wal {
+            let mut wal = wal_lock.write();
+            let row = table.get(&id).unwrap();
+            let _ = wal.append(&crate::storage::wal::WalEntry {
+                table_name: table_name.to_string(),
+                row_id: id.clone(),
+                change_type: ChangeType::Insert,
+                data: Some(table.values_to_row(&row.data)),
+            });
+        }
+        self.version_log.write().record(
+            table_name.to_string(),
+            id.clone(),
+            ChangeType::Insert,
+            None,
+        );
+        Ok(id)
+    }
+
     pub fn insert_row(
         &self,
         table_name: &str,
@@ -408,6 +444,25 @@ impl Database {
                 data: Some(data),
             });
         }
+        Ok(())
+    }
+
+    /// Update a single row from positional values — no RowData/HashMap overhead.
+    pub fn update_values(
+        &self,
+        table_name: &str,
+        id: &Id,
+        values: Vec<Value>,
+    ) -> Result<(), crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
+        })?;
+        let mut table = table_lock.write();
+        table.update_values(id, values)?;
         Ok(())
     }
 

@@ -54,10 +54,7 @@ fn test_prepared_statements() {
         .prepare("INSERT INTO users (name, age) VALUES (?, ?)")
         .unwrap();
     executor
-        .execute_prepared(
-            &insert_stmt,
-            &[Value::from("Alice"), Value::from(30i64)],
-        )
+        .execute_prepared(&insert_stmt, &[Value::from("Alice"), Value::from(30i64)])
         .unwrap();
     executor
         .execute_prepared(&insert_stmt, &[Value::from("Bob"), Value::from(25i64)])
@@ -151,10 +148,7 @@ fn test_sql_indexed_search() {
         .unwrap();
 
     for i in 0..100 {
-        let sql = format!(
-            "INSERT INTO users (name, age) VALUES ('user{}', {})",
-            i, i
-        );
+        let sql = format!("INSERT INTO users (name, age) VALUES ('user{}', {})", i, i);
         executor.execute(&sql).unwrap();
     }
 
@@ -332,7 +326,6 @@ fn test_sql_positional_insert() {
         panic!("Expected Rows result");
     }
 }
-
 
 #[test]
 fn test_multi_value_insert() {

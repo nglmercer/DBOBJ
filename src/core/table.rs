@@ -427,6 +427,55 @@ impl Table {
         Ok(ids)
     }
 
+    /// Insert a single row from positional values — no RowData/HashMap overhead.
+    /// For single inserts, this avoids the double conversion of
+    /// RowData → validate_and_convert → Vec<Value>.
+    pub fn insert_values(&mut self, values: Vec<Value>) -> Result<Id, TableError> {
+        self.insert_batch_values(vec![values]).map(|mut ids| ids.remove(0))
+    }
+
+    /// Update a row from positional values — no RowData/HashMap overhead.
+    /// Skips the `validate_and_convert` HashMap lookup for known column positions.
+    pub fn update_values(&mut self, id: &Id, mut values: Vec<Value>) -> Result<(), TableError> {
+        if values.len() != self.num_columns {
+            return Err(TableError::SchemaViolation(format!(
+                "Expected {} columns, got {}",
+                self.num_columns, values.len()
+            )));
+        }
+        let idx = *self
+            .id_map
+            .get(id)
+            .ok_or_else(|| TableError::SchemaViolation(format!("ID {} not found", id)))?;
+
+        self.intern_row(&mut values);
+
+        // Update indexes
+        for index_obj in self.indexes.values_mut() {
+            let start = idx * self.num_columns;
+            let old_val = &self.data[start + index_obj.col_idx];
+            let new_val = &values[index_obj.col_idx];
+
+            if old_val != new_val {
+                if let Some(list) = index_obj.map.get_mut(old_val) {
+                    list.retain(|x| x != id);
+                }
+                index_obj
+                    .map
+                    .entry(new_val.clone())
+                    .or_default()
+                    .push(id.clone());
+            }
+        }
+
+        let start = idx * self.num_columns;
+        for (i, val) in values.into_iter().enumerate() {
+            self.data[start + i] = val;
+        }
+        self.versions[idx] += 1;
+        Ok(())
+    }
+
     /// Single-pass: validates schema and converts RowData to positional Vec<Value> simultaneously.
     /// Eliminates the double HashMap iteration of separate validate_schema + row_to_values.
     fn validate_and_convert(&self, data: RowData) -> Result<Vec<Value>, TableError> {
@@ -474,7 +523,8 @@ impl Table {
     }
 
     pub fn values_to_row(&self, values: &[Value]) -> RowData {
-        let mut data = RowData::with_capacity_and_hasher(self.schema.columns.len(), Default::default());
+        let mut data =
+            RowData::with_capacity_and_hasher(self.schema.columns.len(), Default::default());
         for (idx, col) in self.schema.columns.iter().enumerate() {
             let mut val = values[idx].clone();
             if let Value::InternedString(id) = val

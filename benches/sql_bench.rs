@@ -184,10 +184,7 @@ fn bench_batch_insert(c: &mut Criterion) {
                     }
                     values.push_str(&format!("('user_{}', {})", i, i));
                 }
-                format!(
-                    "INSERT INTO users (username, age) VALUES {}",
-                    values
-                )
+                format!("INSERT INTO users (username, age) VALUES {}", values)
             },
             |sql| {
                 executor.execute(&sql).unwrap();
@@ -597,9 +594,7 @@ fn bench_delete(c: &mut Criterion) {
             db.insert_row("users", data, None).unwrap();
         }
         let executor = SqlExecutor::new(&db);
-        let stmt = executor
-            .prepare("DELETE FROM users WHERE id = ?")
-            .unwrap();
+        let stmt = executor.prepare("DELETE FROM users WHERE id = ?").unwrap();
 
         b.iter_batched(
             || {
@@ -609,9 +604,7 @@ fn bench_delete(c: &mut Criterion) {
                 db.insert_row("users", data, None).unwrap()
             },
             |id| {
-                executor
-                    .execute_prepared(&stmt, &[id.to_value()])
-                    .unwrap();
+                executor.execute_prepared(&stmt, &[id.to_value()]).unwrap();
             },
             BatchSize::SmallInput,
         )
