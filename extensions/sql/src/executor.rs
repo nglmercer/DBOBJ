@@ -920,7 +920,6 @@ impl<'a> SqlExecutor<'a> {
                  }
                  return Ok(results);
              }
-        }
         Err("Query not suitable for execute_i64".to_string())
     }
 }

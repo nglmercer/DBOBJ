@@ -27,58 +27,52 @@ impl PreparedStatement {
         let vals: Vec<_> = params.into_iter().map(dbobj::Value::Integer).collect();
         executor
             .execute_prepared(&self.inner, &vals)
-            .map_err(|e| napi::Error::from_reason(e))?;
+            .map_err(napi::Error::from_reason)?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(())
     }
 
     #[napi]
-    pub fn all_i64(&self, params: Vec<i64>) -> Result<BigInt64Array> {
-        let executor = dbobj_sql::SqlExecutor::new(&self.db);
-        let vals: Vec<_> = params.into_iter().map(dbobj::Value::Integer).collect();
-
+    pub fn all_i64(&self, _params: Vec<i64>) -> Result<BigInt64Array> {
         // Use a specialized path for prepared columnar queries
         let stmt = &self.inner;
-        if stmt.statements.len() == 1 {
-            if let dbobj_sql::local_parser::Statement::Select {
+        if stmt.statements.len() == 1
+            && let dbobj_sql::local_parser::Statement::Select {
                 columns,
                 table,
                 selection: _,
                 join,
             } = &stmt.statements[0]
-            {
-                if let dbobj_sql::local_parser::SelectColumns::List(cols) = columns
-                    && cols.len() == 1
-                    && join.is_none()
-                {
-                    let table_name = table.to_string();
-                    let table_lock = self.db.get_table(&table_name).ok_or_else(|| {
-                        napi::Error::from_reason(format!("Table {} not found", table_name))
-                    })?;
-                    let table_ref = table_lock.read();
-                    let col_idx = *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
-                        napi::Error::from_reason(format!("Column {} not found", cols[0]))
-                    })?;
+            && let dbobj_sql::local_parser::SelectColumns::List(cols) = columns
+            && cols.len() == 1
+            && join.is_none()
+        {
+            let table_name = table.to_string();
+            let table_lock = self.db.get_table(&table_name).ok_or_else(|| {
+                napi::Error::from_reason(format!("Table {} not found", table_name))
+            })?;
+            let table_ref = table_lock.read();
+            let col_idx = *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
+                napi::Error::from_reason(format!("Column {} not found", cols[0]))
+            })?;
 
-                    let num_rows = table_ref.ids.len();
-                    let mut result = Vec::with_capacity(num_rows);
-                    for i in 0..num_rows {
-                        let val = &table_ref.data[i * table_ref.num_columns + col_idx];
-                        if let dbobj::Value::Integer(i) = val {
-                            result.push(*i);
-                        } else {
-                            result.push(0);
-                        }
-                    }
-                    let ptr = result.as_mut_ptr();
-                    let len = result.len();
-                    std::mem::forget(result);
-                    unsafe {
-                        return Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
-                            let _ = Vec::from_raw_parts(ptr, len, len);
-                        }));
-                    }
+            let num_rows = table_ref.ids.len();
+            let mut result = Vec::with_capacity(num_rows);
+            for i in 0..num_rows {
+                let val = &table_ref.data[i * table_ref.num_columns + col_idx];
+                if let dbobj::Value::Integer(i) = val {
+                    result.push(*i);
+                } else {
+                    result.push(0);
                 }
+            }
+            let ptr = result.as_mut_ptr();
+            let len = result.len();
+            std::mem::forget(result);
+            unsafe {
+                return Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+                    let _ = Vec::from_raw_parts(ptr, len, len);
+                }));
             }
         }
         Err(napi::Error::from_reason("Query not suitable for all_i64"))
@@ -93,7 +87,7 @@ impl PreparedStatement {
             .collect();
         executor
             .execute_prepared_batch(&self.inner, &batch)
-            .map_err(|e| napi::Error::from_reason(e))?;
+            .map_err(napi::Error::from_reason)?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(())
     }
@@ -119,7 +113,7 @@ impl PreparedStatement {
 
         executor
             .execute_prepared_batch(&self.inner, &batch)
-            .map_err(|e| napi::Error::from_reason(e))?;
+            .map_err(napi::Error::from_reason)?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(())
     }
@@ -460,7 +454,7 @@ impl Database {
         let executor = dbobj_sql::SqlExecutor::new(&self.inner);
         let result = executor
             .execute(&sql)
-            .map_err(|e| napi::Error::from_reason(e))?;
+            .map_err(napi::Error::from_reason)?;
 
         let out = match result {
             dbobj_sql::SqlResult::Ok => Ok(serde_json::Value::String("OK".to_string())),
@@ -513,7 +507,7 @@ impl Database {
         let executor = dbobj_sql::SqlExecutor::new(&self.inner);
         let stmt = executor
             .prepare(&sql)
-            .map_err(|e| napi::Error::from_reason(e))?;
+            .map_err(napi::Error::from_reason)?;
         Ok(PreparedStatement {
             inner: stmt,
             db: self.inner.clone(),
@@ -525,7 +519,7 @@ impl Database {
         let executor = dbobj_sql::SqlExecutor::new(&self.inner);
         let mut result = executor
             .execute_i64(&sql)
-            .map_err(|e| napi::Error::from_reason(e))?;
+            .map_err(napi::Error::from_reason)?;
 
         let ptr = result.as_mut_ptr();
         let len = result.len();
