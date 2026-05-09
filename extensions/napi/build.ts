@@ -43,6 +43,11 @@ async function runBuild() {
       "--cross-compile",
     ];
 
+    // Disable mimalloc for Apple targets to avoid SDK dependency issues
+    if (!target.includes("apple")) {
+      args.push("--features", "mimalloc");
+    }
+
     // On Linux, building for Windows MSVC requires cargo-xwin
     if (target.includes("windows") && process.platform !== "win32") {
        console.log("ℹ️  Building for Windows requires 'cargo-xwin'. Ensure it is installed.");
