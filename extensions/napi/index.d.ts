@@ -16,6 +16,7 @@ export declare class Database {
   deleteRow(tableName: string, id: number): void
   findByI64(tableName: string, columnName: string, value: number): BigInt64Array
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
+  executeSql(sql: string): any
 }
 
 export interface TableMetadata {

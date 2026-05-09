@@ -9,7 +9,7 @@ describe("DBOBJ N-API Bindings - Full Operations", () => {
     // Insert
     db.insertRowI64("users", [25]);
     db.insertRowI64("users", [30]);
-    
+
     let ages = db.getColumnI64("users", "age");
     expect(ages.length).toBe(2);
     expect(ages[0]).toBe(25n);
@@ -44,5 +44,16 @@ describe("DBOBJ N-API Bindings - Full Operations", () => {
     expect(joinResult.length).toBe(2); // Pair of IDs: [0, 0]
     expect(joinResult[0]).toBe(0n);
     expect(joinResult[1]).toBe(0n);
+  });
+
+  test("SQL Execution", () => {
+    const db = new Database("SQL_Test");
+    db.executeSql("CREATE TABLE users (id INTEGER, name STRING)");
+    db.executeSql("INSERT INTO users (id, name) VALUES (1, 'Alice'), (2, 'Bob')");
+
+    const result = db.executeSql("SELECT * FROM users WHERE id = 1");
+    expect(Array.isArray(result)).toBe(true);
+    expect(result.length).toBe(1);
+    expect(result[0].name).toBe("Alice");
   });
 });
