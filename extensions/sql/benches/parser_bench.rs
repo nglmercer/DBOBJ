@@ -1,5 +1,5 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use dbobj::sql::local_parser::Parser as LocalParser;
+use dbobj_sql::LocalParser;
 use sqlparser::dialect::SQLiteDialect;
 use sqlparser::parser::Parser as SqlParser;
 use std::time::Duration;

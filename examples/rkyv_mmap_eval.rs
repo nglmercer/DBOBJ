@@ -1,4 +1,4 @@
-use dbobj::core::Value;
+use dbobj::Value;
 use memmap2::Mmap;
 use rkyv::{Archive, Deserialize, Serialize};
 use std::fs::File;

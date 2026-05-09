@@ -1,4 +1,4 @@
-use dbobj::core::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
+use dbobj::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
 use dbobj::storage::MmapStorage;
 use std::time::Instant;
 

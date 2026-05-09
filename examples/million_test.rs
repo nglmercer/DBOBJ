@@ -1,4 +1,4 @@
-use dbobj::core::{ColumnDefinition, DataType, Database, Schema, Value};
+use dbobj::{ColumnDefinition, DataType, Database, Schema, Value};
 use rusqlite::{Connection, params as sqlite_params};
 use std::time::Instant;
 
@@ -111,11 +111,11 @@ fn main() {
     // --- 5.1 ID Lookup (Primary Key) ---
     println!("Looking up ID 500000 directly (x10000 amortized)...");
     let table = table_lock.read();
-    let id_to_find = dbobj::core::Id::from(500000u64);
+    let id_to_find = dbobj::Id::from(500000u64);
 
     let start = Instant::now();
     for _ in 0..10000 {
-        if let dbobj::core::Id::Integer(i) = &id_to_find {
+        if let dbobj::Id::Integer(i) = &id_to_find {
             let row_idx = *i as usize;
             let _val = table.get_value_by_index(row_idx, id_col_idx);
         }

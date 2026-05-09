@@ -1,4 +1,4 @@
-use dbobj::core::{ColumnDefinition, DataType, Database, Schema, Value};
+use dbobj::{ColumnDefinition, DataType, Database, Schema, Value};
 use rusqlite::{Connection, params as sqlite_params};
 use std::time::Instant;
 
@@ -26,7 +26,7 @@ fn main() {
         );
         let start = Instant::now();
         for i in 0..1000 {
-            let mut data = dbobj::core::RowData::default();
+            let mut data = dbobj::RowData::default();
             data.insert("val".into(), Value::from(i as i64));
             db.insert_row("users", data, None).unwrap();
         }
@@ -108,7 +108,7 @@ fn main() {
                 .get_table("users")
                 .unwrap()
                 .read()
-                .get(&dbobj::core::Id::from(i as u64 % 1000))
+                .get(&dbobj::Id::from(i as u64 % 1000))
                 .unwrap();
         }
         let db_time = start.elapsed() / 10000;
