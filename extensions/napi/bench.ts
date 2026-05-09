@@ -69,14 +69,14 @@ class DBOBJSQLSuite implements TestSuite {
 
   insert(count: number) {
     this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
-    // SQL inserts are slower in loop, we'll do a small sample or use a single large statement if supported
-    // For now, let's do a smaller count for SQL to not hang, but for fair comparison we'll mark it.
     const t0 = performance.now();
-    // We don't have bulk SQL insert yet in the executor, so this is slow
-    for (let i = 0; i < Math.min(count, 1000); i++) {
-      this.db.executeSql(`INSERT INTO users (id, val) VALUES (${i}, ${i * 10})`);
+    const batchSize = Math.min(count, 1000);
+    const values = [];
+    for (let i = 0; i < batchSize; i++) {
+      values.push(`(${i}, ${i * 10})`);
     }
-    return (performance.now() - t0) * (count / 1000); // Projected
+    this.db.executeSql(`INSERT INTO users (id, val) VALUES ${values.join(", ")}`);
+    return (performance.now() - t0) * (count / batchSize); // Projected
   }
 
   readColumn(tableName: string, colName: string) {
@@ -159,10 +159,58 @@ class BunSQLiteSuite implements TestSuite {
   }
 }
 
+class DBOBJSQLPreparedSuite implements TestSuite {
+  name = "DBOBJ SQL (Prepared)";
+  db = new DBOBJ("sql_prepared");
+
+  insert(count: number) {
+    this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
+    const stmt = this.db.prepare("INSERT INTO users (id, val) VALUES (?, ?)");
+    const t0 = performance.now();
+    for (let i = 0; i < count; i++) {
+      stmt.run([i, i * 10]);
+    }
+    return performance.now() - t0;
+  }
+
+  readColumn(tableName: string, colName: string) {
+    const t0 = performance.now();
+    this.db.executeSql(`SELECT ${colName} FROM ${tableName}`);
+    return performance.now() - t0;
+  }
+
+  find(tableName: string, colName: string, value: any) {
+    const t0 = performance.now();
+    this.db.executeSql(`SELECT * FROM ${tableName} WHERE ${colName} = ${value}`);
+    return performance.now() - t0;
+  }
+
+  update(tableName: string, count: number) {
+    const stmt = this.db.prepare(`UPDATE ${tableName} SET val = ? WHERE id = ?`);
+    const t0 = performance.now();
+    // Use the full count for prepared since it avoids parsing overhead
+    for (let i = 0; i < count; i++) {
+      stmt.run([i * 20, i]);
+    }
+    return performance.now() - t0;
+  }
+
+  join(t1: string, c1: string, t2: string, c2: string) {
+    this.db.executeSql(`CREATE TABLE ${t2} (id INTEGER, score INTEGER)`);
+    const stmt = this.db.prepare(`INSERT INTO ${t2} (id, score) VALUES (?, ?)`);
+    for (let i = 0; i < JOIN_COUNT; i++) stmt.run([i, i + 5]);
+
+    const t0 = performance.now();
+    this.db.executeSql(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
+    return performance.now() - t0;
+  }
+}
+
 async function runBenchmark() {
   const suites: TestSuite[] = [
     new DBOBJDirectSuite(),
     new DBOBJSQLSuite(),
+    new DBOBJSQLPreparedSuite(),
     new BunSQLiteSuite()
   ];
 
@@ -181,18 +229,19 @@ async function runBenchmark() {
     };
   }
 
-  console.log("\n" + "=".repeat(60));
-  console.log(`${"Operation".padEnd(20)} | ${"Direct".padEnd(12)} | ${"SQL Engine".padEnd(12)} | ${"Bun SQLite".padEnd(12)}`);
-  console.log("-".repeat(60));
+  console.log("\n" + "=".repeat(75));
+  console.log(`${"Operation".padEnd(20)} | ${"Direct".padEnd(12)} | ${"SQL Bulk".padEnd(12)} | ${"SQL Prep".padEnd(12)} | ${"Bun SQLite".padEnd(12)}`);
+  console.log("-".repeat(75));
 
   const ops = ["insert", "read", "find", "update", "join"];
   for (const op of ops) {
     const direct = results["DBOBJ Direct (API)"][op].toFixed(2);
     const sql = results["DBOBJ SQL (Engine)"][op].toFixed(2);
+    const prep = results["DBOBJ SQL (Prepared)"][op].toFixed(2);
     const sqlite = results["Bun SQLite (Native)"][op].toFixed(2);
-    console.log(`${op.toUpperCase().padEnd(20)} | ${direct.padStart(10)}ms | ${sql.padStart(10)}ms | ${sqlite.padStart(10)}ms`);
+    console.log(`${op.toUpperCase().padEnd(20)} | ${direct.padStart(10)}ms | ${sql.padStart(10)}ms | ${prep.padStart(10)}ms | ${sqlite.padStart(10)}ms`);
   }
-  console.log("=".repeat(60));
+  console.log("=".repeat(75));
 }
 
 runBenchmark();

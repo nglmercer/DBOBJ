@@ -17,6 +17,11 @@ export declare class Database {
   findByI64(tableName: string, columnName: string, value: number): BigInt64Array
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
   executeSql(sql: string): any
+  prepare(sql: string): PreparedStatement
+}
+
+export declare class PreparedStatement {
+  run(params: Array<number>): void
 }
 
 export interface TableMetadata {
