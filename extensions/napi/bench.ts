@@ -13,14 +13,18 @@ async function runBench() {
   // --- SQLite Setup ---
   const sqlite = new SQLite(":memory:");
   sqlite.run("CREATE TABLE users (id INTEGER, val INTEGER)");
+  sqlite.run("CREATE INDEX idx_id ON users (id)");
   const insertStmt = sqlite.prepare("INSERT INTO users (id, val) VALUES (?, ?)");
 
-  // --- 1. DBOBJ Inserts ---
-  console.log("DBOBJ: Inserting...");
+  // --- 1. DBOBJ Inserts (Batch) ---
+  console.log("DBOBJ: Inserting (Batch)...");
   const t0 = performance.now();
+  const batch = new BigInt64Array(ROW_COUNT * 2);
   for (let i = 0; i < ROW_COUNT; i++) {
-    dbobj.insertRowI64("users", [i, i * 10]);
+    batch[i * 2] = BigInt(i);
+    batch[i * 2 + 1] = BigInt(i * 10);
   }
+  dbobj.insertBatchI64("users", batch, 2);
   const t1 = performance.now();
   console.log(`DBOBJ Insert: ${(t1 - t0).toFixed(2)}ms`);
 
@@ -104,7 +108,7 @@ async function runBench() {
   const tJoin0 = performance.now();
   const joinResult = dbobj.hashJoinI64("users", "id", "stats", "id");
   const tJoin1 = performance.now();
-  console.log(`DBOBJ Hash Join: ${(tJoin1 - tJoin0).toFixed(4)}ms (Pairs: ${joinResult.length / 2n})`);
+  console.log(`DBOBJ Hash Join: ${(tJoin1 - tJoin0).toFixed(4)}ms (Pairs: ${joinResult.length / 2})`);
 
   const tJoinS0 = performance.now();
   const joinS = sqlite.prepare("SELECT users.id, stats.id FROM users INNER JOIN stats ON users.id = stats.id").all();

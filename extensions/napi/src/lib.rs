@@ -3,6 +3,13 @@ use napi::bindgen_prelude::*;
 use dbobj::Database as CoreDatabase;
 use std::sync::Arc;
 
+#[napi(object)]
+pub struct TableMetadata {
+    pub name: String,
+    pub row_count: u32,
+    pub column_count: u32,
+}
+
 #[napi]
 pub struct Database {
     inner: Arc<CoreDatabase>,
@@ -15,6 +22,74 @@ impl Database {
         Self {
             inner: Arc::new(CoreDatabase::new(name)),
         }
+    }
+
+    #[napi(factory)]
+    pub fn load(path: String) -> Result<Self> {
+        let db = CoreDatabase::load_from_mmap(path).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        Ok(Self {
+            inner: Arc::new(db),
+        })
+    }
+
+    #[napi]
+    pub fn save(&self, path: String) -> Result<()> {
+        self.inner.save_to_mmap(path).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        Ok(())
+    }
+
+    #[napi]
+    pub fn list_tables(&self) -> Vec<String> {
+        self.inner.list_tables()
+    }
+
+    #[napi]
+    pub fn create_index(&self, table_name: String, column_name: String) -> Result<()> {
+        self.inner.create_index(&table_name, &column_name).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        Ok(())
+    }
+
+    #[napi]
+    pub fn create_unique_index(&self, table_name: String, column_name: String) -> Result<()> {
+        self.inner.create_unique_index(&table_name, &column_name).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        Ok(())
+    }
+
+    #[napi]
+    pub fn get_table_metadata(&self, name: String) -> Result<Option<TableMetadata>> {
+        Ok(self.inner.table_info(&name).map(|info| TableMetadata {
+            name: info.name,
+            row_count: info.row_count as u32,
+            column_count: info.columns.len() as u32,
+        }))
+    }
+
+    #[napi]
+    pub fn insert_batch_i64(&self, table_name: String, values: BigInt64Array, num_columns: u32) -> Result<()> {
+        use dbobj::Value;
+        let num_cols = num_columns as usize;
+        let mut batch = Vec::with_capacity(values.len() / num_cols);
+        
+        for chunk in values.as_ref().chunks(num_cols) {
+            let mut row = Vec::with_capacity(num_cols);
+            for &v in chunk {
+                row.push(Value::Integer(v));
+            }
+            batch.push(row);
+        }
+        
+        self.inner.insert_batch_values(&table_name, batch).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        Ok(())
     }
 
     #[napi]
