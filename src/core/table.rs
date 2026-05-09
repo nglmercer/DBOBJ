@@ -166,7 +166,7 @@ impl Table {
         }
     }
 
-    pub(crate) fn get_row_by_index(&self, index: usize) -> Row {
+    pub fn get_row_by_index(&self, index: usize) -> Row {
         let start = index * self.num_columns;
         let end = start + self.num_columns;
 

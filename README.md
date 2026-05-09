@@ -71,11 +71,17 @@ cargo bench
 ```
 
 Available benchmark suites:
-- `cargo bench --bench db_bench` — DBOBJ vs SQLite core operations
-- `cargo bench --bench sql_bench` — SQL API vs Direct API overhead
-- `cargo bench --bench parser_bench` — LocalParser vs sqlparser parsing speed
+- `cargo bench -p dbobj --bench db_bench` — DBOBJ core operations
+- `cargo bench -p dbobj-sql --bench sql_bench` — SQL API vs Direct API overhead
+- `cargo bench -p dbobj-sql --bench parser_bench` — LocalParser vs sqlparser parsing speed
 
 ---
+
+## Architecture
+
+DBOBJ is designed to be extremely lightweight and modular:
+- **dbobj (core)**: The core in-memory database engine, storage adapters, and direct API. Zero-dependency in production (except for optional allocators).
+- **dbobj-sql (extension)**: A high-performance SQL parser and executor for DBOBJ. Moved to a separate crate to keep the core library lean.
 
 ## Results
 

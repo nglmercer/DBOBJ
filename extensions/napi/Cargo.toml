@@ -1,0 +1,16 @@
+[package]
+name = "dbobj-napi"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2.16.14", features = ["napi4"] }
+napi-derive = "2.16.13"
+dbobj = { path = "../../" }
+compact_str = "0.9.0"
+
+[build-dependencies]
+napi-build = "2.1.3"
