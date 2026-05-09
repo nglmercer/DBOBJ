@@ -792,16 +792,28 @@ impl<'a> SqlExecutor<'a> {
         let t2_lock = self.db.get_table(&table2_name).unwrap();
         let t2 = t2_lock.read();
 
-        let mut results = Vec::new();
+        let mut results = Vec::with_capacity(joined_rows.len());
+        
+        // Pre-calculate column keys to avoid formatting strings in every row
+        let t1_keys: Vec<CompactString> = t1.schema.columns.iter()
+            .map(|c| CompactString::from(format!("{}.{}", table1_name, c.name)))
+            .collect();
+        let t2_keys: Vec<CompactString> = t2.schema.columns.iter()
+            .map(|c| CompactString::from(format!("{}.{}", table2_name, c.name)))
+            .collect();
+
         for (r1, r2) in joined_rows {
-            let mut m1 = r1.to_map(&t1);
-            let m2 = r2.to_map(&t2);
-            let mut combined = RowData::default();
-            for (k, v) in m1.drain() {
-                combined.insert(CompactString::from(format!("{}.{}", table1_name, k)), v);
+            let mut combined = RowData::with_capacity_and_hasher(t1_keys.len() + t2_keys.len(), Default::default());
+            
+            for (i, val) in r1.data.iter().enumerate() {
+                if i < t1_keys.len() {
+                    combined.insert(t1_keys[i].clone(), val.clone());
+                }
             }
-            for (k, v) in m2 {
-                combined.insert(CompactString::from(format!("{}.{}", table2_name, k)), v);
+            for (i, val) in r2.data.iter().enumerate() {
+                if i < t2_keys.len() {
+                    combined.insert(t2_keys[i].clone(), val.clone());
+                }
             }
             results.push(combined);
         }
@@ -909,7 +921,7 @@ impl<'a> SqlExecutor<'a> {
                  } else {
                      (0..table_ref.ids.len()).map(|i| table_ref.get_row_by_index(i)).collect()
                  };
-
+ 
                  let mut results = Vec::with_capacity(rows.len());
                  for row in rows {
                      if let Value::Integer(i) = row.data[col_idx] {
@@ -921,5 +933,61 @@ impl<'a> SqlExecutor<'a> {
                  return Ok(results);
              }
         Err("Query not suitable for execute_i64".to_string())
+    }
+
+    pub fn execute_join_i64(&self, sql: &str) -> Result<(Vec<i64>, usize), String> {
+        let mut parser = LocalParser::new(sql);
+        let statements = parser.parse_statements().map_err(|e| e.to_string())?;
+        if statements.len() != 1 {
+            return Err("execute_join_i64 expects exactly one statement".to_string());
+        }
+
+        if let Statement::Select {
+            columns: _,
+            table,
+            selection: _,
+            join: Some(join),
+        } = &statements[0]
+        {
+            let table1_name = table.to_string();
+            let table2_name = join.table.to_string();
+
+            let joined_rows = self
+                .db
+                .hash_join(
+                    &table1_name,
+                    join.left_col.as_str(),
+                    &table2_name,
+                    join.right_col.as_str(),
+                )
+                .map_err(|e| e.to_string())?;
+
+            let t1_lock = self.db.get_table(&table1_name).unwrap();
+            let t1 = t1_lock.read();
+            let t2_lock = self.db.get_table(&table2_name).unwrap();
+            let t2 = t2_lock.read();
+
+            let width = t1.num_columns + t2.num_columns;
+            let mut results = Vec::with_capacity(joined_rows.len() * width);
+
+            for (r1, r2) in joined_rows {
+                for val in r1.data.iter() {
+                    if let Value::Integer(i) = val {
+                        results.push(*i);
+                    } else {
+                        results.push(0);
+                    }
+                }
+                for val in r2.data.iter() {
+                    if let Value::Integer(i) = val {
+                        results.push(*i);
+                    } else {
+                        results.push(0);
+                    }
+                }
+            }
+            return Ok((results, width));
+        }
+        Err("Query not suitable for execute_join_i64".to_string())
     }
 }

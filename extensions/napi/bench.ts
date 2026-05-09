@@ -160,7 +160,7 @@ class BunSQLiteSuite implements TestSuite {
     })();
 
     const t0 = performance.now();
-    this.db.prepare(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`).all();
+    this.db.queryJoinI64(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
     return performance.now() - t0;
   }
 }
@@ -217,7 +217,7 @@ class DBOBJSQLPreparedSuite implements TestSuite {
     stmt.runBatchI64(batch, 2);
 
     const t0 = performance.now();
-    this.db.executeSql(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
+    this.db.queryJoinI64(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
     return performance.now() - t0;
   }
 }

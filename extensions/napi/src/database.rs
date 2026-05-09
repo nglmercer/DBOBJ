@@ -531,4 +531,21 @@ impl Database {
             }))
         }
     }
+    #[napi]
+    pub fn query_join_i64(&self, sql: String) -> Result<BigInt64Array> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.inner);
+        let (mut result, _width) = executor
+            .execute_join_i64(&sql)
+            .map_err(napi::Error::from_reason)?;
+
+        let ptr = result.as_mut_ptr();
+        let len = result.len();
+        std::mem::forget(result);
+
+        unsafe {
+            Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+                let _ = Vec::from_raw_parts(ptr, len, len);
+            }))
+        }
+    }
 }

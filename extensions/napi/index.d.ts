@@ -19,6 +19,7 @@ export declare class Database {
   executeSql(sql: string): any
   prepare(sql: string): PreparedStatement
   queryI64(sql: string): BigInt64Array
+  queryJoinI64(sql: string): BigInt64Array
 }
 
 export declare class PreparedStatement {
