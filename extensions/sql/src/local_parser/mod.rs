@@ -6,7 +6,7 @@ pub use ast::{
 };
 pub use tokenizer::Tokenizer;
 
-use crate::core::{DataType, Operator, Value};
+use dbobj::{DataType, Operator, Value};
 use compact_str::CompactString;
 
 // ── Parser ──

@@ -1,4 +1,4 @@
-use crate::sql::local_parser::{Parser as LocalParser, Statement};
+use crate::local_parser::{Parser as LocalParser, Statement};
 
 pub struct SqlParser;
 

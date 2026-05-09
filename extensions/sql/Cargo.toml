@@ -8,5 +8,14 @@ dbobj = { path = "../../" }
 compact_str = { version = "0.9.0", features = ["serde"] }
 ahash = "0.8.12"
 
+[[bench]]
+name = "sql_bench"
+harness = false
+
+[[bench]]
+name = "parser_bench"
+harness = false
+
 [dev-dependencies]
+criterion = "0.8.2"
 sqlparser = "0.61.0"

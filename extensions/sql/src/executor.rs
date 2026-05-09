@@ -1,14 +1,14 @@
 use std::cell::RefCell;
 
-use crate::core::{ColumnDefinition, Database, RowData, Schema, Value};
-use crate::sql::local_parser::{
+use dbobj::{ColumnDefinition, Database, RowData, Schema, Value};
+use crate::local_parser::{
     AlterOperation, Assignment, Expr, Join, Parser as LocalParser, Statement,
 };
 use compact_str::CompactString;
 
 const MAX_CACHE_SIZE: usize = 512;
 
-pub type StatementCache = crate::core::FastHashMap<String, Vec<Statement>>;
+pub type StatementCache = dbobj::FastHashMap<String, Vec<Statement>>;
 
 #[derive(Clone)]
 pub struct PreparedStatement {
@@ -170,7 +170,7 @@ impl<'a> SqlExecutor<'a> {
     pub fn new(db: &'a Database) -> Self {
         Self {
             db,
-            stmt_cache: RefCell::new(crate::core::FastHashMap::default()),
+            stmt_cache: RefCell::new(dbobj::FastHashMap::default()),
             populated: RefCell::new(Vec::new()),
         }
     }
@@ -300,11 +300,11 @@ impl<'a> SqlExecutor<'a> {
         Ok(())
     }
 
-    fn try_extract_id_filter(selection: &Expr, has_id_column: bool) -> Option<crate::core::Id> {
+    fn try_extract_id_filter(selection: &Expr, has_id_column: bool) -> Option<dbobj::Id> {
         if has_id_column {
             return None;
         }
-        if let Expr::Binary(left, crate::core::Operator::Eq, right) = selection {
+        if let Expr::Binary(left, dbobj::Operator::Eq, right) = selection {
             let val_expr = match (left.as_ref(), right.as_ref()) {
                 (Expr::Column(id), val) if id.as_str() == "id" => val,
                 (val, Expr::Column(id)) if id.as_str() == "id" => val,
@@ -313,7 +313,7 @@ impl<'a> SqlExecutor<'a> {
                 _ => return None,
             };
             if let Expr::Literal(Value::Integer(n)) = val_expr {
-                return Some(crate::core::Id::Integer(*n as u64));
+                return Some(dbobj::Id::Integer(*n as u64));
             }
         }
         None
@@ -444,7 +444,7 @@ impl<'a> SqlExecutor<'a> {
                     } else if let Some(selection) = &selection {
                         let mapped = map_expr_to_core(selection)?;
                         let cap = table_ref.column_map.len() * 2 + 1;
-                        let mut mapping = crate::core::FastHashMap::with_capacity_and_hasher(
+                        let mut mapping = dbobj::FastHashMap::with_capacity_and_hasher(
                             cap,
                             Default::default(),
                         );
@@ -503,7 +503,7 @@ impl<'a> SqlExecutor<'a> {
                     } else if let Some(selection) = &selection {
                         let mapped = map_expr_to_core(selection)?;
                         let cap = table_ref.column_map.len() * 2 + 1;
-                        let mut mapping = crate::core::FastHashMap::with_capacity_and_hasher(
+                        let mut mapping = dbobj::FastHashMap::with_capacity_and_hasher(
                             cap,
                             Default::default(),
                         );
@@ -640,7 +640,7 @@ impl<'a> SqlExecutor<'a> {
                 let mapped = map_expr_to_core(selection)?;
                 let cap = table_ref.column_map.len() * 2 + 1;
                 let mut mapping =
-                    crate::core::FastHashMap::with_capacity_and_hasher(cap, Default::default());
+                    dbobj::FastHashMap::with_capacity_and_hasher(cap, Default::default());
                 for (col, idx) in &table_ref.column_map {
                     mapping.insert(col.clone(), *idx);
                     mapping.insert(format!("{}.{}", table_name_str, col), *idx);
@@ -696,7 +696,7 @@ impl<'a> SqlExecutor<'a> {
 }
 
 fn try_extract_eq_literal(selection: &Expr) -> Option<(String, Value)> {
-    if let Expr::Binary(left, crate::core::Operator::Eq, right) = selection {
+    if let Expr::Binary(left, dbobj::Operator::Eq, right) = selection {
         let (col_name, val_expr) = match (left.as_ref(), right.as_ref()) {
             (Expr::Column(id), Expr::Literal(v)) => (id.to_string(), v),
             (Expr::Literal(v), Expr::Column(id)) => (id.to_string(), v),
@@ -710,10 +710,10 @@ fn try_extract_eq_literal(selection: &Expr) -> Option<(String, Value)> {
 }
 
 fn lookup_indexed_or_scan(
-    table: &crate::core::table::Table,
+    table: &dbobj::table::Table,
     column_name: &str,
     value: &Value,
-) -> Vec<crate::core::table::Row> {
+) -> Vec<dbobj::table::Row> {
     let mut lookup_val = value.clone();
     if let Value::String(s) = value
         && let Some(id) = table.string_pool.get_id(s.as_str())
@@ -740,16 +740,16 @@ fn lookup_indexed_or_scan(
     table.find_by_column(column_name, &lookup_val)
 }
 
-fn map_expr_to_core(expr: &Expr) -> Result<crate::core::Expr, String> {
+fn map_expr_to_core(expr: &Expr) -> Result<dbobj::Expr, String> {
     match expr {
-        Expr::Literal(v) => Ok(crate::core::Expr::Literal(v.clone())),
-        Expr::Column(name) => Ok(crate::core::Expr::Column(name.clone())),
-        Expr::CompoundColumn(_, col_name) => Ok(crate::core::Expr::Column(col_name.clone())),
+        Expr::Literal(v) => Ok(dbobj::Expr::Literal(v.clone())),
+        Expr::Column(name) => Ok(dbobj::Expr::Column(name.clone())),
+        Expr::CompoundColumn(_, col_name) => Ok(dbobj::Expr::Column(col_name.clone())),
         Expr::Placeholder => Err("Unexpected placeholder in expression evaluation".to_string()),
         Expr::Binary(left, op, right) => {
             let l = Box::new(map_expr_to_core(left)?);
             let r = Box::new(map_expr_to_core(right)?);
-            Ok(crate::core::Expr::Binary(l, op.clone(), r))
+            Ok(dbobj::Expr::Binary(l, op.clone(), r))
         }
         Expr::Nested(inner) => Ok(map_expr_to_core(inner)?),
     }

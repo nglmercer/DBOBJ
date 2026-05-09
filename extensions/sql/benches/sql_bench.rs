@@ -1,6 +1,6 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use dbobj::core::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
-use dbobj::sql::SqlExecutor;
+use dbobj::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
+use dbobj_sql::SqlExecutor;
 use std::time::Duration;
 
 fn bench_insert(c: &mut Criterion) {
