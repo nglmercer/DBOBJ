@@ -20,7 +20,7 @@ class DBOBJDirectSuite implements TestSuite {
 
   insert(count: number) {
     this.db.createTable("users", ["id", "val"], ["integer", "integer"]);
-    this.db.createIndex("users", "id"); // ADDED INDEX
+    //this.db.createIndex("users", "id"); // ADDED INDEX
     const batch = new BigInt64Array(count * 2);
     for (let i = 0; i < count; i++) {
       batch[i * 2] = BigInt(i);
@@ -56,7 +56,7 @@ class DBOBJDirectSuite implements TestSuite {
   join(t1: string, c1: string, t2: string, c2: string) {
     this.db.createTable(t2, ["id", "score"], ["integer", "integer"]);
     for (let i = 0; i < JOIN_COUNT; i++) this.db.insertRowI64(t2, [i, i + 5]);
-    
+
     const t0 = performance.now();
     this.db.hashJoinI64(t1, c1, t2, c2);
     return performance.now() - t0;
@@ -102,7 +102,7 @@ class DBOBJSQLSuite implements TestSuite {
   join(t1: string, c1: string, t2: string, c2: string) {
     this.db.executeSql(`CREATE TABLE ${t2} (id INTEGER, score INTEGER)`);
     for (let i = 0; i < 1000; i++) this.db.executeSql(`INSERT INTO ${t2} (id, score) VALUES (${i}, ${i + 5})`);
-    
+
     const t0 = performance.now();
     this.db.executeSql(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
     return performance.now() - t0;
@@ -152,7 +152,7 @@ class BunSQLiteSuite implements TestSuite {
     this.db.transaction(() => {
       for (let i = 0; i < JOIN_COUNT; i++) stmt.run(i, i + 5);
     })();
-    
+
     const t0 = performance.now();
     this.db.prepare(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`).all();
     return performance.now() - t0;

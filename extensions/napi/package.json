@@ -27,7 +27,7 @@
     "@types/bun": "^1.3.13"
   },
   "scripts": {
-    "build": "bun build.ts --native",
+    "build": "bunx napi build --release",
     "build:native": "bun build.ts --native",
     "build:all": "bun build.ts",
     "test": "bun test dbobj.test.ts",

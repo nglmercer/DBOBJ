@@ -40,6 +40,7 @@ Returns an array of all table names in the database.
 #### `createTable(name: string, columnNames: Array<string>, columnTypes: Array<string>): void`
 Creates a new table.
 - `columnTypes` can be: `"integer"`, `"string"`, `"float"`, `"boolean"`, `"blob"`.
+- **Note:** If a column is named `"id"`, a unique index is automatically created for it.
 
 #### `createIndex(tableName: string, columnName: string): void`
 Creates a standard index on a specific column to speed up queries.
