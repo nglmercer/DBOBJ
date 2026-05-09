@@ -322,16 +322,26 @@ impl<'a> SqlExecutor<'a> {
     fn execute_statement(&self, stmt: Statement) -> Result<SqlResult, String> {
         match stmt {
             Statement::CreateTable { name, columns } => {
+                let mut has_id = false;
                 let col_defs: Vec<ColumnDefinition> = columns
                     .into_iter()
-                    .map(|col| ColumnDefinition {
-                        name: col.name,
-                        data_type: col.data_type,
-                        nullable: true,
+                    .map(|col| {
+                        if col.name.as_str() == "id" {
+                            has_id = true;
+                        }
+                        ColumnDefinition {
+                            name: col.name,
+                            data_type: col.data_type,
+                            nullable: true,
+                        }
                     })
                     .collect();
                 let schema = Schema { columns: col_defs };
-                self.db.create_table(name.to_string(), schema);
+                let table_name = name.to_string();
+                self.db.create_table(table_name.clone(), schema);
+                if has_id {
+                    let _ = self.db.create_unique_index(&table_name, "id");
+                }
                 Ok(SqlResult::Ok)
             }
             Statement::Insert {

@@ -70,13 +70,18 @@ class DBOBJSQLSuite implements TestSuite {
   insert(count: number) {
     this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
     const t0 = performance.now();
-    const batchSize = Math.min(count, 1000);
-    const values = [];
-    for (let i = 0; i < batchSize; i++) {
-      values.push(`(${i}, ${i * 10})`);
+    const batchSize = 1000;
+    const batches = Math.ceil(count / batchSize);
+    for (let b = 0; b < batches; b++) {
+      const values = [];
+      const start = b * batchSize;
+      const end = Math.min(start + batchSize, count);
+      for (let i = start; i < end; i++) {
+        values.push(`(${i}, ${i * 10})`);
+      }
+      this.db.executeSql(`INSERT INTO users (id, val) VALUES ${values.join(", ")}`);
     }
-    this.db.executeSql(`INSERT INTO users (id, val) VALUES ${values.join(", ")}`);
-    return (performance.now() - t0) * (count / batchSize); // Projected
+    return performance.now() - t0;
   }
 
   readColumn(tableName: string, colName: string) {
@@ -93,10 +98,11 @@ class DBOBJSQLSuite implements TestSuite {
 
   update(tableName: string, count: number) {
     const t0 = performance.now();
-    for (let i = 0; i < Math.min(count, 1000); i++) {
+    // Run full count to avoid cheating via projection
+    for (let i = 0; i < count; i++) {
       this.db.executeSql(`UPDATE ${tableName} SET val = ${i * 20} WHERE id = ${i}`);
     }
-    return (performance.now() - t0) * (count / 1000); // Projected
+    return performance.now() - t0;
   }
 
   join(t1: string, c1: string, t2: string, c2: string) {
