@@ -167,12 +167,10 @@ impl Table {
     }
 
     pub fn get_index(&self, id: &Id) -> Option<usize> {
-        if self.is_sequential_ids {
-            if let Id::Integer(i) = id {
-                let index = *i as usize;
-                if index < self.ids.len() && self.ids[index] == *id {
-                    return Some(index);
-                }
+        if self.is_sequential_ids && let Id::Integer(i) = id {
+            let index = *i as usize;
+            if index < self.ids.len() && self.ids[index] == *id {
+                return Some(index);
             }
         }
         self.id_map.get(id).copied()
@@ -815,7 +813,7 @@ impl Table {
     }
 
     pub fn export_column_i64(&self, column_name: &str) -> Option<Vec<i64>> {
-        let col_idx = *self.column_map.get(column_name)? as usize;
+        let col_idx = *self.column_map.get(column_name)?;
         let num_rows = self.ids.len();
         let mut result = Vec::with_capacity(num_rows);
 
