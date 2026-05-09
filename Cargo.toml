@@ -16,7 +16,6 @@ crate-type = ["rlib"]
 [dependencies]
 ahash = { version = "0.8.12", features = ["serde"] }
 bitcode = { version = "0.6.9", features = ["serde"] }
-chrono = { version = "0.4.44", features = ["serde"] }
 compact_str = { version = "0.9.0", features = ["rkyv", "serde"] }
 mimalloc = { version = "0.1.50", optional = true }
 nohash-hasher = "0.2.0"

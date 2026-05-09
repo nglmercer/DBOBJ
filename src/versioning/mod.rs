@@ -95,7 +95,10 @@ impl VersionLog {
     /// Record a batch insert as a single entry. One timestamp, one String alloc.
     pub fn record_batch(&mut self, table_name: String, first_id: Id, count: usize) {
         let entry = VersionEntry {
-            timestamp_ms: Utc::now().timestamp_millis(),
+            timestamp_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64,
             table_name,
             row_id: first_id,
             change_type: ChangeType::BatchInsert { count },
