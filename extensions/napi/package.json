@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "napi build --release",
+    "build:all": "bun build.ts",
     "test": "node test.js"
   }
 }

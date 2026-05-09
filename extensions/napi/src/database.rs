@@ -7,25 +7,57 @@ use crate::types::TableMetadata;
 #[napi]
 pub struct Database {
     pub(crate) inner: Arc<CoreDatabase>,
+    pub(crate) path: Option<String>,
 }
 
 #[napi]
 impl Database {
     #[napi(constructor)]
     pub fn new(name: String) -> Self {
+        if name == ":memory:" {
+            return Self {
+                inner: Arc::new(CoreDatabase::new(name)),
+                path: None,
+            };
+        }
+
+        let path = if name.ends_with(".dbobj") {
+            name.clone()
+        } else {
+            format!("{}.dbobj", name)
+        };
+
+        // Try to load if exists
+        let inner = if std::path::Path::new(&path).exists() {
+            match CoreDatabase::load_from_mmap(&path) {
+                Ok(db) => Arc::new(db),
+                Err(_) => Arc::new(CoreDatabase::new(name)),
+            }
+        } else {
+            Arc::new(CoreDatabase::new(name))
+        };
+
         Self {
-            inner: Arc::new(CoreDatabase::new(name)),
+            inner,
+            path: Some(path),
         }
     }
 
     #[napi(factory)]
     pub fn load(path: String) -> Result<Self> {
-        let db = CoreDatabase::load_from_mmap(path).map_err(|e| {
+        let db = CoreDatabase::load_from_mmap(&path).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
         Ok(Self {
             inner: Arc::new(db),
+            path: Some(path),
         })
+    }
+
+    fn save_if_needed(&self) {
+        if let Some(path) = &self.path {
+            let _ = self.inner.save_to_mmap(path);
+        }
     }
 
     #[napi]
@@ -46,6 +78,7 @@ impl Database {
         self.inner.create_index(&table_name, &column_name).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
+        self.save_if_needed();
         Ok(())
     }
 
@@ -54,6 +87,7 @@ impl Database {
         self.inner.create_unique_index(&table_name, &column_name).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
+        self.save_if_needed();
         Ok(())
     }
 
@@ -83,6 +117,7 @@ impl Database {
         self.inner.insert_batch_values(&table_name, batch).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
+        self.save_if_needed();
         Ok(())
     }
 
@@ -106,6 +141,7 @@ impl Database {
             });
         }
         self.inner.create_table(name, Schema { columns });
+        self.save_if_needed();
         Ok(())
     }
 
@@ -119,6 +155,7 @@ impl Database {
         self.inner.insert_values(&table_name, row_values).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
+        self.save_if_needed();
         Ok(())
     }
 
@@ -158,6 +195,7 @@ impl Database {
         self.inner.update_values(&table_name, &Id::Integer(id as u64), row_values).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
+        self.save_if_needed();
         Ok(())
     }
 
@@ -167,6 +205,7 @@ impl Database {
         self.inner.delete_row(&table_name, &Id::Integer(id as u64)).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
+        self.save_if_needed();
         Ok(())
     }
 
@@ -225,7 +264,7 @@ impl Database {
             napi::Error::from_reason(e)
         })?;
         
-        match result {
+        let out = match result {
             dbobj_sql::SqlResult::Ok => Ok(serde_json::Value::String("OK".to_string())),
             dbobj_sql::SqlResult::Rows(rows) => {
                 let mut results = Vec::new();
@@ -244,9 +283,6 @@ impl Database {
                                 b.iter().map(|&x| serde_json::Value::Number(x.into())).collect()
                             ),
                             dbobj::Value::InternedString(id) => {
-                                // For simplicity, we try to resolve if possible, 
-                                // but RowData usually comes from a specific table context in the executor.
-                                // The executor handles most of this, but here we just show the ID if not resolved.
                                 serde_json::Value::String(format!("<interned:{}>", id))
                             }
                         };
@@ -256,6 +292,12 @@ impl Database {
                 }
                 Ok(serde_json::Value::Array(results))
             }
-        }
+        };
+
+        // If it was a mutation (SQLResult::Ok), save if needed.
+        // Actually, many queries might mutate.
+        self.save_if_needed();
+        
+        out
     }
 }
