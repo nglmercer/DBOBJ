@@ -577,3 +577,4 @@ if (!nativeBinding) {
 
 module.exports = nativeBinding
 module.exports.Database = nativeBinding.Database
+module.exports.PreparedStatement = nativeBinding.PreparedStatement

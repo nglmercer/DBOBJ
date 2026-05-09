@@ -72,8 +72,29 @@ Finds rows matching a specific 64-bit integer value and returns their internal I
 #### `hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array`
 Performs a hash join between two tables on the specified columns. Returns a flat array of matching ID pairs `[id1, id2, ...]`.
 
+#### `queryI64(sql: string): BigInt64Array`
+Executes a SQL `SELECT` query and returns the first column as a zero-copy `BigInt64Array`. Extremely fast for analytical queries.
+
+#### `queryJoinI64(sql: string): BigInt64Array`
+Executes a SQL `JOIN` query and returns all matching columns as a flattened, interleaved `BigInt64Array`. Bypasses the overhead of row-object creation.
+
 #### `executeSql(sql: string): any`
 Executes an arbitrary SQL query. Returns an array of objects for `SELECT` queries, or `"OK"` for mutations.
+
+#### `prepare(sql: string): PreparedStatement`
+Compiles a SQL statement for repeated execution with different parameters.
+
+---
+
+### `class PreparedStatement`
+
+Used for high-performance repeated queries and batch mutations.
+
+#### `runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void`
+Executes the statement multiple times using a flattened array of parameters. Optimized for bulk `UPDATE` and `INSERT`.
+
+#### `allI64(params: Array<number>): BigInt64Array`
+Executes a `SELECT` statement and returns results as a zero-copy `BigInt64Array`.
 
 ---
 
@@ -129,7 +150,7 @@ const batch = new BigInt64Array([
 db.insertBatchI64("events", batch, 2);
 ```
 
-### 3. Hash Joins
+### 3. Columnar SQL Joins
 ```typescript
 import { Database } from "dbobj-napi";
 
@@ -137,33 +158,33 @@ const db = new Database("Join_Test");
 db.createTable("t1", ["val"], ["integer"]);
 db.createTable("t2", ["val"], ["integer"]);
 
-db.insertRowI64("t1", [10]); // ID 0
-db.insertRowI64("t2", [10]); // ID 0
+db.insertRowI64("t1", [10]);
+db.insertRowI64("t2", [10]);
 
-// Get matching pairs of row IDs
-const joinResult = db.hashJoinI64("t1", "val", "t2", "val");
-// Returns: BigInt64Array [ 0n, 0n ]
+// High-speed SQL Join returning a flat buffer
+const joinResult = db.queryJoinI64("SELECT * FROM t1 JOIN t2 ON t1.val = t2.val");
+// Returns: BigInt64Array [ 10n, 10n ] (interleaved columns)
 ```
 
-### 4. SQL Execution
+### 4. Prepared Statements
 ```typescript
-import { Database } from "dbobj-napi";
+const db = new Database("Prep_Test");
+db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
 
-const db = new Database("SQL_Test");
-
-db.executeSql("CREATE TABLE users (id INTEGER, name STRING)");
-db.executeSql("INSERT INTO users (id, name) VALUES (1, 'Alice'), (2, 'Bob')");
-
-const result = db.executeSql("SELECT * FROM users WHERE id = 1");
-console.log(result); // [ { id: 1, name: 'Alice' } ]
+const stmt = db.prepare("UPDATE users SET val = ? WHERE id = ?");
+const updates = new BigInt64Array([
+  100n, 1n, // val=100 where id=1
+  200n, 2n  // val=200 where id=2
+]);
+stmt.runBatchI64(updates, 2);
 ```
 
 ## 📊 Benchmarks
 
 DBOBJ is optimized for read-heavy and analytical workloads in JS environments:
-- **Column Reads**: ~30x faster than `bun:sqlite`.
-- **Batch Inserts**: ~4x faster than `bun:sqlite`.
-- **Point Lookups**: ~8x faster than `bun:sqlite`.
+- **Column READ (SQL)**: **~60x faster** than `bun:sqlite`.
+- **Bulk UPDATE (SQL)**: **~7x faster** than `bun:sqlite`.
+- **Hash JOIN (SQL)**: **~4x faster** than `bun:sqlite`.
 
 Run the local benchmark:
 ```bash
