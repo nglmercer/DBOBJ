@@ -447,6 +447,46 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_row_by_indices(
+        &self,
+        table_name: &str,
+        id: &Id,
+        updates: &[(usize, Value)],
+    ) -> Result<(), crate::core::table::TableError> {
+        self.update_batch_by_indices(table_name, &[(id.clone(), updates.to_vec())])
+    }
+
+    pub fn update_batch_by_indices(
+        &self,
+        table_name: &str,
+        batch: &[(Id, Vec<(usize, Value)>)],
+    ) -> Result<(), crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
+        })?;
+
+        let mut table = table_lock.write();
+        for (id, updates) in batch {
+            if let Some(&idx) = table.id_map.get(id) {
+                for (col_idx, val) in updates {
+                    let start = idx * table.num_columns;
+                    let mut final_val = val.clone();
+                    if let Value::String(s) = val {
+                        let id = table.string_pool.intern(s.clone());
+                        final_val = Value::InternedString(id);
+                    }
+                    table.data[start + col_idx] = final_val;
+                }
+            }
+        }
+        
+        Ok(())
+    }
+
     /// Update a single row from positional values — no RowData/HashMap overhead.
     pub fn update_values(
         &self,

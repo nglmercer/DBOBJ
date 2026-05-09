@@ -262,37 +262,86 @@ impl<'a> SqlExecutor<'a> {
         batch_params: &[Vec<Value>],
     ) -> Result<SqlResult, String> {
         if stmt.statements.len() == 1 {
-            if let Statement::Insert { table, columns, .. } = &stmt.statements[0] {
-                 // FAST PATH: Bulk insert
-                 let table_name = table.to_string();
-                 let num_rows = batch_params.len();
-                 let table_lock = self.db.get_table(&table_name)
-                     .ok_or_else(|| format!("Table {} not found", table_name))?;
-                 let table_ref = table_lock.read();
-                 let num_cols = table_ref.num_columns;
-                 
-                 let col_indices = if columns.is_empty() {
-                     (0..num_cols).collect()
-                 } else {
-                     columns.iter().map(|col| {
-                         table_ref.column_map.get(col.as_str()).copied()
-                             .ok_or_else(|| format!("Column {} not found", col))
-                     }).collect::<Result<Vec<_>, _>>()?
-                 };
-                 drop(table_ref);
+            let s = &stmt.statements[0];
+            match s {
+                Statement::Insert { table, columns, .. } => {
+                    // FAST PATH: Bulk insert
+                    let table_name = table.to_string();
+                    let num_rows = batch_params.len();
+                    let table_lock = self.db.get_table(&table_name)
+                        .ok_or_else(|| format!("Table {} not found", table_name))?;
+                    let table_ref = table_lock.read();
+                    let num_cols = table_ref.num_columns;
+                    
+                    let col_indices = if columns.is_empty() {
+                        (0..num_cols).collect()
+                    } else {
+                        columns.iter().map(|col| {
+                            table_ref.column_map.get(col.as_str()).copied()
+                                .ok_or_else(|| format!("Column {} not found", col))
+                        }).collect::<Result<Vec<_>, _>>()?
+                    };
+                    drop(table_ref);
 
-                 let mut batch = Vec::with_capacity(num_rows);
-                 for params in batch_params {
-                     let mut row = vec![Value::Null; num_cols];
-                     for (i, val) in params.iter().enumerate() {
-                         if i < col_indices.len() {
-                             row[col_indices[i]] = val.clone();
+                    let mut batch = Vec::with_capacity(num_rows);
+                    for params in batch_params {
+                        let mut row = vec![Value::Null; num_cols];
+                        for (i, val) in params.iter().enumerate() {
+                            if i < col_indices.len() {
+                                row[col_indices[i]] = val.clone();
+                            }
+                        }
+                        batch.push(row);
+                    }
+                    self.db.insert_batch_values(&table_name, batch).map_err(|e| e.to_string())?;
+                    return Ok(SqlResult::Ok);
+                }
+                Statement::Update { table, assignments, selection } => {
+                    // Check if it's "UPDATE table SET col = ? WHERE id = ?"
+                    let table_name = table.to_string();
+                    let table_lock = self.db.get_table(&table_name)
+                        .ok_or_else(|| format!("Table {} not found", table_name))?;
+                    let table_ref = table_lock.read();
+                    let has_id_column = table_ref.column_map.contains_key("id");
+                    
+                    // Simple check for WHERE id = ?
+                    if let Some(selection) = selection
+                        && let Expr::Binary(left, op, right) = selection
+                        && matches!(op, dbobj::Operator::Eq)
+                    {
+                         let is_point_id = match (left.as_ref(), right.as_ref()) {
+                             (Expr::Column(c), Expr::Placeholder) if c == "id" => true,
+                             (Expr::Placeholder, Expr::Column(c)) if c == "id" => true,
+                             _ => false
+                         };
+
+                         if is_point_id {
+                             // FAST PATH: Bulk Point Update
+                             let assignment_info: Vec<(usize, usize)> = assignments.iter().enumerate().map(|(i, a)| {
+                                 let col_idx = table_ref.column_map.get(a.column.as_str()).unwrap();
+                                 (*col_idx, i)
+                             }).collect();
+                             
+                             let id_placeholder_idx = assignments.len();
+                             drop(table_ref);
+
+                             let mut batch_updates = Vec::with_capacity(batch_params.len());
+                             for params in batch_params {
+                                 if let Value::Integer(id_int) = &params[id_placeholder_idx] {
+                                     let id = dbobj::Id::Integer(*id_int as u64);
+                                     let updates: Vec<(usize, Value)> = assignment_info.iter().map(|(col_idx, param_idx)| {
+                                         (*col_idx, params[*param_idx].clone())
+                                     }).collect();
+                                     batch_updates.push((id, updates));
+                                 }
+                             }
+                             
+                             self.db.update_batch_by_indices(&table_name, &batch_updates).map_err(|e| e.to_string())?;
+                             return Ok(SqlResult::Ok);
                          }
-                     }
-                     batch.push(row);
-                 }
-                 self.db.insert_batch_values(&table_name, batch).map_err(|e| e.to_string())?;
-                 return Ok(SqlResult::Ok);
+                    }
+                }
+                _ => {}
             }
         }
 
