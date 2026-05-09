@@ -42,3 +42,10 @@ pub enum DataType {
     Boolean,
     Blob,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableInfo {
+    pub name: String,
+    pub columns: Vec<ColumnDefinition>,
+    pub row_count: usize,
+}

@@ -1,6 +1,6 @@
 use crate::core::{Id, RowData};
-use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(
     Debug, Clone, Serialize, Deserialize, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize,
@@ -27,8 +27,8 @@ pub struct VersionEntry {
 }
 
 impl VersionEntry {
-    pub fn timestamp(&self) -> DateTime<Utc> {
-        Utc.timestamp_millis_opt(self.timestamp_ms).unwrap()
+    pub fn timestamp_ms_value(&self) -> i64 {
+        self.timestamp_ms
     }
 
     pub fn prepare_for_archive(&mut self) {
@@ -79,7 +79,10 @@ impl VersionLog {
         data: Option<RowData>,
     ) {
         let entry = VersionEntry {
-            timestamp_ms: Utc::now().timestamp_millis(),
+            timestamp_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64,
             table_name,
             row_id,
             change_type,
@@ -92,7 +95,10 @@ impl VersionLog {
     /// Record a batch insert as a single entry. One timestamp, one String alloc.
     pub fn record_batch(&mut self, table_name: String, first_id: Id, count: usize) {
         let entry = VersionEntry {
-            timestamp_ms: Utc::now().timestamp_millis(),
+            timestamp_ms: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as i64,
             table_name,
             row_id: first_id,
             change_type: ChangeType::BatchInsert { count },

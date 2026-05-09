@@ -1,4 +1,4 @@
-use dbobj::core::{Database, Expr, Id, Operator, RowData, Schema, Value};
+use dbobj::{Database, Expr, Id, Operator, RowData, Schema, Value};
 use dbobj::storage::{Storage, wal::Wal};
 use std::sync::Arc;
 
@@ -14,14 +14,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 2. Define Schema
     let schema = Schema {
         columns: vec![
-            dbobj::core::ColumnDefinition {
+            dbobj::ColumnDefinition {
                 name: "username".into(),
-                data_type: dbobj::core::DataType::String,
+                data_type: dbobj::DataType::String,
                 nullable: false,
             },
-            dbobj::core::ColumnDefinition {
+            dbobj::ColumnDefinition {
                 name: "age".into(),
-                data_type: dbobj::core::DataType::Integer,
+                data_type: dbobj::DataType::Integer,
                 nullable: true,
             },
         ],
@@ -119,14 +119,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create posts table
     let post_schema = Schema {
         columns: vec![
-            dbobj::core::ColumnDefinition {
+            dbobj::ColumnDefinition {
                 name: "user_id".into(),
-                data_type: dbobj::core::DataType::Integer,
+                data_type: dbobj::DataType::Integer,
                 nullable: false,
             },
-            dbobj::core::ColumnDefinition {
+            dbobj::ColumnDefinition {
                 name: "title".into(),
-                data_type: dbobj::core::DataType::String,
+                data_type: dbobj::DataType::String,
                 nullable: false,
             },
         ],
@@ -177,14 +177,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Let's create a temporary table for a more natural hash join demo
     let meta_schema = Schema {
         columns: vec![
-            dbobj::core::ColumnDefinition {
+            dbobj::ColumnDefinition {
                 name: "username".into(),
-                data_type: dbobj::core::DataType::String,
+                data_type: dbobj::DataType::String,
                 nullable: false,
             },
-            dbobj::core::ColumnDefinition {
+            dbobj::ColumnDefinition {
                 name: "bio".into(),
-                data_type: dbobj::core::DataType::String,
+                data_type: dbobj::DataType::String,
                 nullable: true,
             },
         ],
@@ -307,9 +307,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_wal = Database::new("WalDB".to_string()).with_wal(wal);
 
     let schema = Schema {
-        columns: vec![dbobj::core::ColumnDefinition {
+        columns: vec![dbobj::ColumnDefinition {
             name: "data".into(),
-            data_type: dbobj::core::DataType::String,
+            data_type: dbobj::DataType::String,
             nullable: false,
         }],
     };
@@ -325,9 +325,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // We need to recreate the table schema first in this simple recovery model
     let schema = Schema {
-        columns: vec![dbobj::core::ColumnDefinition {
+        columns: vec![dbobj::ColumnDefinition {
             name: "data".into(),
-            data_type: dbobj::core::DataType::String,
+            data_type: dbobj::DataType::String,
             nullable: false,
         }],
     };

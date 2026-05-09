@@ -1,4 +1,4 @@
-use dbobj::core::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
+use dbobj::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
 use dbobj::storage::MmapStorage;
 use std::time::Instant;
 
@@ -53,10 +53,7 @@ fn main() {
     println!("Zero-copy access time: {:?}", start.elapsed());
     println!("Archived DB name: {}", archived.name);
     println!("Archived table count: {}", archived.tables.len());
-    println!(
-        "Archived row count: {}",
-        archived.tables[0].1.ids.len()
-    );
+    println!("Archived row count: {}", archived.tables[0].1.ids.len());
 
     // 5. Full deserialization (allocates owned types + rebuilds indexes)
     let start = Instant::now();

@@ -1,4 +1,4 @@
-use dbobj::core::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
+use dbobj::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
 use std::time::Instant;
 use string_interner::{DefaultStringInterner, DefaultSymbol, Symbol};
 
@@ -48,10 +48,7 @@ fn main() {
         tokens.push(sym.to_usize() as u32);
     }
     let tokenize_time = start.elapsed();
-    println!(
-        "[Interner] Tokenized {} strings: {:?}",
-        n, tokenize_time
-    );
+    println!("[Interner] Tokenized {} strings: {:?}", n, tokenize_time);
     println!(
         "[Interner] Unique strings: {} | Total tokens: {}",
         interner.len(),

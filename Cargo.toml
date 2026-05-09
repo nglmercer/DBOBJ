@@ -3,12 +3,21 @@ name = "dbobj"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    ".",
+    "extensions/sql",
+    "extensions/napi",
+]
+
+[lib]
+crate-type = ["rlib"]
+
 [dependencies]
 ahash = { version = "0.8.12", features = ["serde"] }
 bitcode = { version = "0.6.9", features = ["serde"] }
-chrono = { version = "0.4.44", features = ["serde"] }
 compact_str = { version = "0.9.0", features = ["rkyv", "serde"] }
-mimalloc = "0.1.50"
+mimalloc = { version = "0.1.50", optional = true }
 nohash-hasher = "0.2.0"
 parking_lot = "0.12.5"
 serde = { version = "1.0.228", features = ["derive", "rc"] }
@@ -17,6 +26,9 @@ string-interner = { version = "0.20.0", features = ["serde"] }
 thiserror = "2.0.18"
 rkyv = { version = "0.8.16", features = ["bytecheck", "std"] }
 memmap2 = "0.9.5"
+
+[features]
+mimalloc = ["dep:mimalloc"]
 
 [[bench]]
 name = "db_bench"

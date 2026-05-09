@@ -3,3 +3,7 @@
 *.db
 *.bak
 *.log
+.commandcode/
+node_modules/
+*.node
+*.dbobj

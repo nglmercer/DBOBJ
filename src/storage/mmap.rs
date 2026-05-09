@@ -3,9 +3,9 @@ use std::path::PathBuf;
 
 use memmap2::Mmap;
 
-use crate::core::database::{ArchivedDatabaseSnapshot, DatabaseSnapshot};
-use crate::core::Database;
 use super::StorageError;
+use crate::core::Database;
+use crate::core::database::{ArchivedDatabaseSnapshot, DatabaseSnapshot};
 
 /// Storage backend that uses memory-mapped files paired with `rkyv` for
 /// near-instant loading and zero-copy access to archived data.
@@ -69,9 +69,8 @@ impl MmapStorage {
             .mmap
             .as_ref()
             .ok_or_else(|| StorageError::Serialization("MmapStorage not loaded".to_string()))?;
-        let archived =
-            rkyv::access::<ArchivedDatabaseSnapshot, rkyv::rancor::Error>(mmap)
-                .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let archived = rkyv::access::<ArchivedDatabaseSnapshot, rkyv::rancor::Error>(mmap)
+            .map_err(|e| StorageError::Serialization(e.to_string()))?;
         rkyv::deserialize::<DatabaseSnapshot, rkyv::rancor::Error>(archived)
             .map_err(|e| StorageError::Serialization(e.to_string()))
     }

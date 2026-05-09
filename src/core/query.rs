@@ -10,7 +10,7 @@ pub enum QueryPlan {
     IndexFilteredScan(CompactString, CompactString, Value, Expr),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Operator {
     Eq,
     Neq,
@@ -35,11 +35,10 @@ impl Expr {
         match self {
             Expr::Literal(v) => v.clone(),
             Expr::Column(name) => {
-                if name == "id" {
-                    // This is handled by a different evaluate overload or we need the ID here
-                    return Value::Null;
-                }
                 if let Some(&idx) = mapping.get(name.as_str()) {
+                    if idx == usize::MAX {
+                        return Value::Null;
+                    }
                     data[idx].clone()
                 } else {
                     Value::Null
@@ -82,18 +81,18 @@ impl Expr {
     }
 
     /// Helper to check if the expression evaluates to true
-    pub fn is_true(&self, row: &super::table::Row, mapping: &FastHashMap<String, usize>) -> bool {
-        match self {
-            Expr::Column(name) if name == "id" => {
-                // Special case for ID column in expressions
-                return false; // Need to implement Id comparison in Expr
-            }
-            _ => {}
-        }
-
-        match self.evaluate_with_row(row, mapping) {
+    pub fn is_true(
+        &self,
+        row: &super::table::Row,
+        mapping: &FastHashMap<String, usize>,
+        table: &crate::core::Table,
+    ) -> bool {
+        match self.evaluate_with_row(row, mapping, table) {
             Value::Boolean(b) => b,
-            _ => false,
+            _ => {
+                // FALLBACK: if evaluation isn't boolean, maybe it's a type mismatch with interned strings
+                false
+            }
         }
     }
 
@@ -101,12 +100,50 @@ impl Expr {
         &self,
         row: &super::table::Row,
         mapping: &FastHashMap<String, usize>,
+        table: &crate::core::Table,
     ) -> Value {
         match self {
-            Expr::Column(name) if name == "id" => row.id.to_value(),
+            Expr::Column(name) => {
+                if let Some(&idx) = mapping.get(name.as_str()) {
+                    if idx == usize::MAX {
+                        return row.id.to_value();
+                    }
+                    row.data[idx].clone()
+                } else if name == "id" {
+                    row.id.to_value()
+                } else {
+                    Value::Null
+                }
+            }
             Expr::Binary(left, op, right) => {
-                let l = left.evaluate_with_row(row, mapping);
-                let r = right.evaluate_with_row(row, mapping);
+                let mut l = left.evaluate_with_row(row, mapping, table);
+                let mut r = right.evaluate_with_row(row, mapping, table);
+
+                // Handle InternedString comparisons
+                match (&l, &r) {
+                    (Value::InternedString(id), Value::String(s)) => {
+                        if let Some(other_id) = table.string_pool.get_id(s.as_str()) {
+                            l = Value::InternedString(*id);
+                            r = Value::InternedString(other_id);
+                        } else if let Some(resolved) = table.string_pool.resolve(*id) {
+                            l = Value::String(resolved);
+                        }
+                    }
+                    (Value::String(s), Value::InternedString(id)) => {
+                        if let Some(other_id) = table.string_pool.get_id(s.as_str()) {
+                            l = Value::InternedString(other_id);
+                            r = Value::InternedString(*id);
+                        } else if let Some(resolved) = table.string_pool.resolve(*id) {
+                            r = Value::String(resolved);
+                        }
+                    }
+                    (Value::InternedString(id1), Value::InternedString(id2)) => {
+                        l = Value::Integer(*id1 as i64);
+                        r = Value::Integer(*id2 as i64);
+                    }
+                    _ => {}
+                }
+
                 match op {
                     Operator::Eq => Value::Boolean(l == r),
                     Operator::Neq => Value::Boolean(l != r),

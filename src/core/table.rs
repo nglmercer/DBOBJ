@@ -166,7 +166,19 @@ impl Table {
         }
     }
 
-    pub(crate) fn get_row_by_index(&self, index: usize) -> Row {
+    pub fn get_index(&self, id: &Id) -> Option<usize> {
+        if self.is_sequential_ids {
+            if let Id::Integer(i) = id {
+                let index = *i as usize;
+                if index < self.ids.len() && self.ids[index] == *id {
+                    return Some(index);
+                }
+            }
+        }
+        self.id_map.get(id).copied()
+    }
+
+    pub fn get_row_by_index(&self, index: usize) -> Row {
         let start = index * self.num_columns;
         let end = start + self.num_columns;
 
@@ -181,12 +193,18 @@ impl Table {
         }
     }
 
-    /// Get a column index, supporting "id" as a special virtual column.
+    /// Get a column index, supporting "id" as a special virtual column
+    /// when the table does not have a real column named "id".
     pub fn get_column_index(&self, name: &str) -> Option<isize> {
         if name == "id" {
-            return Some(-1); // Special sentinel for ID
+            if self.column_map.contains_key("id") {
+                self.column_map.get("id").map(|&idx| idx as isize)
+            } else {
+                Some(-1)
+            }
+        } else {
+            self.column_map.get(name).map(|&idx| idx as isize)
         }
-        self.column_map.get(name).map(|&idx| idx as isize)
     }
 
     /// Get a value from a row by column index (supports -1 for ID).
@@ -421,6 +439,54 @@ impl Table {
         Ok(ids)
     }
 
+    /// Insert a single row from positional values — no RowData/HashMap overhead.
+    /// For single inserts, this avoids the double conversion of
+    /// RowData → validate_and_convert → Vec<Value>.
+    pub fn insert_values(&mut self, values: Vec<Value>) -> Result<Id, TableError> {
+        self.insert_batch_values(vec![values]).map(|mut ids| ids.remove(0))
+    }
+
+    /// Update a row from positional values — no RowData/HashMap overhead.
+    /// Skips the `validate_and_convert` HashMap lookup for known column positions.
+    pub fn update_values(&mut self, id: &Id, mut values: Vec<Value>) -> Result<(), TableError> {
+        if values.len() != self.num_columns {
+            return Err(TableError::SchemaViolation(format!(
+                "Expected {} columns, got {}",
+                self.num_columns, values.len()
+            )));
+        }
+        let idx = self
+            .get_index(id)
+            .ok_or_else(|| TableError::SchemaViolation(format!("ID {} not found", id)))?;
+
+        self.intern_row(&mut values);
+
+        // Update indexes
+        for index_obj in self.indexes.values_mut() {
+            let start = idx * self.num_columns;
+            let old_val = &self.data[start + index_obj.col_idx];
+            let new_val = &values[index_obj.col_idx];
+
+            if old_val != new_val {
+                if let Some(list) = index_obj.map.get_mut(old_val) {
+                    list.retain(|x| x != id);
+                }
+                index_obj
+                    .map
+                    .entry(new_val.clone())
+                    .or_default()
+                    .push(id.clone());
+            }
+        }
+
+        let start = idx * self.num_columns;
+        for (i, val) in values.into_iter().enumerate() {
+            self.data[start + i] = val;
+        }
+        self.versions[idx] += 1;
+        Ok(())
+    }
+
     /// Single-pass: validates schema and converts RowData to positional Vec<Value> simultaneously.
     /// Eliminates the double HashMap iteration of separate validate_schema + row_to_values.
     fn validate_and_convert(&self, data: RowData) -> Result<Vec<Value>, TableError> {
@@ -468,20 +534,43 @@ impl Table {
     }
 
     pub fn values_to_row(&self, values: &[Value]) -> RowData {
-        let mut data = RowData::default();
-        for col in &self.schema.columns {
-            if let Some(&idx) = self.column_map.get(col.name.as_str()) {
-                let mut val = values[idx].clone();
-                // Resolve interned strings when converting back to a map
-                if let Value::InternedString(id) = val
-                    && let Some(s) = self.string_pool.resolve(id)
-                {
-                    val = Value::String(s);
-                }
-                data.insert(col.name.clone(), val);
+        let mut data =
+            RowData::with_capacity_and_hasher(self.schema.columns.len(), Default::default());
+        for (idx, col) in self.schema.columns.iter().enumerate() {
+            let mut val = values[idx].clone();
+            if let Value::InternedString(id) = val
+                && let Some(s) = self.string_pool.resolve(id)
+            {
+                val = Value::String(s);
             }
+            data.insert(col.name.clone(), val);
         }
         data
+    }
+
+    /// Return a row's values as a flat Vec<Value>, resolving interned strings.
+    /// Much faster than values_to_row() for bulk reads — avoids HashMap and
+    /// column-name cloning.
+    pub fn get_row_values(&self, row_idx: usize) -> Option<Vec<Value>> {
+        if row_idx >= self.ids.len() {
+            return None;
+        }
+        let start = row_idx * self.num_columns;
+        let end = start + self.num_columns;
+        let mut values = Vec::with_capacity(self.num_columns);
+        for val in &self.data[start..end] {
+            let v = if let Value::InternedString(id) = val {
+                if let Some(s) = self.string_pool.resolve(*id) {
+                    Value::String(s)
+                } else {
+                    val.clone()
+                }
+            } else {
+                val.clone()
+            };
+            values.push(v);
+        }
+        Some(values)
     }
 
     pub fn get(&self, id: &Id) -> Option<Row> {
@@ -559,20 +648,7 @@ impl Table {
     }
 
     pub fn delete(&mut self, id: &Id) -> Option<Row> {
-        let idx = if self.is_sequential_ids {
-            if let Id::Integer(i) = id {
-                let index = *i as usize;
-                if index < self.ids.len() && self.ids[index] == *id {
-                    Some(index)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            self.id_map.get(id).copied()
-        }?;
+        let idx = self.get_index(id)?;
 
         if self.is_sequential_ids {
             self.is_sequential_ids = false;
@@ -736,5 +812,19 @@ impl Table {
 
         self.indexes.insert(column_name.into(), index);
         Ok(())
+    }
+
+    pub fn export_column_i64(&self, column_name: &str) -> Option<Vec<i64>> {
+        let col_idx = *self.column_map.get(column_name)? as usize;
+        let num_rows = self.ids.len();
+        let mut result = Vec::with_capacity(num_rows);
+
+        for i in 0..num_rows {
+            match &self.data[i * self.num_columns + col_idx] {
+                Value::Integer(v) => result.push(*v),
+                _ => result.push(0),
+            }
+        }
+        Some(result)
     }
 }
