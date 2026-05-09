@@ -256,6 +256,53 @@ impl<'a> SqlExecutor<'a> {
         Ok(last_result)
     }
 
+    pub fn execute_prepared_batch(
+        &self,
+        stmt: &PreparedStatement,
+        batch_params: &[Vec<Value>],
+    ) -> Result<SqlResult, String> {
+        if stmt.statements.len() == 1 {
+            if let Statement::Insert { table, columns, .. } = &stmt.statements[0] {
+                 // FAST PATH: Bulk insert
+                 let table_name = table.to_string();
+                 let num_rows = batch_params.len();
+                 let table_lock = self.db.get_table(&table_name)
+                     .ok_or_else(|| format!("Table {} not found", table_name))?;
+                 let table_ref = table_lock.read();
+                 let num_cols = table_ref.num_columns;
+                 
+                 let col_indices = if columns.is_empty() {
+                     (0..num_cols).collect()
+                 } else {
+                     columns.iter().map(|col| {
+                         table_ref.column_map.get(col.as_str()).copied()
+                             .ok_or_else(|| format!("Column {} not found", col))
+                     }).collect::<Result<Vec<_>, _>>()?
+                 };
+                 drop(table_ref);
+
+                 let mut batch = Vec::with_capacity(num_rows);
+                 for params in batch_params {
+                     let mut row = vec![Value::Null; num_cols];
+                     for (i, val) in params.iter().enumerate() {
+                         if i < col_indices.len() {
+                             row[col_indices[i]] = val.clone();
+                         }
+                     }
+                     batch.push(row);
+                 }
+                 self.db.insert_batch_values(&table_name, batch).map_err(|e| e.to_string())?;
+                 return Ok(SqlResult::Ok);
+            }
+        }
+
+        let mut last_result = SqlResult::Ok;
+        for params in batch_params {
+            last_result = self.execute_prepared(stmt, params)?;
+        }
+        Ok(last_result)
+    }
+
     fn get_or_parse(&self, sql: &str) -> Result<Vec<Statement>, String> {
         let cache = self.stmt_cache.borrow();
         if let Some(cached) = cache.get(sql) {
@@ -275,7 +322,7 @@ impl<'a> SqlExecutor<'a> {
     fn populate_id_map_once(&self, table_name: &str) -> Result<(), String> {
         {
             let populated = self.populated.borrow();
-            if populated.contains(&table_name.to_string()) {
+            if populated.iter().any(|s| s == table_name) {
                 return Ok(());
             }
         }
