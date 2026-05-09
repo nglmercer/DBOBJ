@@ -2,12 +2,14 @@ use napi_derive::napi;
 use napi::bindgen_prelude::*;
 use dbobj::Database as CoreDatabase;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::types::TableMetadata;
 
 #[napi]
 pub struct Database {
     pub(crate) inner: Arc<CoreDatabase>,
     pub(crate) path: Option<String>,
+    pub(crate) is_dirty: Arc<AtomicBool>,
 }
 
 #[napi]
@@ -18,6 +20,7 @@ impl Database {
             return Self {
                 inner: Arc::new(CoreDatabase::new(name)),
                 path: None,
+                is_dirty: Arc::new(AtomicBool::new(false)),
             };
         }
 
@@ -37,10 +40,25 @@ impl Database {
             Arc::new(CoreDatabase::new(name))
         };
 
-        Self {
-            inner,
-            path: Some(path),
-        }
+        let is_dirty = Arc::new(AtomicBool::new(false));
+        
+        let db = Self {
+            inner: inner.clone(),
+            path: Some(path.clone()),
+            is_dirty: is_dirty.clone(),
+        };
+
+        // Background auto-save thread (debounces to 1 second)
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if is_dirty.swap(false, Ordering::Relaxed) {
+                    let _ = inner.save_to_mmap(&path);
+                }
+            }
+        });
+
+        db
     }
 
     #[napi(factory)]
@@ -48,15 +66,33 @@ impl Database {
         let db = CoreDatabase::load_from_mmap(&path).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
+        
+        let inner = Arc::new(db);
+        let is_dirty = Arc::new(AtomicBool::new(false));
+        
+        let path_clone = path.clone();
+        let inner_clone = inner.clone();
+        let is_dirty_clone = is_dirty.clone();
+        
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                if is_dirty_clone.swap(false, Ordering::Relaxed) {
+                    let _ = inner_clone.save_to_mmap(&path_clone);
+                }
+            }
+        });
+
         Ok(Self {
-            inner: Arc::new(db),
+            inner,
             path: Some(path),
+            is_dirty,
         })
     }
 
     fn save_if_needed(&self) {
-        if let Some(path) = &self.path {
-            let _ = self.inner.save_to_mmap(path);
+        if self.path.is_some() {
+            self.is_dirty.store(true, Ordering::Relaxed);
         }
     }
 
@@ -65,6 +101,7 @@ impl Database {
         self.inner.save_to_mmap(path).map_err(|e| {
             napi::Error::from_reason(e.to_string())
         })?;
+        self.is_dirty.store(false, Ordering::Relaxed);
         Ok(())
     }
 
