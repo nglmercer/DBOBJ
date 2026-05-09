@@ -80,4 +80,74 @@ impl Database {
             ))
         }
     }
+
+    #[napi]
+    pub fn update_row_i64(&self, table_name: String, id: u32, values: Vec<i64>) -> Result<()> {
+        use dbobj::{Value, Id};
+        let mut row_values = Vec::new();
+        for v in values {
+            row_values.push(Value::Integer(v));
+        }
+        self.inner.update_values(&table_name, &Id::Integer(id as u64), row_values).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        Ok(())
+    }
+
+    #[napi]
+    pub fn delete_row(&self, table_name: String, id: u32) -> Result<()> {
+        use dbobj::Id;
+        self.inner.delete_row(&table_name, &Id::Integer(id as u64)).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        Ok(())
+    }
+
+    #[napi]
+    pub fn find_by_i64(&self, table_name: String, column_name: String, value: i64) -> Result<BigInt64Array> {
+        use dbobj::{Value, Id};
+        let results = self.inner.find(&table_name, &column_name, Value::Integer(value)).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        
+        let mut ids: Vec<i64> = results.into_iter().map(|r| {
+            match r.id {
+                Id::Integer(i) => i as i64,
+                _ => 0, // Should not happen in this bench
+            }
+        }).collect();
+        let ptr = ids.as_mut_ptr();
+        let len = ids.len();
+        std::mem::forget(ids);
+
+        unsafe {
+            Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+                let _ = Vec::from_raw_parts(ptr, len, len);
+            }))
+        }
+    }
+
+    #[napi]
+    pub fn hash_join_i64(&self, table1: String, col1: String, table2: String, col2: String) -> Result<BigInt64Array> {
+        use dbobj::Id;
+        let results = self.inner.hash_join(&table1, &col1, &table2, &col2).map_err(|e| {
+            napi::Error::from_reason(e.to_string())
+        })?;
+        
+        let mut flat_results: Vec<i64> = Vec::with_capacity(results.len() * 2);
+        for (r1, r2) in results {
+            if let Id::Integer(id1) = r1.id { flat_results.push(id1 as i64); } else { flat_results.push(0); }
+            if let Id::Integer(id2) = r2.id { flat_results.push(id2 as i64); } else { flat_results.push(0); }
+        }
+        
+        let ptr = flat_results.as_mut_ptr();
+        let len = flat_results.len();
+        std::mem::forget(flat_results);
+
+        unsafe {
+            Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+                let _ = Vec::from_raw_parts(ptr, len, len);
+            }))
+        }
+    }
 }

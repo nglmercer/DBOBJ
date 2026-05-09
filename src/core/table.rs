@@ -166,6 +166,18 @@ impl Table {
         }
     }
 
+    pub fn get_index(&self, id: &Id) -> Option<usize> {
+        if self.is_sequential_ids {
+            if let Id::Integer(i) = id {
+                let index = *i as usize;
+                if index < self.ids.len() && self.ids[index] == *id {
+                    return Some(index);
+                }
+            }
+        }
+        self.id_map.get(id).copied()
+    }
+
     pub fn get_row_by_index(&self, index: usize) -> Row {
         let start = index * self.num_columns;
         let end = start + self.num_columns;
@@ -443,9 +455,8 @@ impl Table {
                 self.num_columns, values.len()
             )));
         }
-        let idx = *self
-            .id_map
-            .get(id)
+        let idx = self
+            .get_index(id)
             .ok_or_else(|| TableError::SchemaViolation(format!("ID {} not found", id)))?;
 
         self.intern_row(&mut values);
@@ -637,20 +648,7 @@ impl Table {
     }
 
     pub fn delete(&mut self, id: &Id) -> Option<Row> {
-        let idx = if self.is_sequential_ids {
-            if let Id::Integer(i) = id {
-                let index = *i as usize;
-                if index < self.ids.len() && self.ids[index] == *id {
-                    Some(index)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            self.id_map.get(id).copied()
-        }?;
+        let idx = self.get_index(id)?;
 
         if self.is_sequential_ids {
             self.is_sequential_ids = false;
