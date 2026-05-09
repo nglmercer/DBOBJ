@@ -12,13 +12,13 @@ DBOBJ is a high-performance, in-memory database engine written in Rust, designed
 
 Results comparing **DBOBJ (Native API)**, **DBOBJ (SQL Engine)**, and **Bun SQLite** on 100,000 rows:
 
-| Operation | DBOBJ Direct | DBOBJ SQL | Bun SQLite | Speedup vs SQLite |
+| Operation | DBOBJ Direct | **DBOBJ SQL (Prep)** | Bun SQLite | Speedup (vs SQLite) |
 | :--- | :--- | :--- | :--- | :--- |
-| **INSERT (Batch)** | **22.70 ms** | 319.19 ms | 177.45 ms | **7.8x** |
-| **READ (Column)** | **1.39 ms** | 1.42 ms | 29.31 ms | **21x** |
-| **FIND (Indexed)** | **0.03 ms** | 0.05 ms | 0.24 ms | **8.0x** |
-| **UPDATE** | **6.60 ms** | 3288.67 ms | 16.50 ms | **2.5x** |
-| **JOIN (Hash)** | 5.00 ms | **4.50 ms** | 15.19 ms | **3.0x** |
+| **INSERT (Batch)** | 43.72 ms | **57.88 ms** | 168.25 ms | **2.9x** |
+| **READ (Column)** | 0.46 ms | **0.68 ms** | 24.36 ms | **35.8x** |
+| **FIND (Indexed)** | 0.01 ms | **0.05 ms** | 0.15 ms | **3.0x** |
+| **UPDATE (Bulk)** | 5.96 ms | **3.02 ms** | 14.43 ms | **4.7x** |
+| **JOIN (Hash)** | 4.14 ms | 36.09 ms | 18.46 ms | 0.5x |
 
 > *Note: DBOBJ Direct uses N-API with `SharedArrayBuffer` / `BigInt64Array` for zero-copy transfers, bypassing the serialization overhead typical of JS-to-Native bridges.*
 
@@ -33,7 +33,7 @@ The core library provides the fundamental database primitives:
 - **Shared Memory**: Thread-safe access via `Arc<RwLock<...>>`.
 
 ### 2. SQL Extension (`extensions/sql`)
-A specialized SQL implementation that is **6x-10x faster** than generic SQL parsers.
+A specialized SQL implementation that is **up to 35x faster** than generic SQLite drivers.
 - **LocalParser**: Hand-written recursive descent parser.
 - **Optimized Executor**: Directly targets the core columnar storage.
 
