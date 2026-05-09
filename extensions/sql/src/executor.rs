@@ -442,20 +442,24 @@ impl<'a> SqlExecutor<'a> {
                             Vec::new()
                         }
                     } else if let Some(selection) = &selection {
-                        let mapped = map_expr_to_core(selection)?;
-                        let cap = table_ref.column_map.len() * 2 + 1;
-                        let mut mapping = dbobj::FastHashMap::with_capacity_and_hasher(
-                            cap,
-                            Default::default(),
-                        );
-                        for (col, idx) in &table_ref.column_map {
-                            mapping.insert(col.clone(), *idx);
-                            mapping.insert(format!("{}.{}", table_name, col), *idx);
+                        if let Some((col_name, value)) = try_extract_eq_literal(selection) {
+                            lookup_indexed_or_scan(&table_ref, &col_name, &value)
+                        } else {
+                            let mapped = map_expr_to_core(selection)?;
+                            let cap = table_ref.column_map.len() * 2 + 1;
+                            let mut mapping = dbobj::FastHashMap::with_capacity_and_hasher(
+                                cap,
+                                Default::default(),
+                            );
+                            for (col, idx) in &table_ref.column_map {
+                                mapping.insert(col.clone(), *idx);
+                                mapping.insert(format!("{}.{}", table_name, col), *idx);
+                            }
+                            if !mapping.contains_key("id") {
+                                mapping.insert("id".to_string(), usize::MAX);
+                            }
+                            table_ref.select(|r| mapped.is_true(r, &mapping, &table_ref))
                         }
-                        if !mapping.contains_key("id") {
-                            mapping.insert("id".to_string(), usize::MAX);
-                        }
-                        table_ref.select(|r| mapped.is_true(r, &mapping, &table_ref))
                     } else {
                         (0..table_ref.ids.len())
                             .map(|i| table_ref.get_row_by_index(i))
@@ -501,20 +505,24 @@ impl<'a> SqlExecutor<'a> {
                             Vec::new()
                         }
                     } else if let Some(selection) = &selection {
-                        let mapped = map_expr_to_core(selection)?;
-                        let cap = table_ref.column_map.len() * 2 + 1;
-                        let mut mapping = dbobj::FastHashMap::with_capacity_and_hasher(
-                            cap,
-                            Default::default(),
-                        );
-                        for (col, idx) in &table_ref.column_map {
-                            mapping.insert(col.clone(), *idx);
-                            mapping.insert(format!("{}.{}", table_name, col), *idx);
+                        if let Some((col_name, value)) = try_extract_eq_literal(selection) {
+                            lookup_indexed_or_scan(&table_ref, &col_name, &value)
+                        } else {
+                            let mapped = map_expr_to_core(selection)?;
+                            let cap = table_ref.column_map.len() * 2 + 1;
+                            let mut mapping = dbobj::FastHashMap::with_capacity_and_hasher(
+                                cap,
+                                Default::default(),
+                            );
+                            for (col, idx) in &table_ref.column_map {
+                                mapping.insert(col.clone(), *idx);
+                                mapping.insert(format!("{}.{}", table_name, col), *idx);
+                            }
+                            if !mapping.contains_key("id") {
+                                mapping.insert("id".to_string(), usize::MAX);
+                            }
+                            table_ref.select(|r| mapped.is_true(r, &mapping, &table_ref))
                         }
-                        if !mapping.contains_key("id") {
-                            mapping.insert("id".to_string(), usize::MAX);
-                        }
-                        table_ref.select(|r| mapped.is_true(r, &mapping, &table_ref))
                     } else {
                         (0..table_ref.ids.len())
                             .map(|i| table_ref.get_row_by_index(i))
