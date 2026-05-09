@@ -22,6 +22,8 @@ export declare class Database {
 
 export declare class PreparedStatement {
   run(params: Array<number>): void
+  runBatch(batchParams: Array<Array<number>>): void
+  runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void
 }
 
 export interface TableMetadata {

@@ -107,7 +107,7 @@ class DBOBJSQLSuite implements TestSuite {
 
   join(t1: string, c1: string, t2: string, c2: string) {
     this.db.executeSql(`CREATE TABLE ${t2} (id INTEGER, score INTEGER)`);
-    for (let i = 0; i < 1000; i++) this.db.executeSql(`INSERT INTO ${t2} (id, score) VALUES (${i}, ${i + 5})`);
+    for (let i = 0; i < JOIN_COUNT; i++) this.db.executeSql(`INSERT INTO ${t2} (id, score) VALUES (${i}, ${i + 5})`);
 
     const t0 = performance.now();
     this.db.executeSql(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
@@ -173,9 +173,12 @@ class DBOBJSQLPreparedSuite implements TestSuite {
     this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
     const stmt = this.db.prepare("INSERT INTO users (id, val) VALUES (?, ?)");
     const t0 = performance.now();
+    const batch = new BigInt64Array(count * 2);
     for (let i = 0; i < count; i++) {
-      stmt.run([i, i * 10]);
+      batch[i * 2] = BigInt(i);
+      batch[i * 2 + 1] = BigInt(i * 10);
     }
+    stmt.runBatchI64(batch, 2);
     return performance.now() - t0;
   }
 
@@ -194,17 +197,24 @@ class DBOBJSQLPreparedSuite implements TestSuite {
   update(tableName: string, count: number) {
     const stmt = this.db.prepare(`UPDATE ${tableName} SET val = ? WHERE id = ?`);
     const t0 = performance.now();
-    // Use the full count for prepared since it avoids parsing overhead
+    const batch = new BigInt64Array(count * 2);
     for (let i = 0; i < count; i++) {
-      stmt.run([i * 20, i]);
+      batch[i * 2] = BigInt(i * 20);
+      batch[i * 2 + 1] = BigInt(i);
     }
+    stmt.runBatchI64(batch, 2);
     return performance.now() - t0;
   }
 
   join(t1: string, c1: string, t2: string, c2: string) {
     this.db.executeSql(`CREATE TABLE ${t2} (id INTEGER, score INTEGER)`);
     const stmt = this.db.prepare(`INSERT INTO ${t2} (id, score) VALUES (?, ?)`);
-    for (let i = 0; i < JOIN_COUNT; i++) stmt.run([i, i + 5]);
+    const batch = new BigInt64Array(JOIN_COUNT * 2);
+    for (let i = 0; i < JOIN_COUNT; i++) {
+      batch[i * 2] = BigInt(i);
+      batch[i * 2 + 1] = BigInt(i + 5);
+    }
+    stmt.runBatchI64(batch, 2);
 
     const t0 = performance.now();
     this.db.executeSql(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);

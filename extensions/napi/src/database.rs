@@ -29,6 +29,42 @@ impl PreparedStatement {
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(())
     }
+
+    #[napi]
+    pub fn run_batch(&self, batch_params: Vec<Vec<i64>>) -> Result<()> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.db);
+        let batch: Vec<Vec<dbobj::Value>> = batch_params
+            .into_iter()
+            .map(|params| params.into_iter().map(dbobj::Value::Integer).collect())
+            .collect();
+        executor.execute_prepared_batch(&self.inner, &batch).map_err(|e| napi::Error::from_reason(e))?;
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    #[napi]
+    pub fn run_batch_i64(&self, flat_params: BigInt64Array, params_per_row: u32) -> Result<()> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.db);
+        let params_slice = flat_params.as_ref();
+        let num_params = params_slice.len();
+        let mut i = 0;
+        let mut batch = Vec::with_capacity(num_params / params_per_row as usize);
+        
+        while i < num_params {
+            let mut row = Vec::with_capacity(params_per_row as usize);
+            for _ in 0..params_per_row {
+                if i < num_params {
+                    row.push(dbobj::Value::Integer(params_slice[i]));
+                    i += 1;
+                }
+            }
+            batch.push(row);
+        }
+        
+        executor.execute_prepared_batch(&self.inner, &batch).map_err(|e| napi::Error::from_reason(e))?;
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(())
+    }
 }
 
 #[napi]
