@@ -302,7 +302,7 @@ impl<'a> SqlExecutor<'a> {
                     let table_lock = self.db.get_table(&table_name)
                         .ok_or_else(|| format!("Table {} not found", table_name))?;
                     let table_ref = table_lock.read();
-                    let has_id_column = table_ref.column_map.contains_key("id");
+                    let _has_id_column = table_ref.column_map.contains_key("id");
                     
                     // Simple check for WHERE id = ?
                     if let Some(selection) = selection
@@ -884,11 +884,11 @@ impl<'a> SqlExecutor<'a> {
             return Err("execute_i64 expects exactly one statement".to_string());
         }
         
-        if let Statement::Select { columns, table, selection, join } = &statements[0] {
-             if let crate::local_parser::SelectColumns::List(cols) = columns 
-                && cols.len() == 1
-                && join.is_none()
-             {
+        if let Statement::Select { columns, table, selection, join } = &statements[0]
+            && let crate::local_parser::SelectColumns::List(cols) = columns
+            && cols.len() == 1
+            && join.is_none()
+        {
                  let table_name = table.to_string();
                  let table_lock = self.db.get_table(&table_name)
                      .ok_or_else(|| format!("Table {} not found", table_name))?;
@@ -900,7 +900,7 @@ impl<'a> SqlExecutor<'a> {
                  let rows = if let Some(direct_id) = selection.as_ref().and_then(|s| Self::try_extract_id_filter(s, table_ref.column_map.contains_key("id"))) {
                      if let Some(row) = table_ref.get(&direct_id) { vec![row] } else { vec![] }
                  } else if let Some(sel) = selection {
-                     let mapped = map_expr_to_core(&sel)?;
+                     let mapped = map_expr_to_core(sel)?;
                      let mut mapping = dbobj::FastHashMap::default();
                      for (col, idx) in &table_ref.column_map {
                          mapping.insert(col.clone(), *idx);
