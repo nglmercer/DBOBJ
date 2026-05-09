@@ -1,0 +1,12 @@
+{
+  "name": "dbobj-napi",
+  "version": "0.1.0",
+  "main": "index.js",
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  },
+  "scripts": {
+    "build": "napi build --release",
+    "test": "node test.js"
+  }
+}

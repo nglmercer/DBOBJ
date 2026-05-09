@@ -815,4 +815,18 @@ impl Table {
         self.indexes.insert(column_name.into(), index);
         Ok(())
     }
+
+    pub fn export_column_i64(&self, column_name: &str) -> Option<Vec<i64>> {
+        let col_idx = *self.column_map.get(column_name)? as usize;
+        let num_rows = self.ids.len();
+        let mut result = Vec::with_capacity(num_rows);
+
+        for i in 0..num_rows {
+            match &self.data[i * self.num_columns + col_idx] {
+                Value::Integer(v) => result.push(*v),
+                _ => result.push(0),
+            }
+        }
+        Some(result)
+    }
 }
