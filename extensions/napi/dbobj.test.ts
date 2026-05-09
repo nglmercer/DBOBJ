@@ -1,5 +1,5 @@
 import { expect, test, describe } from "bun:test";
-const { Database } = require("./index.node") as typeof import("./index.d.ts");
+const { Database } = require("./index.js") as typeof import("./index.d.ts");
 
 describe("DBOBJ N-API Bindings - Full Operations", () => {
   test("CRUD Operations", () => {
