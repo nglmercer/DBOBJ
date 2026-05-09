@@ -18,10 +18,12 @@ export declare class Database {
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
   executeSql(sql: string): any
   prepare(sql: string): PreparedStatement
+  queryI64(sql: string): BigInt64Array
 }
 
 export declare class PreparedStatement {
   run(params: Array<number>): void
+  allI64(params: Array<number>): BigInt64Array
   runBatch(batchParams: Array<Array<number>>): void
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void
 }

@@ -12,8 +12,8 @@ pub type StatementCache = dbobj::FastHashMap<String, Vec<Statement>>;
 
 #[derive(Clone)]
 pub struct PreparedStatement {
-    statements: Vec<Statement>,
-    param_count: usize,
+    pub statements: Vec<Statement>,
+    pub param_count: usize,
 }
 
 impl PreparedStatement {
@@ -873,4 +873,54 @@ fn map_expr_to_core(expr: &Expr) -> Result<dbobj::Expr, String> {
 pub enum SqlResult {
     Ok,
     Rows(Vec<RowData>),
+    I64(Vec<i64>),
+}
+
+impl<'a> SqlExecutor<'a> {
+    pub fn execute_i64(&self, sql: &str) -> Result<Vec<i64>, String> {
+        let mut parser = LocalParser::new(sql);
+        let statements = parser.parse_statements().map_err(|e| e.to_string())?;
+        if statements.len() != 1 {
+            return Err("execute_i64 expects exactly one statement".to_string());
+        }
+        
+        if let Statement::Select { columns, table, selection, join } = &statements[0] {
+             if let crate::local_parser::SelectColumns::List(cols) = columns 
+                && cols.len() == 1
+                && join.is_none()
+             {
+                 let table_name = table.to_string();
+                 let table_lock = self.db.get_table(&table_name)
+                     .ok_or_else(|| format!("Table {} not found", table_name))?;
+                 let table_ref = table_lock.read();
+                 let col_idx = *table_ref.column_map.get(cols[0].as_str())
+                     .ok_or_else(|| format!("Column {} not found", cols[0]))?;
+                 
+                 // Perform scan or indexed search
+                 let rows = if let Some(direct_id) = selection.as_ref().and_then(|s| Self::try_extract_id_filter(s, table_ref.column_map.contains_key("id"))) {
+                     if let Some(row) = table_ref.get(&direct_id) { vec![row] } else { vec![] }
+                 } else if let Some(sel) = selection {
+                     let mapped = map_expr_to_core(&sel)?;
+                     let mut mapping = dbobj::FastHashMap::default();
+                     for (col, idx) in &table_ref.column_map {
+                         mapping.insert(col.clone(), *idx);
+                     }
+                     table_ref.select(|r| mapped.is_true(r, &mapping, &table_ref))
+                 } else {
+                     (0..table_ref.ids.len()).map(|i| table_ref.get_row_by_index(i)).collect()
+                 };
+
+                 let mut results = Vec::with_capacity(rows.len());
+                 for row in rows {
+                     if let Value::Integer(i) = row.data[col_idx] {
+                         results.push(i);
+                     } else {
+                         results.push(0);
+                     }
+                 }
+                 return Ok(results);
+             }
+        }
+        Err("Query not suitable for execute_i64".to_string())
+    }
 }

@@ -86,7 +86,7 @@ class DBOBJSQLSuite implements TestSuite {
 
   readColumn(tableName: string, colName: string) {
     const t0 = performance.now();
-    this.db.executeSql(`SELECT ${colName} FROM ${tableName}`);
+    this.db.queryI64(`SELECT ${colName} FROM ${tableName}`);
     return performance.now() - t0;
   }
 
@@ -184,7 +184,7 @@ class DBOBJSQLPreparedSuite implements TestSuite {
 
   readColumn(tableName: string, colName: string) {
     const t0 = performance.now();
-    this.db.executeSql(`SELECT ${colName} FROM ${tableName}`);
+    this.db.prepare(`SELECT ${colName} FROM ${tableName}`).allI64([]);
     return performance.now() - t0;
   }
 
