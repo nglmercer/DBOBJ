@@ -160,7 +160,7 @@ class BunSQLiteSuite implements TestSuite {
     })();
 
     const t0 = performance.now();
-    this.db.queryJoinI64(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
+    this.db.query(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`).all();
     return performance.now() - t0;
   }
 }
