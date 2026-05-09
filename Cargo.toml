@@ -3,8 +3,14 @@ name = "dbobj"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    ".",
+    "extensions/sql",
+]
+
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 ahash = { version = "0.8.12", features = ["serde"] }
@@ -25,15 +31,6 @@ memmap2 = "0.9.5"
 name = "db_bench"
 harness = false
 
-[[bench]]
-name = "sql_bench"
-harness = false
-
-[[bench]]
-name = "parser_bench"
-harness = false
-
 [dev-dependencies]
 criterion = "0.8.2"
 rusqlite = "0.31.0"
-sqlparser = "0.61.0"

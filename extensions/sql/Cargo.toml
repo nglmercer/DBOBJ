@@ -1,0 +1,12 @@
+[package]
+name = "dbobj-sql"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dbobj = { path = "../../" }
+compact_str = { version = "0.9.0", features = ["serde"] }
+ahash = "0.8.12"
+
+[dev-dependencies]
+sqlparser = "0.61.0"

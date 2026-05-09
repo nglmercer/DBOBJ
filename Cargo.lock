@@ -349,9 +349,18 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "sqlparser",
  "string-interner",
  "thiserror",
+]
+
+[[package]]
+name = "dbobj-sql"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "compact_str",
+ "dbobj",
+ "sqlparser",
 ]
 
 [[package]]
