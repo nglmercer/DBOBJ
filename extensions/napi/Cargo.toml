@@ -2,6 +2,9 @@
 name = "dbobj-napi"
 version = "0.1.0"
 edition = "2024"
+description = "N-API bindings for the DBOBJ database"
+license = "MIT"
+repository = "https://github.com/nglmercer/DBOBJ"
 
 [lib]
 crate-type = ["cdylib"]

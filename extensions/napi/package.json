@@ -22,6 +22,14 @@
   ],
   "author": "nglmercer",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nglmercer/DBOBJ.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nglmercer/DBOBJ/issues"
+  },
+  "homepage": "https://github.com/nglmercer/DBOBJ#readme",
   "devDependencies": {
     "@napi-rs/cli": "^3.6.2",
     "@types/bun": "^1.3.13"
