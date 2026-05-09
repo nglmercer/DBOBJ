@@ -13,6 +13,25 @@ pub struct Database {
 }
 
 #[napi]
+pub struct PreparedStatement {
+    pub(crate) inner: dbobj_sql::PreparedStatement,
+    pub(crate) db: Arc<CoreDatabase>,
+    pub(crate) is_dirty: Arc<AtomicBool>,
+}
+
+#[napi]
+impl PreparedStatement {
+    #[napi]
+    pub fn run(&self, params: Vec<i64>) -> Result<()> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.db);
+        let vals: Vec<_> = params.into_iter().map(dbobj::Value::Integer).collect();
+        executor.execute_prepared(&self.inner, &vals).map_err(|e| napi::Error::from_reason(e))?;
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
+#[napi]
 impl Database {
     #[napi(constructor)]
     pub fn new(name: String) -> Self {
@@ -348,5 +367,16 @@ impl Database {
         self.save_if_needed();
         
         out
+    }
+
+    #[napi]
+    pub fn prepare(&self, sql: String) -> Result<PreparedStatement> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.inner);
+        let stmt = executor.prepare(&sql).map_err(|e| napi::Error::from_reason(e))?;
+        Ok(PreparedStatement {
+            inner: stmt,
+            db: self.inner.clone(),
+            is_dirty: self.is_dirty.clone(),
+        })
     }
 }
