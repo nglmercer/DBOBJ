@@ -23,6 +23,7 @@ const ALL_TARGETS: Target[] = [
   { triple: "x86_64-apple-darwin",       label: "macOS x64",        crossTool: "zigbuild" },
   { triple: "aarch64-apple-darwin",      label: "macOS ARM64",      crossTool: "zigbuild" },
   { triple: "x86_64-pc-windows-msvc",    label: "Windows x64",      crossTool: "xwin" },
+  { triple: "aarch64-pc-windows-msvc",   label: "Windows ARM64",    crossTool: "xwin" },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -39,7 +40,7 @@ function getHostTriple(): string {
 }
 
 function commandExists(cmd: string, args: string[] = ["--version"]): boolean {
-  const r = spawnSync(cmd, args, { stdio: "ignore" });
+  const r = spawnSync(cmd, args, { stdio: "ignore", shell: true });
   return r.status === 0;
 }
 
@@ -84,14 +85,14 @@ function buildTarget(target: Target, hostTriple: string): BuildResult {
 
   // 1. Check cross-compilation prerequisites
   if (!isNative) {
-    if (target.crossTool === "zigbuild" && !commandExists("cargo", ["zigbuild", "--version"])) {
+    if (target.crossTool === "zigbuild" && !commandExists("cargo-zigbuild", ["--version"])) {
       return {
         target, success: false, skipped: true,
         elapsed: performance.now() - start,
         error: "cargo-zigbuild not installed (cargo install cargo-zigbuild)",
       };
     }
-    if (target.crossTool === "xwin" && !commandExists("cargo", ["xwin", "--version"])) {
+    if (target.crossTool === "xwin" && !commandExists("cargo-xwin", ["--version"])) {
       return {
         target, success: false, skipped: true,
         elapsed: performance.now() - start,
@@ -151,8 +152,8 @@ function buildTarget(target: Target, hostTriple: string): BuildResult {
   }
 
   // 5. Verify the .node file was created
-  const nodeFiles = findNodeFiles(target.triple);
-  if (nodeFiles.length === 0) {
+  const nodeFile = findNodeFileForTarget(target.triple);
+  if (!nodeFile) {
     return {
       target, success: false, skipped: false, elapsed,
       error: "Build succeeded but no .node file was produced",
@@ -161,20 +162,36 @@ function buildTarget(target: Target, hostTriple: string): BuildResult {
 
   return {
     target, success: true, skipped: false, elapsed,
-    outputFile: nodeFiles[0],
+    outputFile: nodeFile,
   };
 }
 
-/** Find .node files matching a target triple */
-function findNodeFiles(triple: string): string[] {
-  // napi-rs naming convention: {name}.{platform-arch-abi}.node
-  // e.g. dbobj.linux-x64-gnu.node, dbobj.darwin-arm64.node
+/**
+ * Map a Rust target triple to the napi-rs platform suffix.
+ * e.g. x86_64-unknown-linux-gnu → linux-x64-gnu
+ */
+function tripleToPlatformSuffix(triple: string): string {
+  const map: Record<string, string> = {
+    "x86_64-unknown-linux-gnu":  "linux-x64-gnu",
+    "aarch64-unknown-linux-gnu": "linux-arm64-gnu",
+    "x86_64-apple-darwin":       "darwin-x64",
+    "aarch64-apple-darwin":      "darwin-arm64",
+    "x86_64-pc-windows-msvc":    "win32-x64-msvc",
+    "aarch64-pc-windows-msvc":   "win32-arm64-msvc",
+  };
+  return map[triple] ?? triple;
+}
+
+/** Find the .node file for a specific target */
+function findNodeFileForTarget(triple: string): string | null {
+  const suffix = tripleToPlatformSuffix(triple);
   try {
-    return readdirSync(OUTPUT_DIR)
-      .filter((f) => f.endsWith(".node"))
-      .map((f) => join(OUTPUT_DIR, f));
+    const match = readdirSync(OUTPUT_DIR).find(
+      (f) => f.endsWith(".node") && f.includes(suffix)
+    );
+    return match ? join(OUTPUT_DIR, match) : null;
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -238,8 +255,8 @@ async function main() {
   }
 
   // Pre-flight: check tooling
-  const hasZigbuild = commandExists("cargo", ["zigbuild", "--version"]);
-  const hasXwin = commandExists("cargo", ["xwin", "--version"]);
+  const hasZigbuild = commandExists("cargo-zigbuild", ["--version"]);
+  const hasXwin = commandExists("cargo-xwin", ["--version"]);
 
   if (mode === "all") {
     console.log("  Tooling:");
