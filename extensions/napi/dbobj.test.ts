@@ -62,4 +62,50 @@ describe("DBOBJ N-API Bindings - Full Operations", () => {
     expect(result.length).toBe(1);
     expect(result[0].name).toBe("Alice");
   });
+
+  test("Typed Insert/Update methods", () => {
+    const db = new Database("Typed_Test");
+
+    // String table — insertRowString inserts ONE row with N column values
+    db.createTable("strings", [{ name: "val", dataType: DataType.String }]);
+    db.insertRowString("strings", ["hello"]);
+    db.insertRowString("strings", ["world"]);
+    db.updateRowString("strings", 0, ["hi"]);
+    let rows = db.getRows("strings");
+    expect(rows.length).toBe(2);
+    expect(rows[0].val).toBe("hi");
+    expect(rows[1].val).toBe("world");
+
+    // Bool table — insertRowBool inserts ONE row with N column values
+    db.createTable("bools", [{ name: "val", dataType: DataType.Boolean }]);
+    db.insertRowBool("bools", [true]);
+    db.insertRowBool("bools", [false]);
+    db.updateRowBool("bools", 0, [false]);
+    rows = db.getRows("bools");
+    expect(rows.length).toBe(2);
+    expect(rows[0].val).toBe(false);
+    expect(rows[1].val).toBe(false);
+
+    // Batch string
+    db.createTable("batch_str", [
+      { name: "a", dataType: DataType.String },
+      { name: "b", dataType: DataType.String },
+    ]);
+    db.insertBatchString("batch_str", ["x", "y", "z", "w"], 2);
+    rows = db.getRows("batch_str");
+    expect(rows.length).toBe(2);
+    expect(rows[0].a).toBe("x");
+    expect(rows[1].b).toBe("w");
+
+    // Batch bool
+    db.createTable("batch_bool", [
+      { name: "a", dataType: DataType.Boolean },
+      { name: "b", dataType: DataType.Boolean },
+    ]);
+    db.insertBatchBool("batch_bool", [true, false, false, true], 2);
+    rows = db.getRows("batch_bool");
+    expect(rows.length).toBe(2);
+    expect(rows[0].a).toBe(true);
+    expect(rows[1].b).toBe(true);
+  });
 });
