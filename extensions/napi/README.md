@@ -2,14 +2,14 @@
 
 High-performance native bindings for the **DBOBJ** database engine, designed specifically for **Node.js** and **Bun**.
 
-## 🚀 Key Features
+## Key Features
 
 - **Zero-Copy Interop**: Access database columns directly as `BigInt64Array` without memory allocation or data cloning.
 - **Embedded SQL Engine**: Fully integrated SQL executor for easy data manipulation.
 - **MMap Persistence**: Instant database loading and saving via memory-mapped files.
 - **TypeScript Ready**: Full type definitions included for a seamless developer experience.
 
-## 📦 Installation
+## Installation
 
 ```bash
 # Using Bun (Recommended)
@@ -19,7 +19,7 @@ bun add dbobj-napi
 npm install dbobj-napi
 ```
 
-## 📚 API Reference
+## API Reference
 
 ### `class Database`
 
@@ -89,40 +89,45 @@ Compiles a SQL statement for repeated execution with different parameters.
 
 Used for high-performance repeated queries and batch mutations.
 
+#### `run(params: Array<number>): void`
+Executes the prepared statement with the given parameters.
+
+#### `runBatch(batchParams: Array<Array<number>>): void`
+Executes the statement multiple times using a 2D array of parameter sets.
+
 #### `runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void`
-Executes the statement multiple times using a flattened array of parameters. Optimized for bulk `UPDATE` and `INSERT`.
+Executes the statement multiple times using a flattened `BigInt64Array`. Optimized for bulk `UPDATE` and `INSERT`.
 
 #### `allI64(params: Array<number>): BigInt64Array`
 Executes a `SELECT` statement and returns results as a zero-copy `BigInt64Array`.
 
 ---
 
-### `const DataType`
+### `const enum DataType`
+
 ```typescript
-export const DataType: {
-  readonly Integer: "integer"
-  readonly Float: "float"
-  readonly String: "string"
-  readonly Boolean: "boolean"
-  readonly Blob: "blob"
+export const enum DataType {
+  Integer = 0,
+  Float = 1,
+  String = 2,
+  Boolean = 3,
+  Blob = 4,
 }
 ```
 
 ### `interface ColumnDefinition`
+
 ```typescript
 export interface ColumnDefinition {
   name: string
-  dataType: ColumnType
-  nullable: boolean
+  dataType: DataType
+  /** Defaults to true if not specified */
+  nullable?: boolean
 }
 ```
 
-### `type ColumnType`
-```typescript
-export type ColumnType = "integer" | "float" | "string" | "boolean" | "blob"
-```
-
 ### `interface TableMetadata`
+
 ```typescript
 export interface TableMetadata {
   name: string
@@ -131,15 +136,16 @@ export interface TableMetadata {
 }
 ```
 
-## 🛠 Usage Examples
+## Usage Examples
 
 ### 1. CRUD Operations
+
 ```typescript
-import { Database } from "dbobj-napi";
+import { Database, DataType } from "dbobj-napi";
 
 const db = new Database("CRUD_Test");
 db.createTable("users", [
-  { name: "age", dataType: "integer" },
+  { name: "age", dataType: DataType.Integer },
 ]);
 
 // Insert Data
@@ -162,65 +168,86 @@ db.deleteRow("users", 0);
 ```
 
 ### 2. High-Performance Batch Inserts
+
 ```typescript
-import { Database } from "dbobj-napi";
+import { Database, DataType } from "dbobj-napi";
 
 const db = new Database("production");
 db.createTable("events", [
-  { name: "id", dataType: "integer", nullable: false },
-  { name: "timestamp", dataType: "integer" },
+  { name: "id", dataType: DataType.Integer },
+  { name: "timestamp", dataType: DataType.Integer },
 ]);
 
 // Insert multiple rows instantly using a typed array
 const batch = new BigInt64Array([
-  1n, 1625097600n, 
-  2n, 1625097660n
+  1n, 1625097600n,
+  2n, 1625097660n,
 ]);
 db.insertBatchI64("events", batch, 2);
 ```
 
-### 3. Columnar SQL Joins
+### 3. Hash Joins
+
 ```typescript
-import { Database } from "dbobj-napi";
+import { Database, DataType } from "dbobj-napi";
 
 const db = new Database("Join_Test");
-db.createTable("t1", ["val"], ["integer"]);
-db.createTable("t2", ["val"], ["integer"]);
+db.createTable("t1", [
+  { name: "val", dataType: DataType.Integer },
+]);
+db.createTable("t2", [
+  { name: "val", dataType: DataType.Integer },
+]);
 
 db.insertRowI64("t1", [10]);
 db.insertRowI64("t2", [10]);
 
-// High-speed SQL Join returning a flat buffer
-const joinResult = db.queryJoinI64("SELECT * FROM t1 JOIN t2 ON t1.val = t2.val");
-// Returns: BigInt64Array [ 10n, 10n ] (interleaved columns)
+const joinResult = db.hashJoinI64("t1", "val", "t2", "val");
+// Returns: BigInt64Array [ 0n, 0n ] (matching ID pairs)
 ```
 
-### 4. Prepared Statements
+### 4. SQL Execution
+
 ```typescript
+import { Database } from "dbobj-napi";
+
+const db = new Database("SQL_Test");
+db.executeSql("CREATE TABLE users (id INTEGER, name STRING)");
+db.executeSql("INSERT INTO users (id, name) VALUES (1, 'Alice'), (2, 'Bob')");
+
+const result = db.executeSql("SELECT * FROM users WHERE id = 1");
+console.log(result); // [{ id: 1, name: 'Alice' }]
+```
+
+### 5. Prepared Statements
+
+```typescript
+import { Database } from "dbobj-napi";
+
 const db = new Database("Prep_Test");
 db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
+db.executeSql("INSERT INTO users (id, val) VALUES (1, 0), (2, 0)");
 
 const stmt = db.prepare("UPDATE users SET val = ? WHERE id = ?");
 const updates = new BigInt64Array([
   100n, 1n, // val=100 where id=1
-  200n, 2n  // val=200 where id=2
+  200n, 2n, // val=200 where id=2
 ]);
 stmt.runBatchI64(updates, 2);
 ```
 
-## 📊 Benchmarks
+## Benchmarks
 
 DBOBJ is optimized for read-heavy and analytical workloads in JS environments:
-- **Column READ (SQL)**: **~60x faster** than `bun:sqlite`.
-- **Bulk UPDATE (SQL)**: **~7x faster** than `bun:sqlite`.
-- **Hash JOIN (SQL)**: **~4x faster** than `bun:sqlite`.
+- **Column READ (SQL)**: ~60x faster than `bun:sqlite`.
+- **Bulk UPDATE (SQL)**: ~7x faster than `bun:sqlite`.
+- **Hash JOIN (SQL)**: ~4x faster than `bun:sqlite`.
 
 Run the local benchmark:
 ```bash
 bun bench.ts
 ```
 
-## 📜 License
-MIT / Apache-2.0
-📜 License
+## License
+
 MIT / Apache-2.0
