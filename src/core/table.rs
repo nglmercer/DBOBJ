@@ -339,6 +339,16 @@ impl Table {
         let mut ids = Vec::with_capacity(batch_size);
         let expected_cols = self.num_columns;
 
+        for index_obj in self.indexes.values_mut() {
+            if index_obj.is_unique {
+                index_obj.unique_map.reserve(batch_size);
+            } else {
+                index_obj.map.reserve(batch_size);
+            }
+        }
+
+        let is_seq = self.is_sequential_ids;
+
         for values in batch {
             if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
@@ -362,8 +372,15 @@ impl Table {
                 self.id_map.insert(id.clone(), index);
             }
 
-            // Update indexes
+            // Update indexes (skip unique "id" index when ids are sequential)
             for index_obj in self.indexes.values_mut() {
+                let is_redundant_id_index = is_seq
+                    && index_obj.is_unique
+                    && self.schema.columns.get(index_obj.col_idx)
+                        .map_or(false, |c| c.name == "id");
+                if is_redundant_id_index {
+                    continue;
+                }
                 let start = index * self.num_columns;
                 let val = &self.data[start + index_obj.col_idx];
                 index_obj
@@ -396,6 +413,16 @@ impl Table {
 
         let mut ids = Vec::with_capacity(batch_size);
 
+        for index_obj in self.indexes.values_mut() {
+            if index_obj.is_unique {
+                index_obj.unique_map.reserve(batch_size);
+            } else {
+                index_obj.map.reserve(batch_size);
+            }
+        }
+
+        let is_seq = self.is_sequential_ids;
+
         for mut values in batch {
             if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
@@ -418,8 +445,15 @@ impl Table {
                 self.id_map.insert(id.clone(), index);
             }
 
-            // Update indexes
+            // Update indexes (skip unique "id" index when ids are sequential)
             for index_obj in self.indexes.values_mut() {
+                let is_redundant_id_index = is_seq
+                    && index_obj.is_unique
+                    && self.schema.columns.get(index_obj.col_idx)
+                        .map_or(false, |c| c.name == "id");
+                if is_redundant_id_index {
+                    continue;
+                }
                 let start = index * self.num_columns;
                 let val = &self.data[start + index_obj.col_idx];
 
@@ -483,7 +517,24 @@ impl Table {
             }
         }
 
+        // Pre-reserve index capacity
         for index_obj in self.indexes.values_mut() {
+            if index_obj.is_unique {
+                index_obj.unique_map.reserve(batch_size);
+            } else {
+                index_obj.map.reserve(batch_size);
+            }
+        }
+
+        let is_seq = self.is_sequential_ids;
+        for index_obj in self.indexes.values_mut() {
+            let is_redundant_id_index = is_seq
+                && index_obj.is_unique
+                && self.schema.columns.get(index_obj.col_idx)
+                    .map_or(false, |c| c.name == "id");
+            if is_redundant_id_index {
+                continue;
+            }
             for row_offset in 0..batch_size {
                 let actual_idx = starting_idx + row_offset;
                 let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
@@ -796,6 +847,16 @@ impl Table {
     }
 
     pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<Row> {
+        // Fast path: sequential integer IDs are O(1) via direct index
+        if column_name == "id" && self.is_sequential_ids {
+            if let super::Value::Integer(id_val) = value {
+                let idx = *id_val as usize;
+                if idx < self.ids.len() && self.ids[idx] == super::Id::Integer(*id_val as u64) {
+                    return vec![self.get_row_by_index(idx)];
+                }
+                return Vec::new();
+            }
+        }
         // Use index if available
         if let Some(index) = self.indexes.get(column_name) {
             let mut lookup_val = value.clone();
