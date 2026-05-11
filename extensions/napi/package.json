@@ -1,6 +1,6 @@
 {
   "name": "dbobj-napi",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "description": "High-performance native bindings for the DBOBJ database engine",
   "main": "index.js",
   "types": "index.d.ts",
