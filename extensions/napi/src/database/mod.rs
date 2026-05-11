@@ -1,13 +1,13 @@
 pub(crate) mod insert;
-pub(crate) mod update;
 pub(crate) mod query;
+pub(crate) mod update;
 
 use crate::types::{ColumnDefinition, TableMetadata};
 use dbobj::Database as CoreDatabase;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 pub(crate) fn json_to_db_value(val: serde_json::Value) -> dbobj::Value {
     match val {
@@ -63,7 +63,8 @@ impl PreparedStatement {
                 table,
                 selection: _,
                 join,
-            } = &stmt.statements[0] {
+            } = &stmt.statements[0]
+            {
                 if let dbobj_sql::local_parser::SelectColumns::List(cols) = columns {
                     if cols.len() == 1 && join.is_none() {
                         let table_name = table.to_string();
@@ -71,9 +72,10 @@ impl PreparedStatement {
                             napi::Error::from_reason(format!("Table {} not found", table_name))
                         })?;
                         let table_ref = table_lock.read();
-                        let col_idx = *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
-                            napi::Error::from_reason(format!("Column {} not found", cols[0]))
-                        })?;
+                        let col_idx =
+                            *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
+                                napi::Error::from_reason(format!("Column {} not found", cols[0]))
+                            })?;
 
                         let num_rows = table_ref.ids.len();
                         let mut result = Vec::with_capacity(num_rows);
@@ -115,7 +117,11 @@ impl PreparedStatement {
     }
 
     #[napi]
-    pub fn run_batch_values(&self, flat_params: Vec<serde_json::Value>, params_per_row: u32) -> Result<()> {
+    pub fn run_batch_values(
+        &self,
+        flat_params: Vec<serde_json::Value>,
+        params_per_row: u32,
+    ) -> Result<()> {
         let executor = dbobj_sql::SqlExecutor::new(&self.db);
         let pprow = params_per_row as usize;
         let total = flat_params.len();
@@ -127,7 +133,10 @@ impl PreparedStatement {
             for _ in 1..pprow {
                 match iter.next() {
                     Some(v) => row.push(json_to_db_value(v)),
-                    None => { batch.push(row); break 'outer; }
+                    None => {
+                        batch.push(row);
+                        break 'outer;
+                    }
                 }
             }
             batch.push(row);
@@ -218,7 +227,9 @@ impl Database {
         let schema_columns: Vec<dbobj::ColumnDefinition> = columns
             .into_iter()
             .map(|col| {
-                if col.name == "id" { has_id = true; }
+                if col.name == "id" {
+                    has_id = true;
+                }
                 let data_type = match col.data_type {
                     crate::types::DataType::Integer => dbobj::DataType::Integer,
                     crate::types::DataType::Float => dbobj::DataType::Float,
@@ -226,11 +237,22 @@ impl Database {
                     crate::types::DataType::Boolean => dbobj::DataType::Boolean,
                     crate::types::DataType::Blob => dbobj::DataType::Blob,
                 };
-                Ok(dbobj::ColumnDefinition { name: col.name.into(), data_type, nullable: col.nullable.unwrap_or(true) })
+                Ok(dbobj::ColumnDefinition {
+                    name: col.name.into(),
+                    data_type,
+                    nullable: col.nullable.unwrap_or(true),
+                })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        self.inner.create_table(name.clone(), Schema { columns: schema_columns });
-        if has_id { let _ = self.inner.create_unique_index(&name, "id"); }
+        self.inner.create_table(
+            name.clone(),
+            Schema {
+                columns: schema_columns,
+            },
+        );
+        if has_id {
+            let _ = self.inner.create_unique_index(&name, "id");
+        }
         self.save_if_needed();
         Ok(())
     }
@@ -238,7 +260,12 @@ impl Database {
     // ── INSERT ───────────────────────────────────────────────────────
 
     #[napi]
-    pub fn insert_batch_i64(&self, table_name: String, values: BigInt64Array, num_columns: u32) -> Result<()> {
+    pub fn insert_batch_i64(
+        &self,
+        table_name: String,
+        values: BigInt64Array,
+        num_columns: u32,
+    ) -> Result<()> {
         insert::insert_batch_i64(self, table_name, values.as_ref(), num_columns as usize)
     }
 
@@ -263,17 +290,32 @@ impl Database {
     }
 
     #[napi]
-    pub fn insert_batch_string(&self, table_name: String, values: Vec<String>, num_columns: u32) -> Result<()> {
+    pub fn insert_batch_string(
+        &self,
+        table_name: String,
+        values: Vec<String>,
+        num_columns: u32,
+    ) -> Result<()> {
         insert::insert_batch_string(self, table_name, values, num_columns)
     }
 
     #[napi]
-    pub fn insert_batch_bool(&self, table_name: String, values: Vec<bool>, num_columns: u32) -> Result<()> {
+    pub fn insert_batch_bool(
+        &self,
+        table_name: String,
+        values: Vec<bool>,
+        num_columns: u32,
+    ) -> Result<()> {
         insert::insert_batch_bool(self, table_name, values, num_columns)
     }
 
     #[napi]
-    pub fn insert_batch(&self, table_name: String, values: Vec<serde_json::Value>, num_columns: u32) -> Result<()> {
+    pub fn insert_batch(
+        &self,
+        table_name: String,
+        values: Vec<serde_json::Value>,
+        num_columns: u32,
+    ) -> Result<()> {
         insert::insert_batch(self, table_name, values, num_columns)
     }
 
@@ -285,7 +327,12 @@ impl Database {
     }
 
     #[napi]
-    pub fn update_row_string(&self, table_name: String, id: u32, values: Vec<String>) -> Result<()> {
+    pub fn update_row_string(
+        &self,
+        table_name: String,
+        id: u32,
+        values: Vec<String>,
+    ) -> Result<()> {
         update::update_row_string(self, table_name, id, values)
     }
 
@@ -295,7 +342,12 @@ impl Database {
     }
 
     #[napi]
-    pub fn update_row(&self, table_name: String, id: u32, values: Vec<serde_json::Value>) -> Result<()> {
+    pub fn update_row(
+        &self,
+        table_name: String,
+        id: u32,
+        values: Vec<serde_json::Value>,
+    ) -> Result<()> {
         update::update_row(self, table_name, id, values)
     }
 
@@ -307,22 +359,43 @@ impl Database {
     // ── QUERY ────────────────────────────────────────────────────────
 
     #[napi]
-    pub fn get_column_i64(&self, table_name: String, column_name: String, _env: Env) -> Result<BigInt64Array> {
+    pub fn get_column_i64(
+        &self,
+        table_name: String,
+        column_name: String,
+        _env: Env,
+    ) -> Result<BigInt64Array> {
         query::get_column_i64(self, table_name, column_name)
     }
 
     #[napi]
-    pub fn find_by_i64(&self, table_name: String, column_name: String, value: i64) -> Result<BigInt64Array> {
+    pub fn find_by_i64(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: i64,
+    ) -> Result<BigInt64Array> {
         query::find_by_i64(self, table_name, column_name, value)
     }
 
     #[napi]
-    pub fn hash_join_i64(&self, table1: String, col1: String, table2: String, col2: String) -> Result<BigInt64Array> {
+    pub fn hash_join_i64(
+        &self,
+        table1: String,
+        col1: String,
+        table2: String,
+        col2: String,
+    ) -> Result<BigInt64Array> {
         query::hash_join_i64(self, table1, col1, table2, col2)
     }
 
     #[napi]
-    pub fn get_rows(&self, table_name: String, limit: Option<u32>, offset: Option<u32>) -> Result<serde_json::Value> {
+    pub fn get_rows(
+        &self,
+        table_name: String,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<serde_json::Value> {
         query::get_rows(self, table_name, limit, offset)
     }
 
@@ -343,11 +416,14 @@ impl Database {
                             dbobj::Value::Null => serde_json::Value::Null,
                             dbobj::Value::Integer(i) => serde_json::Value::Number(i.into()),
                             dbobj::Value::Float(f) => serde_json::Number::from_f64(f)
-                                .map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null),
+                                .map(serde_json::Value::Number)
+                                .unwrap_or(serde_json::Value::Null),
                             dbobj::Value::String(s) => serde_json::Value::String(s.to_string()),
                             dbobj::Value::Boolean(b) => serde_json::Value::Bool(b),
                             dbobj::Value::Blob(b) => serde_json::Value::Array(
-                                b.iter().map(|&x| serde_json::Value::Number(x.into())).collect(),
+                                b.iter()
+                                    .map(|&x| serde_json::Value::Number(x.into()))
+                                    .collect(),
                             ),
                             dbobj::Value::InternedString(id) => {
                                 serde_json::Value::String(format!("<interned:{}>", id))
@@ -360,8 +436,10 @@ impl Database {
                 Ok(serde_json::Value::Array(results))
             }
             dbobj_sql::SqlResult::I64(vals) => {
-                let results: Vec<serde_json::Value> = vals.into_iter()
-                    .map(|i| serde_json::Value::Number(i.into())).collect();
+                let results: Vec<serde_json::Value> = vals
+                    .into_iter()
+                    .map(|i| serde_json::Value::Number(i.into()))
+                    .collect();
                 Ok(serde_json::Value::Array(results))
             }
         };
@@ -373,27 +451,43 @@ impl Database {
     pub fn prepare(&self, sql: String) -> Result<PreparedStatement> {
         let executor = dbobj_sql::SqlExecutor::new(&self.inner);
         let stmt = executor.prepare(&sql).map_err(napi::Error::from_reason)?;
-        Ok(PreparedStatement { inner: stmt, db: self.inner.clone(), is_dirty: self.is_dirty.clone() })
+        Ok(PreparedStatement {
+            inner: stmt,
+            db: self.inner.clone(),
+            is_dirty: self.is_dirty.clone(),
+        })
     }
 
     #[napi]
     pub fn query_i64(&self, sql: String) -> Result<BigInt64Array> {
         let executor = dbobj_sql::SqlExecutor::new(&self.inner);
-        let mut result = executor.execute_i64(&sql).map_err(napi::Error::from_reason)?;
+        let mut result = executor
+            .execute_i64(&sql)
+            .map_err(napi::Error::from_reason)?;
         let ptr = result.as_mut_ptr();
         let len = result.len();
         std::mem::forget(result);
-        unsafe { Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| { let _ = Vec::from_raw_parts(ptr, len, len); })) }
+        unsafe {
+            Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+                let _ = Vec::from_raw_parts(ptr, len, len);
+            }))
+        }
     }
 
     #[napi]
     pub fn query_join_i64(&self, sql: String) -> Result<BigInt64Array> {
         let executor = dbobj_sql::SqlExecutor::new(&self.inner);
-        let (mut result, _width) = executor.execute_join_i64(&sql).map_err(napi::Error::from_reason)?;
+        let (mut result, _width) = executor
+            .execute_join_i64(&sql)
+            .map_err(napi::Error::from_reason)?;
         let ptr = result.as_mut_ptr();
         let len = result.len();
         std::mem::forget(result);
-        unsafe { Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| { let _ = Vec::from_raw_parts(ptr, len, len); })) }
+        unsafe {
+            Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+                let _ = Vec::from_raw_parts(ptr, len, len);
+            }))
+        }
     }
 
     // ── META ─────────────────────────────────────────────────────────
@@ -413,35 +507,51 @@ impl Database {
                 let _ = inner_clone.save_to_mmap(&path_clone);
             }
         });
-        Ok(Self { inner, path: Some(path), is_dirty })
+        Ok(Self {
+            inner,
+            path: Some(path),
+            is_dirty,
+        })
     }
 
     #[napi]
     pub fn save(&self, path: String) -> Result<()> {
-        self.inner.save_to_mmap(path).map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.inner
+            .save_to_mmap(path)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.is_dirty.store(false, Ordering::Relaxed);
         Ok(())
     }
 
     #[napi]
-    pub fn list_tables(&self) -> Vec<String> { self.inner.list_tables() }
+    pub fn list_tables(&self) -> Vec<String> {
+        self.inner.list_tables()
+    }
 
     #[napi]
     pub fn create_index(&self, table_name: String, column_name: String) -> Result<()> {
-        self.inner.create_index(&table_name, &column_name).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        self.save_if_needed(); Ok(())
+        self.inner
+            .create_index(&table_name, &column_name)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(())
     }
 
     #[napi]
     pub fn create_unique_index(&self, table_name: String, column_name: String) -> Result<()> {
-        self.inner.create_unique_index(&table_name, &column_name).map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        self.save_if_needed(); Ok(())
+        self.inner
+            .create_unique_index(&table_name, &column_name)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(())
     }
 
     #[napi]
     pub fn get_table_metadata(&self, name: String) -> Result<Option<TableMetadata>> {
         Ok(self.inner.table_info(&name).map(|info| TableMetadata {
-            name: info.name, row_count: info.row_count as u32, column_count: info.columns.len() as u32,
+            name: info.name,
+            row_count: info.row_count as u32,
+            column_count: info.columns.len() as u32,
         }))
     }
 }

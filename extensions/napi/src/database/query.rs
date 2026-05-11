@@ -1,8 +1,12 @@
+use super::Database;
 use dbobj::{Id, Value};
 use napi::bindgen_prelude::*;
-use super::Database;
 
-pub(crate) fn get_column_i64(db: &Database, table_name: String, column_name: String) -> Result<BigInt64Array> {
+pub(crate) fn get_column_i64(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+) -> Result<BigInt64Array> {
     let table_lock = db
         .inner
         .get_table(&table_name)
@@ -27,7 +31,12 @@ pub(crate) fn get_column_i64(db: &Database, table_name: String, column_name: Str
     }
 }
 
-pub(crate) fn find_by_i64(db: &Database, table_name: String, column_name: String, value: i64) -> Result<BigInt64Array> {
+pub(crate) fn find_by_i64(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+    value: i64,
+) -> Result<BigInt64Array> {
     let results = db
         .inner
         .find(&table_name, &column_name, Value::Integer(value))
@@ -51,7 +60,13 @@ pub(crate) fn find_by_i64(db: &Database, table_name: String, column_name: String
     }
 }
 
-pub(crate) fn hash_join_i64(db: &Database, table1: String, col1: String, table2: String, col2: String) -> Result<BigInt64Array> {
+pub(crate) fn hash_join_i64(
+    db: &Database,
+    table1: String,
+    col1: String,
+    table2: String,
+    col2: String,
+) -> Result<BigInt64Array> {
     let results = db
         .inner
         .hash_join(&table1, &col1, &table2, &col2)
@@ -82,7 +97,12 @@ pub(crate) fn hash_join_i64(db: &Database, table1: String, col1: String, table2:
     }
 }
 
-pub(crate) fn get_rows(db: &Database, table_name: String, limit: Option<u32>, offset: Option<u32>) -> Result<serde_json::Value> {
+pub(crate) fn get_rows(
+    db: &Database,
+    table_name: String,
+    limit: Option<u32>,
+    offset: Option<u32>,
+) -> Result<serde_json::Value> {
     let table_lock = db
         .inner
         .get_table(&table_name)
@@ -124,7 +144,9 @@ pub(crate) fn get_rows(db: &Database, table_name: String, limit: Option<u32>, of
                 dbobj::Value::String(s) => serde_json::Value::String(s.to_string()),
                 dbobj::Value::Boolean(b) => serde_json::Value::Bool(*b),
                 dbobj::Value::Blob(b) => serde_json::Value::Array(
-                    b.iter().map(|&x| serde_json::Value::Number(x.into())).collect(),
+                    b.iter()
+                        .map(|&x| serde_json::Value::Number(x.into()))
+                        .collect(),
                 ),
                 dbobj::Value::InternedString(id) => {
                     if let Some(s) = table.string_pool.resolve(*id) {
