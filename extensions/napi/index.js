@@ -575,6 +575,9 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
+module.exports = nativeBinding
+module.exports.Database = nativeBinding.Database
+module.exports.PreparedStatement = nativeBinding.PreparedStatement
 module.exports.DataType = {
   Integer: "integer",
   Float: "float",
@@ -582,4 +585,3 @@ module.exports.DataType = {
   Boolean: "boolean",
   Blob: "blob",
 };
-module.exports.DataType = nativeBinding.DataType

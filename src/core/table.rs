@@ -167,10 +167,12 @@ impl Table {
     }
 
     pub fn get_index(&self, id: &Id) -> Option<usize> {
-        if self.is_sequential_ids && let Id::Integer(i) = id {
-            let index = *i as usize;
-            if index < self.ids.len() && self.ids[index] == *id {
-                return Some(index);
+        if self.is_sequential_ids {
+            if let Id::Integer(i) = id {
+                let index = *i as usize;
+                if index < self.ids.len() && self.ids[index] == *id {
+                    return Some(index);
+                }
             }
         }
         self.id_map.get(id).copied()
@@ -536,10 +538,10 @@ impl Table {
             RowData::with_capacity_and_hasher(self.schema.columns.len(), Default::default());
         for (idx, col) in self.schema.columns.iter().enumerate() {
             let mut val = values[idx].clone();
-            if let Value::InternedString(id) = val
-                && let Some(s) = self.string_pool.resolve(id)
-            {
-                val = Value::String(s);
+            if let Value::InternedString(id) = val {
+                if let Some(s) = self.string_pool.resolve(id) {
+                    val = Value::String(s);
+                }
             }
             data.insert(col.name.clone(), val);
         }
@@ -572,12 +574,12 @@ impl Table {
     }
 
     pub fn get(&self, id: &Id) -> Option<Row> {
-        if self.is_sequential_ids
-            && let Id::Integer(i) = id
-        {
-            let idx = *i as usize;
-            if idx < self.ids.len() {
-                return Some(self.get_row_by_index(idx));
+        if self.is_sequential_ids {
+            if let Id::Integer(i) = id {
+                let idx = *i as usize;
+                if idx < self.ids.len() {
+                    return Some(self.get_row_by_index(idx));
+                }
             }
         }
         self.id_map.get(id).map(|&idx| self.get_row_by_index(idx))
@@ -630,10 +632,10 @@ impl Table {
             .find(|idx| idx.col_idx == column_idx)?;
 
         let mut lookup_val = value.clone();
-        if let Value::String(s) = value
-            && let Some(id) = self.string_pool.get_id(s.as_str())
-        {
-            lookup_val = Value::InternedString(id);
+        if let Value::String(s) = value {
+            if let Some(id) = self.string_pool.get_id(s.as_str()) {
+                lookup_val = Value::InternedString(id);
+            }
         }
 
         if index.is_unique {

@@ -47,14 +47,14 @@ The high-performance bridge for the JavaScript ecosystem.
 ## 🛠 Usage (Bun / Node.js)
 
 ```typescript
-import { Database, DataType } from "dbobj-napi";
+import { Database } from "dbobj-napi";
 
 const db = new Database("my_db");
 
 // 1. Direct API (Maximum Performance)
 db.createTable("users", [
-  { name: "id", dataType: DataType.Integer, nullable: false },
-  { name: "val", dataType: DataType.Integer },
+  { name: "id", dataType: "integer", nullable: false },
+  { name: "val", dataType: "integer" },
 ]);
 db.createIndex("users", "id");
 

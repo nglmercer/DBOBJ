@@ -97,6 +97,31 @@ Executes a `SELECT` statement and returns results as a zero-copy `BigInt64Array`
 
 ---
 
+### `const DataType`
+```typescript
+export const DataType: {
+  readonly Integer: "integer"
+  readonly Float: "float"
+  readonly String: "string"
+  readonly Boolean: "boolean"
+  readonly Blob: "blob"
+}
+```
+
+### `interface ColumnDefinition`
+```typescript
+export interface ColumnDefinition {
+  name: string
+  dataType: ColumnType
+  nullable: boolean
+}
+```
+
+### `type ColumnType`
+```typescript
+export type ColumnType = "integer" | "float" | "string" | "boolean" | "blob"
+```
+
 ### `interface TableMetadata`
 ```typescript
 export interface TableMetadata {
@@ -110,11 +135,11 @@ export interface TableMetadata {
 
 ### 1. CRUD Operations
 ```typescript
-import { Database, DataType } from "dbobj-napi";
+import { Database } from "dbobj-napi";
 
 const db = new Database("CRUD_Test");
 db.createTable("users", [
-  { name: "age", dataType: DataType.Integer },
+  { name: "age", dataType: "integer" },
 ]);
 
 // Insert Data
@@ -141,7 +166,10 @@ db.deleteRow("users", 0);
 import { Database } from "dbobj-napi";
 
 const db = new Database("production");
-db.createTable("events", ["id", "timestamp"], ["integer", "integer"]);
+db.createTable("events", [
+  { name: "id", dataType: "integer", nullable: false },
+  { name: "timestamp", dataType: "integer" },
+]);
 
 // Insert multiple rows instantly using a typed array
 const batch = new BigInt64Array([

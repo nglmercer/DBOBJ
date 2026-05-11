@@ -1,4 +1,5 @@
 const { Database: DBOBJ } = require("./index.node") as typeof import("./index.d.ts");
+const { Database: DBOBJ } = require("./index.node") as typeof import("./index.d.ts");
 import { Database as SQLite } from "bun:sqlite";
 
 const ROW_COUNT = 100_000;
@@ -19,8 +20,10 @@ class DBOBJDirectSuite implements TestSuite {
   db = new DBOBJ("direct");
 
   insert(count: number) {
-    this.db.createTable("users", ["id", "val"], ["integer", "integer"]);
-    //this.db.createIndex("users", "id"); // ADDED INDEX
+    this.db.createTable("users", [
+      { name: "id", dataType: "integer", nullable: false },
+      { name: "val", dataType: "integer" },
+    ]);
     const batch = new BigInt64Array(count * 2);
     for (let i = 0; i < count; i++) {
       batch[i * 2] = BigInt(i);

@@ -4,7 +4,9 @@ const { Database } = require("./index.js") as typeof import("./index.d.ts");
 describe("DBOBJ N-API Bindings - Full Operations", () => {
   test("CRUD Operations", () => {
     const db = new Database("CRUD_Test");
-    db.createTable("users", ["age"], ["integer"]);
+    db.createTable("users", [
+      { name: "age", dataType: "integer" },
+    ]);
 
     // Insert
     db.insertRowI64("users", [25]);
@@ -35,10 +37,10 @@ describe("DBOBJ N-API Bindings - Full Operations", () => {
   test("Hash Join", () => {
     const db = new Database("Join_Test");
     db.createTable("t1", [
-      { name: "val", dataType: DataType.Integer },
+      { name: "val", dataType: "integer" },
     ]);
     db.createTable("t2", [
-      { name: "val", dataType: DataType.Integer },
+      { name: "val", dataType: "integer" },
     ]);
 
     db.insertRowI64("t1", [10]); // ID 0

@@ -1,7 +1,7 @@
 [package]
 name = "dbobj"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 authors = ["nglmercer"]
 description = "A high-performance columnar database engine in Rust"
 license = "MIT"

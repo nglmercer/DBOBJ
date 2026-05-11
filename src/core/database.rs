@@ -186,7 +186,8 @@ impl Database {
         let table = tables
             .get(table_name)
             .ok_or_else(|| crate::core::table::TableError::InvalidColumn(table_name.to_string()))?;
-        table.write().create_index(column_name)
+        let result = table.write().create_index(column_name);
+        result
     }
 
     pub fn create_unique_index(
@@ -198,7 +199,8 @@ impl Database {
         let table = tables
             .get(table_name)
             .ok_or_else(|| crate::core::table::TableError::InvalidColumn(table_name.to_string()))?;
-        table.write().create_unique_index(column_name)
+        let result = table.write().create_unique_index(column_name);
+        result
     }
 
     pub fn find_unique_by_id(
@@ -209,7 +211,8 @@ impl Database {
     ) -> Option<super::table::Row> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name)?;
-        table_lock.read().find_unique_by_id(column_idx, value)
+        let result = table_lock.read().find_unique_by_id(column_idx, value);
+        result
     }
 
     pub fn insert_batch(
