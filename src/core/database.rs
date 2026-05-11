@@ -418,6 +418,33 @@ impl Database {
         Ok(id)
     }
 
+    /// Typed: insert a row of i64 values directly.
+    pub fn insert_values_i64(
+        &self,
+        table_name: &str,
+        values: Vec<i64>,
+    ) -> Result<Id, crate::core::table::TableError> {
+        self.insert_values(table_name, values.into_iter().map(Value::Integer).collect())
+    }
+
+    /// Typed: insert a row of String values directly.
+    pub fn insert_values_string(
+        &self,
+        table_name: &str,
+        values: Vec<String>,
+    ) -> Result<Id, crate::core::table::TableError> {
+        self.insert_values(table_name, values.into_iter().map(|s| Value::String(s.into())).collect())
+    }
+
+    /// Typed: insert a row of bool values directly.
+    pub fn insert_values_bool(
+        &self,
+        table_name: &str,
+        values: Vec<bool>,
+    ) -> Result<Id, crate::core::table::TableError> {
+        self.insert_values(table_name, values.into_iter().map(Value::Boolean).collect())
+    }
+
     pub fn insert_row(
         &self,
         table_name: &str,

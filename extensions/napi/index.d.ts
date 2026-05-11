@@ -2,28 +2,34 @@
 /* eslint-disable */
 export declare class Database {
   constructor(name: string)
+  createTable(name: string, columns: Array<ColumnDefinition>): void
+  insertBatchI64(tableName: string, values: BigInt64Array, numColumns: number): void
+  insertRowI64(tableName: string, values: Array<number>): void
+  insertRowString(tableName: string, values: Array<string>): void
+  insertRowBool(tableName: string, values: Array<boolean>): void
+  insertRow(tableName: string, values: Array<any>): void
+  insertBatchString(tableName: string, values: Array<string>, numColumns: number): void
+  insertBatchBool(tableName: string, values: Array<boolean>, numColumns: number): void
+  insertBatch(tableName: string, values: Array<any>, numColumns: number): void
+  updateRowI64(tableName: string, id: number, values: Array<number>): void
+  updateRowString(tableName: string, id: number, values: Array<string>): void
+  updateRowBool(tableName: string, id: number, values: Array<boolean>): void
+  updateRow(tableName: string, id: number, values: Array<any>): void
+  deleteRow(tableName: string, id: number): void
+  getColumnI64(tableName: string, columnName: string): BigInt64Array
+  findByI64(tableName: string, columnName: string, value: number): BigInt64Array
+  hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
+  getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
+  executeSql(sql: string): any
+  prepare(sql: string): PreparedStatement
+  queryI64(sql: string): BigInt64Array
+  queryJoinI64(sql: string): BigInt64Array
   static load(path: string): Database
   save(path: string): void
   listTables(): Array<string>
   createIndex(tableName: string, columnName: string): void
   createUniqueIndex(tableName: string, columnName: string): void
   getTableMetadata(name: string): TableMetadata | null
-  insertBatchI64(tableName: string, values: BigInt64Array, numColumns: number): void
-  createTable(name: string, columns: Array<ColumnDefinition>): void
-  insertRowI64(tableName: string, values: Array<number>): void
-  insertRow(tableName: string, values: Array<any>): void
-  insertBatch(tableName: string, values: Array<any>, numColumns: number): void
-  getColumnI64(tableName: string, columnName: string): BigInt64Array
-  updateRowI64(tableName: string, id: number, values: Array<number>): void
-  updateRow(tableName: string, id: number, values: Array<any>): void
-  deleteRow(tableName: string, id: number): void
-  findByI64(tableName: string, columnName: string, value: number): BigInt64Array
-  hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
-  executeSql(sql: string): any
-  prepare(sql: string): PreparedStatement
-  queryI64(sql: string): BigInt64Array
-  queryJoinI64(sql: string): BigInt64Array
-  getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
 }
 
 export declare class PreparedStatement {
