@@ -20,8 +20,8 @@ class DBOBJDirectSuite implements TestSuite {
 
   insert(count: number) {
     this.db.createTable("users", [
-      { name: "id", dataType: "integer", nullable: false },
-      { name: "val", dataType: "integer" },
+      { name: "id", dataType: DataType.Integer, nullable: false },
+      { name: "val", dataType: DataType.Integer },
     ]);
     const batch = new BigInt64Array(count * 2);
     for (let i = 0; i < count; i++) {

@@ -284,21 +284,21 @@ impl Database {
                 if col.name == "id" {
                     has_id = true;
                 }
-                let data_type = match col.data_type.as_str() {
-                    "Integer" => dbobj::DataType::Integer,
-                    "Float" => dbobj::DataType::Float,
-                    "String" => dbobj::DataType::String,
-                    "Boolean" => dbobj::DataType::Boolean,
-                    "Blob" => dbobj::DataType::Blob,
-                    _ => panic!("Unknown data type: {}", col.data_type),
+                let data_type = match col.data_type.to_lowercase().as_str() {
+                    "integer" => dbobj::DataType::Integer,
+                    "float" => dbobj::DataType::Float,
+                    "string" => dbobj::DataType::String,
+                    "boolean" => dbobj::DataType::Boolean,
+                    "blob" => dbobj::DataType::Blob,
+                    _ => return Err(napi::Error::from_reason(format!("Unknown data type: {}", col.data_type))),
                 };
-                dbobj::ColumnDefinition {
+                Ok(dbobj::ColumnDefinition {
                     name: col.name.into(),
                     data_type,
                     nullable: col.nullable.unwrap_or(true),
-                }
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         self.inner.create_table(name.clone(), Schema { columns: schema_columns });
 
