@@ -38,6 +38,26 @@ pub struct Database {
 }
 
 #[napi]
+pub struct Transaction {
+    db: Arc<CoreDatabase>,
+    original_tables: std::collections::HashMap<String, dbobj::core::table::Table>,
+}
+
+#[napi]
+impl Transaction {
+    #[napi]
+    pub fn commit(&self) {}
+
+    #[napi]
+    pub fn rollback(&self) {
+        let mut tables = self.db.tables.write();
+        for (name, table) in &self.original_tables {
+            tables.insert(name.clone(), Arc::new(parking_lot::RwLock::new(table.clone())));
+        }
+    }
+}
+
+#[napi]
 pub struct PreparedStatement {
     pub(crate) inner: dbobj_sql::PreparedStatement,
     pub(crate) db: Arc<CoreDatabase>,
@@ -309,12 +329,22 @@ impl Database {
     }
 
     #[napi]
-    pub fn insert_batch_bool(&self, table_name: String, values: Vec<bool>, num_columns: u32) -> Result<()> {
+    pub fn insert_batch_bool(
+        &self,
+        table_name: String,
+        values: Vec<bool>,
+        num_columns: u32,
+    ) -> Result<()> {
         insert::insert_batch_bool(self, table_name, values, num_columns)
     }
 
     #[napi]
-    pub fn insert_batch_float(&self, table_name: String, values: Vec<f64>, num_columns: u32) -> Result<()> {
+    pub fn insert_batch_float(
+        &self,
+        table_name: String,
+        values: Vec<f64>,
+        num_columns: u32,
+    ) -> Result<()> {
         insert::insert_batch_float(self, table_name, values, num_columns)
     }
 
@@ -410,6 +440,11 @@ impl Database {
         update::delete_by_column_bool(self, table_name, column_name, value)
     }
 
+    #[napi]
+    pub fn delete_batch_i64(&self, table_name: String, ids: BigInt64Array) -> Result<u32> {
+        update::delete_batch_i64(self, table_name, ids.as_ref())
+    }
+
     // ── QUERY ────────────────────────────────────────────────────────
 
     #[napi]
@@ -495,6 +530,18 @@ impl Database {
     #[napi]
     pub fn count_rows(&self, table_name: String) -> Result<u32> {
         query::count_rows(self, table_name)
+    }
+
+    // ── TRANSACTIONS ──────────────────────────────────────────────────
+
+    #[napi]
+    pub fn begin_transaction(&self) -> Transaction {
+        let tx = self.inner.begin_transaction();
+        let mut original_tables = std::collections::HashMap::new();
+        for (name, table) in tx.original_tables {
+            original_tables.insert(name.clone(), table);
+        }
+        Transaction { db: self.inner.clone(), original_tables }
     }
 
     // ── SQL ──────────────────────────────────────────────────────────

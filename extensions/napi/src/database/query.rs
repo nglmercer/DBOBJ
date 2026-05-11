@@ -41,9 +41,9 @@ pub(crate) fn get_column_float(
         .get_table(&table_name)
         .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
     let table = table_lock.read();
-    table.export_column_f64(&column_name).ok_or_else(|| {
-        napi::Error::from_reason(format!("Column {} not found", column_name))
-    })
+    table
+        .export_column_f64(&column_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Column {} not found", column_name)))
 }
 
 pub(crate) fn count_rows(db: &Database, table_name: String) -> Result<u32> {

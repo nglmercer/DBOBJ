@@ -577,6 +577,43 @@ impl Database {
         Ok(())
     }
 
+    pub fn delete_batch(
+        &self,
+        table_name: &str,
+        ids: &[Id],
+    ) -> Result<u32, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
+        })?;
+        let mut table = table_lock.write();
+        let mut count = 0u32;
+        for id in ids {
+            if table.delete(id).is_some() {
+                count += 1;
+                self.version_log.write().record(
+                    table_name.to_string(),
+                    id.clone(),
+                    ChangeType::Delete,
+                    None,
+                );
+                if let Some(wal_lock) = &self.wal {
+                    let mut wal = wal_lock.write();
+                    let _ = wal.append(&crate::storage::wal::WalEntry {
+                        table_name: table_name.to_string(),
+                        row_id: id.clone(),
+                        change_type: ChangeType::Delete,
+                        data: None,
+                    });
+                }
+            }
+        }
+        Ok(count)
+    }
+
     pub fn delete_row(
         &self,
         table_name: &str,

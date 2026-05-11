@@ -85,7 +85,10 @@ pub(crate) fn insert_batch_float(
         for _ in 1..num_cols {
             match iter.next() {
                 Some(v) => row.push(Value::Float(v)),
-                None => { batch.push(row); break 'outer; }
+                None => {
+                    batch.push(row);
+                    break 'outer;
+                }
             }
         }
         batch.push(row);

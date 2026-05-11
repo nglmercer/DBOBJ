@@ -23,6 +23,7 @@ export declare class Database {
   deleteByColumnI64(tableName: string, columnName: string, value: number): number
   deleteByColumnString(tableName: string, columnName: string, value: string): number
   deleteByColumnBool(tableName: string, columnName: string, value: boolean): number
+  deleteBatchI64(tableName: string, ids: BigInt64Array): number
   getColumnI64(tableName: string, columnName: string): BigInt64Array
   findByI64(tableName: string, columnName: string, value: number): BigInt64Array
   findByString(tableName: string, columnName: string, value: string): BigInt64Array
@@ -33,6 +34,7 @@ export declare class Database {
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
   getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
   countRows(tableName: string): number
+  beginTransaction(): Transaction
   executeSql(sql: string): any
   prepare(sql: string): PreparedStatement
   queryI64(sql: string): BigInt64Array
@@ -51,6 +53,11 @@ export declare class PreparedStatement {
   runBatch(batchParams: Array<Array<number>>): void
   runBatchValues(flatParams: Array<any | undefined | null>, paramsPerRow: number): void
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void
+}
+
+export declare class Transaction {
+  commit(): void
+  rollback(): void
 }
 
 export interface ColumnDefinition {
