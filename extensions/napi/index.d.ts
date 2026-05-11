@@ -32,7 +32,8 @@ export declare class PreparedStatement {
 export interface ColumnDefinition {
   name: string
   dataType: string
-  nullable: boolean
+  /** Defaults to true if not specified */
+  nullable?: boolean
 }
 
 export declare const enum DataType {

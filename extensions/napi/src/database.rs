@@ -295,7 +295,7 @@ impl Database {
                 dbobj::ColumnDefinition {
                     name: col.name.into(),
                     data_type,
-                    nullable: col.nullable,
+                    nullable: col.nullable.unwrap_or(true),
                 }
             })
             .collect();
