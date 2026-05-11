@@ -23,6 +23,7 @@ export declare class Database {
   prepare(sql: string): PreparedStatement
   queryI64(sql: string): BigInt64Array
   queryJoinI64(sql: string): BigInt64Array
+  getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
 }
 
 export declare class PreparedStatement {
