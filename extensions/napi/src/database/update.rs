@@ -50,7 +50,7 @@ pub(crate) fn update_row(
     db: &Database,
     table_name: String,
     id: u32,
-    values: Vec<serde_json::Value>,
+    values: Vec<Option<serde_json::Value>>,
 ) -> Result<(), napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(super::json_to_db_value).collect();
     db.inner

@@ -59,7 +59,7 @@ pub(crate) fn insert_row_bool(
 pub(crate) fn insert_row(
     db: &Database,
     table_name: String,
-    values: Vec<serde_json::Value>,
+    values: Vec<Option<serde_json::Value>>,
 ) -> Result<(), napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(super::json_to_db_value).collect();
     db.inner
@@ -134,7 +134,7 @@ pub(crate) fn insert_batch_bool(
 pub(crate) fn insert_batch(
     db: &Database,
     table_name: String,
-    values: Vec<serde_json::Value>,
+    values: Vec<Option<serde_json::Value>>,
     num_columns: u32,
 ) -> Result<(), napi::Error> {
     let num_cols = num_columns as usize;

@@ -9,21 +9,24 @@ use napi_derive::napi;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-pub(crate) fn json_to_db_value(val: serde_json::Value) -> dbobj::Value {
+pub(crate) fn json_to_db_value(val: Option<serde_json::Value>) -> dbobj::Value {
     match val {
-        serde_json::Value::Null => dbobj::Value::Null,
-        serde_json::Value::Bool(b) => dbobj::Value::Boolean(b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                dbobj::Value::Integer(i)
-            } else if let Some(f) = n.as_f64() {
-                dbobj::Value::Float(f)
-            } else {
-                dbobj::Value::Null
+        None => dbobj::Value::Null,
+        Some(v) => match v {
+            serde_json::Value::Null => dbobj::Value::Null,
+            serde_json::Value::Bool(b) => dbobj::Value::Boolean(b),
+            serde_json::Value::Number(n) => {
+                if let Some(i) = n.as_i64() {
+                    dbobj::Value::Integer(i)
+                } else if let Some(f) = n.as_f64() {
+                    dbobj::Value::Float(f)
+                } else {
+                    dbobj::Value::Null
+                }
             }
-        }
-        serde_json::Value::String(s) => dbobj::Value::String(s.into()),
-        _ => dbobj::Value::Null,
+            serde_json::Value::String(s) => dbobj::Value::String(s.into()),
+            _ => dbobj::Value::Null,
+        },
     }
 }
 
@@ -117,7 +120,7 @@ impl PreparedStatement {
     #[napi]
     pub fn run_batch_values(
         &self,
-        flat_params: Vec<serde_json::Value>,
+        flat_params: Vec<Option<serde_json::Value>>,
         params_per_row: u32,
     ) -> Result<()> {
         let executor = dbobj_sql::SqlExecutor::new(&self.db);
@@ -283,7 +286,7 @@ impl Database {
     }
 
     #[napi]
-    pub fn insert_row(&self, table_name: String, values: Vec<serde_json::Value>) -> Result<()> {
+    pub fn insert_row(&self, table_name: String, values: Vec<Option<serde_json::Value>>) -> Result<()> {
         insert::insert_row(self, table_name, values)
     }
 
@@ -311,7 +314,7 @@ impl Database {
     pub fn insert_batch(
         &self,
         table_name: String,
-        values: Vec<serde_json::Value>,
+        values: Vec<Option<serde_json::Value>>,
         num_columns: u32,
     ) -> Result<()> {
         insert::insert_batch(self, table_name, values, num_columns)
@@ -344,7 +347,7 @@ impl Database {
         &self,
         table_name: String,
         id: u32,
-        values: Vec<serde_json::Value>,
+        values: Vec<Option<serde_json::Value>>,
     ) -> Result<()> {
         update::update_row(self, table_name, id, values)
     }

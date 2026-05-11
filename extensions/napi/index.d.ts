@@ -7,14 +7,14 @@ export declare class Database {
   insertRowI64(tableName: string, values: Array<number>): void
   insertRowString(tableName: string, values: Array<string>): void
   insertRowBool(tableName: string, values: Array<boolean>): void
-  insertRow(tableName: string, values: Array<any>): void
+  insertRow(tableName: string, values: Array<any | undefined | null>): void
   insertBatchString(tableName: string, values: Array<string>, numColumns: number): void
   insertBatchBool(tableName: string, values: Array<boolean>, numColumns: number): void
-  insertBatch(tableName: string, values: Array<any>, numColumns: number): void
+  insertBatch(tableName: string, values: Array<any | undefined | null>, numColumns: number): void
   updateRowI64(tableName: string, id: number, values: Array<number>): void
   updateRowString(tableName: string, id: number, values: Array<string>): void
   updateRowBool(tableName: string, id: number, values: Array<boolean>): void
-  updateRow(tableName: string, id: number, values: Array<any>): void
+  updateRow(tableName: string, id: number, values: Array<any | undefined | null>): void
   deleteRow(tableName: string, id: number): void
   getColumnI64(tableName: string, columnName: string): BigInt64Array
   findByI64(tableName: string, columnName: string, value: number): BigInt64Array
@@ -40,7 +40,7 @@ export declare class PreparedStatement {
   run(params: Array<number>): void
   allI64(params: Array<number>): BigInt64Array
   runBatch(batchParams: Array<Array<number>>): void
-  runBatchValues(flatParams: Array<any>, paramsPerRow: number): void
+  runBatchValues(flatParams: Array<any | undefined | null>, paramsPerRow: number): void
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void
 }
 
