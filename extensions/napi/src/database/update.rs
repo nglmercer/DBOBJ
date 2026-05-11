@@ -88,7 +88,8 @@ pub(crate) fn delete_batch_i64(
     ids: &[i64],
 ) -> Result<u32, napi::Error> {
     let id_list: Vec<Id> = ids.iter().map(|&id| Id::Integer(id as u64)).collect();
-    let count = db.inner
+    let count = db
+        .inner
         .delete_batch(&table_name, &id_list)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();

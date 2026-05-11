@@ -34,6 +34,7 @@ export declare class Database {
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
   getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
   countRows(tableName: string): number
+  get schema(): Schema
   beginTransaction(): Transaction
   executeSql(sql: string): any
   prepare(sql: string): PreparedStatement
@@ -53,6 +54,12 @@ export declare class PreparedStatement {
   runBatch(batchParams: Array<Array<number>>): void
   runBatchValues(flatParams: Array<any | undefined | null>, paramsPerRow: number): void
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void
+}
+
+export declare class Schema {
+  getColumnNames(tableName: string): Array<string>
+  getColumnType(tableName: string, columnName: string): DataType
+  hasColumn(tableName: string, columnName: string): boolean
 }
 
 export declare class Transaction {

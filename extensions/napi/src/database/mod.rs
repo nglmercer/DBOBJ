@@ -1,4 +1,5 @@
 pub(crate) mod insert;
+pub(crate) mod schema;
 pub(crate) mod query;
 pub(crate) mod update;
 
@@ -52,7 +53,10 @@ impl Transaction {
     pub fn rollback(&self) {
         let mut tables = self.db.tables.write();
         for (name, table) in &self.original_tables {
-            tables.insert(name.clone(), Arc::new(parking_lot::RwLock::new(table.clone())));
+            tables.insert(
+                name.clone(),
+                Arc::new(parking_lot::RwLock::new(table.clone())),
+            );
         }
     }
 }
@@ -532,6 +536,11 @@ impl Database {
         query::count_rows(self, table_name)
     }
 
+    #[napi(getter)]
+    pub fn schema(&self) -> schema::Schema {
+        schema::Schema { db: self.inner.clone() }
+    }
+
     // ── TRANSACTIONS ──────────────────────────────────────────────────
 
     #[napi]
@@ -541,7 +550,10 @@ impl Database {
         for (name, table) in tx.original_tables {
             original_tables.insert(name.clone(), table);
         }
-        Transaction { db: self.inner.clone(), original_tables }
+        Transaction {
+            db: self.inner.clone(),
+            original_tables,
+        }
     }
 
     // ── SQL ──────────────────────────────────────────────────────────
