@@ -18,6 +18,10 @@ export declare class Database {
   deleteRow(tableName: string, id: number): void
   getColumnI64(tableName: string, columnName: string): BigInt64Array
   findByI64(tableName: string, columnName: string, value: number): BigInt64Array
+  findByString(tableName: string, columnName: string, value: string): BigInt64Array
+  findByBool(tableName: string, columnName: string, value: boolean): BigInt64Array
+  getColumnString(tableName: string, columnName: string): Array<string>
+  getColumnBool(tableName: string, columnName: string): Array<boolean>
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
   getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
   executeSql(sql: string): any

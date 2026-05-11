@@ -377,6 +377,44 @@ impl Database {
     }
 
     #[napi]
+    pub fn find_by_string(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: String,
+    ) -> Result<BigInt64Array> {
+        query::find_by_string(self, table_name, column_name, value)
+    }
+
+    #[napi]
+    pub fn find_by_bool(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: bool,
+    ) -> Result<BigInt64Array> {
+        query::find_by_bool(self, table_name, column_name, value)
+    }
+
+    #[napi]
+    pub fn get_column_string(
+        &self,
+        table_name: String,
+        column_name: String,
+    ) -> Result<Vec<String>> {
+        query::get_column_string(self, table_name, column_name)
+    }
+
+    #[napi]
+    pub fn get_column_bool(
+        &self,
+        table_name: String,
+        column_name: String,
+    ) -> Result<Vec<bool>> {
+        query::get_column_bool(self, table_name, column_name)
+    }
+
+    #[napi]
     pub fn hash_join_i64(
         &self,
         table1: String,

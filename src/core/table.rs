@@ -850,10 +850,14 @@ impl Table {
 
         // Fallback to linear scan
         if let Some(col_idx) = self.get_column_index(column_name) {
+            let lookup_val = if let super::Value::String(s) = value {
+                self.string_pool.get_id(s.as_str()).map_or_else(|| value.clone(), |id| super::Value::InternedString(id))
+            } else {
+                value.clone()
+            };
             let mut results = Vec::new();
             for i in 0..self.ids.len() {
-                // Optimized: check value before reconstructing Row
-                if self.get_value_by_index(i, col_idx) == *value {
+                if self.get_value_by_index(i, col_idx) == lookup_val {
                     results.push(self.get_row_by_index(i));
                 }
             }
@@ -917,6 +921,41 @@ impl Table {
             match &self.data[i * self.num_columns + col_idx] {
                 Value::Integer(v) => result.push(*v),
                 _ => result.push(0),
+            }
+        }
+        Some(result)
+    }
+
+    pub fn export_column_string(&self, column_name: &str) -> Option<Vec<String>> {
+        let col_idx = *self.column_map.get(column_name)?;
+        let num_rows = self.ids.len();
+        let mut result = Vec::with_capacity(num_rows);
+
+        for i in 0..num_rows {
+            let val = &self.data[i * self.num_columns + col_idx];
+            match val {
+                Value::String(s) => result.push(s.to_string()),
+                Value::InternedString(id) => {
+                    result.push(self.string_pool.resolve(*id).map_or_else(
+                        || format!("<interned:{}>", id),
+                        |s| s.to_string(),
+                    ));
+                }
+                _ => result.push(String::new()),
+            }
+        }
+        Some(result)
+    }
+
+    pub fn export_column_bool(&self, column_name: &str) -> Option<Vec<bool>> {
+        let col_idx = *self.column_map.get(column_name)?;
+        let num_rows = self.ids.len();
+        let mut result = Vec::with_capacity(num_rows);
+
+        for i in 0..num_rows {
+            match &self.data[i * self.num_columns + col_idx] {
+                Value::Boolean(v) => result.push(*v),
+                _ => result.push(false),
             }
         }
         Some(result)

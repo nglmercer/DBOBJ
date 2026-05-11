@@ -31,6 +31,76 @@ pub(crate) fn get_column_i64(
     }
 }
 
+pub(crate) fn get_column_string(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+) -> Result<Vec<String>> {
+    let table_lock = db
+        .inner
+        .get_table(&table_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+    let table = table_lock.read();
+    table.export_column_string(&column_name).ok_or_else(|| {
+        napi::Error::from_reason(format!("Column {} not found", column_name))
+    })
+}
+
+pub(crate) fn get_column_bool(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+) -> Result<Vec<bool>> {
+    let table_lock = db
+        .inner
+        .get_table(&table_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+    let table = table_lock.read();
+    table.export_column_bool(&column_name).ok_or_else(|| {
+        napi::Error::from_reason(format!("Column {} not found", column_name))
+    })
+}
+
+pub(crate) fn find_by_string(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+    value: String,
+) -> Result<BigInt64Array> {
+    let results = db
+        .inner
+        .find(&table_name, &column_name, Value::String(value.into()))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let mut ids: Vec<i64> = results
+        .into_iter()
+        .map(|r| match r.id { Id::Integer(i) => i as i64, _ => 0 })
+        .collect();
+    let ptr = ids.as_mut_ptr();
+    let len = ids.len();
+    std::mem::forget(ids);
+    unsafe { Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| { let _ = Vec::from_raw_parts(ptr, len, len); })) }
+}
+
+pub(crate) fn find_by_bool(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+    value: bool,
+) -> Result<BigInt64Array> {
+    let results = db
+        .inner
+        .find(&table_name, &column_name, Value::Boolean(value))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    let mut ids: Vec<i64> = results
+        .into_iter()
+        .map(|r| match r.id { Id::Integer(i) => i as i64, _ => 0 })
+        .collect();
+    let ptr = ids.as_mut_ptr();
+    let len = ids.len();
+    std::mem::forget(ids);
+    unsafe { Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| { let _ = Vec::from_raw_parts(ptr, len, len); })) }
+}
+
 pub(crate) fn find_by_i64(
     db: &Database,
     table_name: String,
