@@ -5,6 +5,22 @@ use napi_derive::napi;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+fn either3_to_value(val: Either3<f64, String, bool>) -> dbobj::Value {
+    match val {
+        Either3::A(f) => {
+            if f.fract() == 0.0 && f.is_finite()
+                && f >= i64::MIN as f64 && f <= i64::MAX as f64
+            {
+                dbobj::Value::Integer(f as i64)
+            } else {
+                dbobj::Value::Float(f)
+            }
+        }
+        Either3::B(s) => dbobj::Value::String(s.into()),
+        Either3::C(b) => dbobj::Value::Boolean(b),
+    }
+}
+
 #[napi]
 pub struct Database {
     pub(crate) inner: Arc<CoreDatabase>,
@@ -86,6 +102,27 @@ impl PreparedStatement {
             .into_iter()
             .map(|params| params.into_iter().map(dbobj::Value::Integer).collect())
             .collect();
+        executor
+            .execute_prepared_batch(&self.inner, &batch)
+            .map_err(napi::Error::from_reason)?;
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(())
+    }
+
+    #[napi]
+    pub fn run_batch_values(&self, flat_params: Vec<Either3<f64, String, bool>>, params_per_row: u32) -> Result<()> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.db);
+        let num_params = flat_params.len();
+        let pprow = params_per_row as usize;
+        let mut batch = Vec::with_capacity(num_params / pprow);
+        for start in (0..num_params).step_by(pprow) {
+            let mut row = Vec::with_capacity(pprow);
+            let end = (start + pprow).min(num_params);
+            for j in start..end {
+                row.push(either3_to_value(flat_params[j].clone()));
+            }
+            batch.push(row);
+        }
         executor
             .execute_prepared_batch(&self.inner, &batch)
             .map_err(napi::Error::from_reason)?;
@@ -312,6 +349,35 @@ impl Database {
     }
 
     #[napi]
+    pub fn insert_row(&self, table_name: String, values: Vec<Either3<f64, String, bool>>) -> Result<()> {
+        let row_values: Vec<dbobj::Value> = values.into_iter().map(either3_to_value).collect();
+        self.inner
+            .insert_values(&table_name, row_values)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(())
+    }
+
+    #[napi]
+    pub fn insert_batch(&self, table_name: String, values: Vec<Either3<f64, String, bool>>, num_columns: u32) -> Result<()> {
+        let num_cols = num_columns as usize;
+        let mut batch = Vec::with_capacity(values.len() / num_cols);
+        for start in (0..values.len()).step_by(num_cols) {
+            let end = (start + num_cols).min(values.len());
+            let mut row = Vec::with_capacity(num_cols);
+            for j in start..end {
+                row.push(either3_to_value(values[j].clone()));
+            }
+            batch.push(row);
+        }
+        self.inner
+            .insert_batch_values(&table_name, batch)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(())
+    }
+
+    #[napi]
     pub fn get_column_i64(
         &self,
         table_name: String,
@@ -349,6 +415,17 @@ impl Database {
         for v in values {
             row_values.push(Value::Integer(v));
         }
+        self.inner
+            .update_values(&table_name, &Id::Integer(id as u64), row_values)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(())
+    }
+
+    #[napi]
+    pub fn update_row(&self, table_name: String, id: u32, values: Vec<Either3<f64, String, bool>>) -> Result<()> {
+        use dbobj::Id;
+        let row_values: Vec<dbobj::Value> = values.into_iter().map(either3_to_value).collect();
         self.inner
             .update_values(&table_name, &Id::Integer(id as u64), row_values)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;

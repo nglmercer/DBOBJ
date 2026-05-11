@@ -21,15 +21,20 @@ class DBOBJDirectSuite implements TestSuite {
   insert(count: number) {
     this.db.createTable("users", [
       { name: "id", dataType: DataType.Integer, nullable: false },
+      { name: "name", dataType: DataType.String },
+      { name: "active", dataType: DataType.Boolean },
       { name: "val", dataType: DataType.Integer },
     ]);
-    const batch = new BigInt64Array(count * 2);
+    const flat = new Array(count * 4);
     for (let i = 0; i < count; i++) {
-      batch[i * 2] = BigInt(i);
-      batch[i * 2 + 1] = BigInt(i * 10);
+      const off = i * 4;
+      flat[off] = i;
+      flat[off + 1] = `user_${i}`;
+      flat[off + 2] = i % 2 === 0;
+      flat[off + 3] = i * 10;
     }
     const t0 = performance.now();
-    this.db.insertBatchI64("users", batch, 2);
+    this.db.insertBatch("users", flat, 4);
     return performance.now() - t0;
   }
 
@@ -37,7 +42,6 @@ class DBOBJDirectSuite implements TestSuite {
     const t0 = performance.now();
     const col = this.db.getColumnI64(tableName, colName);
     const time = performance.now() - t0;
-    // console.log(`  Read ${col.length} rows`);
     return time;
   }
 
@@ -50,7 +54,7 @@ class DBOBJDirectSuite implements TestSuite {
   update(tableName: string, count: number) {
     const t0 = performance.now();
     for (let i = 0; i < count; i++) {
-      this.db.updateRowI64(tableName, i, [i, i * 20]);
+      this.db.updateRow(tableName, i, [i, `user_${i}`, i % 2 === 0, i * 20]);
     }
     return performance.now() - t0;
   }
@@ -73,7 +77,7 @@ class DBOBJSQLSuite implements TestSuite {
   db = new DBOBJ("sql");
 
   insert(count: number) {
-    this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
+    this.db.executeSql("CREATE TABLE users (id INTEGER, name STRING, active BOOLEAN, val INTEGER)");
     const t0 = performance.now();
     const batchSize = 1000;
     const batches = Math.ceil(count / batchSize);
@@ -82,9 +86,10 @@ class DBOBJSQLSuite implements TestSuite {
       const start = b * batchSize;
       const end = Math.min(start + batchSize, count);
       for (let i = start; i < end; i++) {
-        values.push(`(${i}, ${i * 10})`);
+        const active = i % 2 === 0 ? "TRUE" : "FALSE";
+        values.push(`(${i}, 'user_${i}', ${active}, ${i * 10})`);
       }
-      this.db.executeSql(`INSERT INTO users (id, val) VALUES ${values.join(", ")}`);
+      this.db.executeSql(`INSERT INTO users (id, name, active, val) VALUES ${values.join(", ")}`);
     }
     return performance.now() - t0;
   }
@@ -125,12 +130,12 @@ class BunSQLiteSuite implements TestSuite {
   db = new SQLite(":memory:");
 
   insert(count: number) {
-    this.db.run("CREATE TABLE users (id INTEGER, val INTEGER)");
+    this.db.run("CREATE TABLE users (id INTEGER, name TEXT, active INTEGER, val INTEGER)");
     this.db.run("CREATE INDEX idx_id ON users (id)");
-    const stmt = this.db.prepare("INSERT INTO users (id, val) VALUES (?, ?)");
+    const stmt = this.db.prepare("INSERT INTO users (id, name, active, val) VALUES (?, ?, ?, ?)");
     const t0 = performance.now();
     this.db.transaction(() => {
-      for (let i = 0; i < count; i++) stmt.run(i, i * 10);
+      for (let i = 0; i < count; i++) stmt.run(i, `user_${i}`, i % 2 === 0 ? 1 : 0, i * 10);
     })();
     return performance.now() - t0;
   }
@@ -175,15 +180,18 @@ class DBOBJSQLPreparedSuite implements TestSuite {
   db = new DBOBJ("sql_prepared");
 
   insert(count: number) {
-    this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
-    const stmt = this.db.prepare("INSERT INTO users (id, val) VALUES (?, ?)");
-    const t0 = performance.now();
-    const batch = new BigInt64Array(count * 2);
+    this.db.executeSql("CREATE TABLE users (id INTEGER, name STRING, active BOOLEAN, val INTEGER)");
+    const stmt = this.db.prepare("INSERT INTO users (id, name, active, val) VALUES (?, ?, ?, ?)");
+    const flat = new Array(count * 4);
     for (let i = 0; i < count; i++) {
-      batch[i * 2] = BigInt(i);
-      batch[i * 2 + 1] = BigInt(i * 10);
+      const off = i * 4;
+      flat[off] = i;
+      flat[off + 1] = `user_${i}`;
+      flat[off + 2] = i % 2 === 0;
+      flat[off + 3] = i * 10;
     }
-    stmt.runBatchI64(batch, 2);
+    const t0 = performance.now();
+    stmt.runBatchValues(flat, 4);
     return performance.now() - t0;
   }
 
