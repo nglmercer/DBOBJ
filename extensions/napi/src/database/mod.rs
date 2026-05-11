@@ -66,34 +66,33 @@ impl PreparedStatement {
             } = &stmt.statements[0]
             {
                 if cols.len() == 1 && join.is_none() {
-                        let table_name = table.to_string();
-                        let table_lock = self.db.get_table(&table_name).ok_or_else(|| {
-                            napi::Error::from_reason(format!("Table {} not found", table_name))
+                    let table_name = table.to_string();
+                    let table_lock = self.db.get_table(&table_name).ok_or_else(|| {
+                        napi::Error::from_reason(format!("Table {} not found", table_name))
+                    })?;
+                    let table_ref = table_lock.read();
+                    let col_idx =
+                        *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
+                            napi::Error::from_reason(format!("Column {} not found", cols[0]))
                         })?;
-                        let table_ref = table_lock.read();
-                        let col_idx =
-                            *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
-                                napi::Error::from_reason(format!("Column {} not found", cols[0]))
-                            })?;
 
-                        let num_rows = table_ref.ids.len();
-                        let mut result = Vec::with_capacity(num_rows);
-                        for i in 0..num_rows {
-                            let val = &table_ref.data[i * table_ref.num_columns + col_idx];
-                            if let dbobj::Value::Integer(i) = val {
-                                result.push(*i);
-                            } else {
-                                result.push(0);
-                            }
+                    let num_rows = table_ref.ids.len();
+                    let mut result = Vec::with_capacity(num_rows);
+                    for i in 0..num_rows {
+                        let val = &table_ref.data[i * table_ref.num_columns + col_idx];
+                        if let dbobj::Value::Integer(i) = val {
+                            result.push(*i);
+                        } else {
+                            result.push(0);
                         }
-                        let ptr = result.as_mut_ptr();
-                        let len = result.len();
-                        std::mem::forget(result);
-                        unsafe {
-                            return Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
-                                let _ = Vec::from_raw_parts(ptr, len, len);
-                            }));
-                        }
+                    }
+                    let ptr = result.as_mut_ptr();
+                    let len = result.len();
+                    std::mem::forget(result);
+                    unsafe {
+                        return Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+                            let _ = Vec::from_raw_parts(ptr, len, len);
+                        }));
                     }
                 }
             }

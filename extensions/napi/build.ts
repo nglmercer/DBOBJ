@@ -18,12 +18,12 @@ interface Target {
 }
 
 const ALL_TARGETS: Target[] = [
-  { triple: "x86_64-unknown-linux-gnu",  label: "Linux x64",        features: ["mimalloc"], crossTool: null },
-  { triple: "aarch64-unknown-linux-gnu", label: "Linux ARM64",      features: ["mimalloc"], crossTool: "zigbuild" },
-  { triple: "x86_64-apple-darwin",       label: "macOS x64",        crossTool: "zigbuild" },
-  { triple: "aarch64-apple-darwin",      label: "macOS ARM64",      crossTool: "zigbuild" },
-  { triple: "x86_64-pc-windows-msvc",    label: "Windows x64",      crossTool: "xwin" },
-  { triple: "aarch64-pc-windows-msvc",   label: "Windows ARM64",    crossTool: "xwin" },
+  { triple: "x86_64-unknown-linux-gnu", label: "Linux x64", features: ["mimalloc"], crossTool: null },
+  { triple: "aarch64-unknown-linux-gnu", label: "Linux ARM64", features: ["mimalloc"], crossTool: "zigbuild" },
+  { triple: "x86_64-apple-darwin", label: "macOS x64", crossTool: "zigbuild" },
+  { triple: "aarch64-apple-darwin", label: "macOS ARM64", crossTool: "zigbuild" },
+  { triple: "x86_64-pc-windows-msvc", label: "Windows x64", crossTool: "xwin" },
+  { triple: "aarch64-pc-windows-msvc", label: "Windows ARM64", crossTool: "xwin" },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -132,7 +132,7 @@ function buildTarget(target: Target, hostTriple: string): BuildResult {
   }
 
   // 4. Run the build
-  const result = spawnSync("npx", args, {
+  const result = spawnSync("bunx", args, {
     cwd: NAPI_DIR,
     stdio: "inherit",
     shell: true,
@@ -172,12 +172,12 @@ function buildTarget(target: Target, hostTriple: string): BuildResult {
  */
 function tripleToPlatformSuffix(triple: string): string {
   const map: Record<string, string> = {
-    "x86_64-unknown-linux-gnu":  "linux-x64-gnu",
+    "x86_64-unknown-linux-gnu": "linux-x64-gnu",
     "aarch64-unknown-linux-gnu": "linux-arm64-gnu",
-    "x86_64-apple-darwin":       "darwin-x64",
-    "aarch64-apple-darwin":      "darwin-arm64",
-    "x86_64-pc-windows-msvc":    "win32-x64-msvc",
-    "aarch64-pc-windows-msvc":   "win32-arm64-msvc",
+    "x86_64-apple-darwin": "darwin-x64",
+    "aarch64-apple-darwin": "darwin-arm64",
+    "x86_64-pc-windows-msvc": "win32-x64-msvc",
+    "aarch64-pc-windows-msvc": "win32-arm64-msvc",
   };
   return map[triple] ?? triple;
 }
