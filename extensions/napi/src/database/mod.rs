@@ -59,14 +59,13 @@ impl PreparedStatement {
         let stmt = &self.inner;
         if stmt.statements.len() == 1 {
             if let dbobj_sql::local_parser::Statement::Select {
-                columns,
+                columns: dbobj_sql::local_parser::SelectColumns::List(cols),
                 table,
                 selection: _,
                 join,
             } = &stmt.statements[0]
             {
-                if let dbobj_sql::local_parser::SelectColumns::List(cols) = columns {
-                    if cols.len() == 1 && join.is_none() {
+                if cols.len() == 1 && join.is_none() {
                         let table_name = table.to_string();
                         let table_lock = self.db.get_table(&table_name).ok_or_else(|| {
                             napi::Error::from_reason(format!("Table {} not found", table_name))

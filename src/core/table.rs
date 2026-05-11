@@ -464,7 +464,7 @@ impl Table {
             )));
         }
         let batch_size = values.len() / num_columns;
-        if values.len() % num_columns != 0 {
+        if !values.len().is_multiple_of(num_columns) {
             return Err(TableError::SchemaViolation(
                 "values length not divisible by num_columns".into()
             ));
