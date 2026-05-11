@@ -800,7 +800,11 @@ impl Database {
     }
 
     #[napi]
-    pub fn create_composite_index(&self, table_name: String, column_names: Vec<String>) -> Result<()> {
+    pub fn create_composite_index(
+        &self,
+        table_name: String,
+        column_names: Vec<String>,
+    ) -> Result<()> {
         for col in &column_names {
             self.inner
                 .create_index(&table_name, col)

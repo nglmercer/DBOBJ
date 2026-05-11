@@ -179,7 +179,20 @@ impl Expr {
                             Value::Boolean(false)
                         }
                     }
-                    Operator::And | Operator::Or => self.evaluate(&row.data, mapping),
+                    Operator::And => {
+                        if let (Value::Boolean(lb), Value::Boolean(rb)) = (&l, &r) {
+                            Value::Boolean(*lb && *rb)
+                        } else {
+                            Value::Boolean(false)
+                        }
+                    }
+                    Operator::Or => {
+                        if let (Value::Boolean(lb), Value::Boolean(rb)) = (&l, &r) {
+                            Value::Boolean(*lb || *rb)
+                        } else {
+                            Value::Boolean(false)
+                        }
+                    }
                 }
             }
             _ => self.evaluate(&row.data, mapping),
