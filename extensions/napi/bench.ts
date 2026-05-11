@@ -21,28 +21,35 @@ class DBOBJDirectSuite implements TestSuite {
   insert(count: number) {
     this.db.createTable("users", [
       { name: "id", dataType: DataType.Integer, nullable: false },
-      { name: "name", dataType: DataType.String },
-      { name: "active", dataType: DataType.Boolean },
       { name: "val", dataType: DataType.Integer },
     ]);
-    const flat = new Array(count * 4);
+    this.db.createTable("names", [
+      { name: "name", dataType: DataType.String },
+    ]);
+    this.db.createTable("actives", [
+      { name: "active", dataType: DataType.Boolean },
+    ]);
+
+    const intBatch = new BigInt64Array(count * 2);
+    const strBatch = new Array<string>(count);
+    const boolBatch = new Array<boolean>(count);
     for (let i = 0; i < count; i++) {
-      const off = i * 4;
-      flat[off] = i;
-      flat[off + 1] = `user_${i}`;
-      flat[off + 2] = i % 2 === 0;
-      flat[off + 3] = i * 10;
+      intBatch[i * 2] = BigInt(i);
+      intBatch[i * 2 + 1] = BigInt(i * 10);
+      strBatch[i] = `user_${i}`;
+      boolBatch[i] = i % 2 === 0;
     }
     const t0 = performance.now();
-    this.db.insertBatch("users", flat, 4);
+    this.db.insertBatchI64("users", intBatch, 2);
+    this.db.insertBatchString("names", strBatch, 1);
+    this.db.insertBatchBool("actives", boolBatch, 1);
     return performance.now() - t0;
   }
 
   readColumn(tableName: string, colName: string) {
     const t0 = performance.now();
     const col = this.db.getColumnI64(tableName, colName);
-    const time = performance.now() - t0;
-    return time;
+    return performance.now() - t0;
   }
 
   find(tableName: string, colName: string, value: any) {
@@ -54,7 +61,7 @@ class DBOBJDirectSuite implements TestSuite {
   update(tableName: string, count: number) {
     const t0 = performance.now();
     for (let i = 0; i < count; i++) {
-      this.db.updateRow(tableName, i, [i, `user_${i}`, i % 2 === 0, i * 20]);
+      this.db.updateRowI64(tableName, i, [i, i * 20]);
     }
     return performance.now() - t0;
   }
@@ -64,7 +71,12 @@ class DBOBJDirectSuite implements TestSuite {
       { name: "id", dataType: DataType.Integer, nullable: false },
       { name: "score", dataType: DataType.Integer },
     ]);
-    for (let i = 0; i < JOIN_COUNT; i++) this.db.insertRowI64(t2, [i, i + 5]);
+    const batch = new BigInt64Array(JOIN_COUNT * 2);
+    for (let i = 0; i < JOIN_COUNT; i++) {
+      batch[i * 2] = BigInt(i);
+      batch[i * 2 + 1] = BigInt(i + 5);
+    }
+    this.db.insertBatchI64(t2, batch, 2);
 
     const t0 = performance.now();
     this.db.hashJoinI64(t1, c1, t2, c2);
@@ -77,19 +89,27 @@ class DBOBJSQLSuite implements TestSuite {
   db = new DBOBJ("sql");
 
   insert(count: number) {
-    this.db.executeSql("CREATE TABLE users (id INTEGER, name STRING, active BOOLEAN, val INTEGER)");
+    this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
+    this.db.executeSql("CREATE TABLE names (name STRING)");
+    this.db.executeSql("CREATE TABLE actives (active BOOLEAN)");
     const t0 = performance.now();
     const batchSize = 1000;
     const batches = Math.ceil(count / batchSize);
     for (let b = 0; b < batches; b++) {
-      const values = [];
       const start = b * batchSize;
       const end = Math.min(start + batchSize, count);
+
+      const intVals = [];
+      const strVals = [];
+      const boolVals = [];
       for (let i = start; i < end; i++) {
-        const active = i % 2 === 0 ? "TRUE" : "FALSE";
-        values.push(`(${i}, 'user_${i}', ${active}, ${i * 10})`);
+        intVals.push(`(${i}, ${i * 10})`);
+        strVals.push(`('user_${i}')`);
+        boolVals.push(`(${i % 2 === 0 ? "TRUE" : "FALSE"})`);
       }
-      this.db.executeSql(`INSERT INTO users (id, name, active, val) VALUES ${values.join(", ")}`);
+      this.db.executeSql(`INSERT INTO users (id, val) VALUES ${intVals.join(", ")}`);
+      this.db.executeSql(`INSERT INTO names (name) VALUES ${strVals.join(", ")}`);
+      this.db.executeSql(`INSERT INTO actives (active) VALUES ${boolVals.join(", ")}`);
     }
     return performance.now() - t0;
   }
@@ -130,12 +150,22 @@ class BunSQLiteSuite implements TestSuite {
   db = new SQLite(":memory:");
 
   insert(count: number) {
-    this.db.run("CREATE TABLE users (id INTEGER, name TEXT, active INTEGER, val INTEGER)");
+    this.db.run("CREATE TABLE users (id INTEGER, val INTEGER)");
+    this.db.run("CREATE TABLE names (name TEXT)");
+    this.db.run("CREATE TABLE actives (active INTEGER)");
     this.db.run("CREATE INDEX idx_id ON users (id)");
-    const stmt = this.db.prepare("INSERT INTO users (id, name, active, val) VALUES (?, ?, ?, ?)");
+
+    const intStmt = this.db.prepare("INSERT INTO users (id, val) VALUES (?, ?)");
+    const strStmt = this.db.prepare("INSERT INTO names (name) VALUES (?)");
+    const boolStmt = this.db.prepare("INSERT INTO actives (active) VALUES (?)");
+
     const t0 = performance.now();
     this.db.transaction(() => {
-      for (let i = 0; i < count; i++) stmt.run(i, `user_${i}`, i % 2 === 0 ? 1 : 0, i * 10);
+      for (let i = 0; i < count; i++) {
+        intStmt.run(i, i * 10);
+        strStmt.run(`user_${i}`);
+        boolStmt.run(i % 2 === 0 ? 1 : 0);
+      }
     })();
     return performance.now() - t0;
   }
@@ -180,18 +210,28 @@ class DBOBJSQLPreparedSuite implements TestSuite {
   db = new DBOBJ("sql_prepared");
 
   insert(count: number) {
-    this.db.executeSql("CREATE TABLE users (id INTEGER, name STRING, active BOOLEAN, val INTEGER)");
-    const stmt = this.db.prepare("INSERT INTO users (id, name, active, val) VALUES (?, ?, ?, ?)");
-    const flat = new Array(count * 4);
+    this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
+    this.db.executeSql("CREATE TABLE names (name STRING)");
+    this.db.executeSql("CREATE TABLE actives (active BOOLEAN)");
+
+    const intBatch = new BigInt64Array(count * 2);
+    const strBatch = new Array(count);
+    const boolBatch = new Array(count);
     for (let i = 0; i < count; i++) {
-      const off = i * 4;
-      flat[off] = i;
-      flat[off + 1] = `user_${i}`;
-      flat[off + 2] = i % 2 === 0;
-      flat[off + 3] = i * 10;
+      intBatch[i * 2] = BigInt(i);
+      intBatch[i * 2 + 1] = BigInt(i * 10);
+      strBatch[i] = `user_${i}`;
+      boolBatch[i] = i % 2 === 0;
     }
+
+    const intStmt = this.db.prepare("INSERT INTO users (id, val) VALUES (?, ?)");
+    const strStmt = this.db.prepare("INSERT INTO names (name) VALUES (?)");
+    const boolStmt = this.db.prepare("INSERT INTO actives (active) VALUES (?)");
+
     const t0 = performance.now();
-    stmt.runBatchValues(flat, 4);
+    intStmt.runBatchI64(intBatch, 2);
+    strStmt.runBatchValues(strBatch, 1);
+    boolStmt.runBatchValues(boolBatch, 1);
     return performance.now() - t0;
   }
 
