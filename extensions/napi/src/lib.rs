@@ -1,6 +1,3 @@
-#![allow(unstable_features)]
-#![feature(let_chains)]
-
 use napi::bindgen_prelude::*;
 
 mod database;

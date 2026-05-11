@@ -738,10 +738,10 @@ impl Table {
         // Use index if available
         if let Some(index) = self.indexes.get(column_name) {
             let mut lookup_val = value.clone();
-            if let Value::String(s) = value
-                && let Some(id) = self.string_pool.get_id(s.as_str())
-            {
-                lookup_val = Value::InternedString(id);
+            if let Value::String(s) = value {
+                if let Some(id) = self.string_pool.get_id(s.as_str()) {
+                    lookup_val = Value::InternedString(id);
+                }
             }
 
             if index.is_unique {
