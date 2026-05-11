@@ -9,7 +9,9 @@ High-performance native bindings for the **DBOBJ** database engine, designed for
 - **MMap Persistence** — Instant database save/load via memory-mapped files.
 - **Hash Joins** — Server-side join execution returns flat ID arrays, avoiding JS object overhead.
 - **Batch Operations** — Bulk insert/update via flattened typed arrays for maximum throughput.
-- **Typed Methods** — Avoid runtime type dispatch: use `insertRowI64`, `insertRowString`, `insertRowBool` directly.
+- **Typed Methods** — Avoid runtime type dispatch: use `insertRowI64/String/Bool/Float` directly.
+- **Batch Update by Column** — `updateBatchI64` updates a single column by ID from a flat typed array.
+- **Delete by Column** — `deleteByColumnI64/String/Bool` deletes matching rows and returns count.
 - **TypeScript Ready** — Full type definitions included.
 
 ## Installation
@@ -51,6 +53,7 @@ npm install dbobj-napi
 | `insertRowI64(table, values)` | `Integer` | Insert from `number[]` |
 | `insertRowString(table, values)` | `String` | Insert from `string[]` |
 | `insertRowBool(table, values)` | `Boolean` | Insert from `boolean[]` |
+| `insertRowFloat(table, values)` | `Float` | Insert from `number[]` |
 | `insertRow(table, values)` | Mixed | Insert from `any[]` — auto-detects type per column |
 
 ### Database — Insert (Batch)
@@ -60,25 +63,33 @@ npm install dbobj-napi
 | `insertBatchI64(table, flatValues, numCols)` | `Integer` | Bulk insert from flattened `BigInt64Array` |
 | `insertBatchString(table, values, numCols)` | `String` | Bulk insert from flattened `string[]` |
 | `insertBatchBool(table, values, numCols)` | `Boolean` | Bulk insert from flattened `boolean[]` |
+| `insertBatchFloat(table, values, numCols)` | `Float` | Bulk insert from flattened `number[]` |
 | `insertBatch(table, values, numCols)` | Mixed | Bulk insert from flattened `any[]` |
 
-### Database — Update
+### Database — Update / Delete
 
 | Method | Description |
 |--------|-------------|
 | `updateRowI64(table, id, values)` | Update a row using `number[]` (Integer columns) |
 | `updateRowString(table, id, values)` | Update a row using `string[]` (String columns) |
 | `updateRowBool(table, id, values)` | Update a row using `boolean[]` (Bool columns) |
+| `updateRowFloat(table, id, values)` | Update a row using `number[]` (Float columns) |
 | `updateRow(table, id, values)` | Update a row with auto-detected types |
+| `updateBatchI64(table, column, values)` | Bulk update a single column by ID from flattened `BigInt64Array` `[newVal, id, ...]` |
 | `deleteRow(table, id)` | Delete a row by its internal ID |
+| `deleteByColumnI64(table, column, value)` | Delete rows matching an Integer value (returns count) |
+| `deleteByColumnString(table, column, value)` | Delete rows matching a String value (returns count) |
+| `deleteByColumnBool(table, column, value)` | Delete rows matching a Boolean value (returns count) |
 
-### Database — Read / Find
+### Database — Read / Find / Meta
 
 | Method | Return type | Description |
 |--------|-------------|-------------|
 | `getColumnI64(table, column)` | `BigInt64Array` | Read an Integer column — zero-copy |
 | `getColumnString(table, column)` | `string[]` | Read a String column |
 | `getColumnBool(table, column)` | `boolean[]` | Read a Boolean column |
+| `getColumnFloat(table, column)` | `number[]` | Read a Float column |
+| `countRows(table)` | `number` | Row count — O(1), no allocation |
 | `getRows(table, limit?, offset?)` | `Record<string,any>[]` | Read rows as JSON objects with pagination |
 | `findByI64(table, column, value)` | `BigInt64Array` | Find row IDs by Integer value |
 | `findByString(table, column, value)` | `BigInt64Array` | Find row IDs by String value |
@@ -274,6 +285,44 @@ const updates = new BigInt64Array([
   200n, 2n, // val=200 where id=2
 ]);
 stmt.runBatchI64(updates, 2);
+```
+
+### 7. Batch Update by Column
+
+Update a single column across many rows using a flat `BigInt64Array`:
+
+```typescript
+const db = new Database("BatchUpdate");
+db.createTable("t", [{ name: "val", dataType: DataType.Integer }]);
+db.insertBatchI64("t", new BigInt64Array([10n, 20n, 30n, 40n]), 1);
+
+// [newVal, id, newVal, id, ...]
+db.updateBatchI64("t", "val", new BigInt64Array([99n, 0n, 88n, 2n]));
+```
+
+### 8. Delete by Column
+
+Delete all rows matching a value and get the count:
+
+```typescript
+const db = new Database("DeleteByCol");
+db.createTable("t", [{ name: "val", dataType: DataType.Integer }]);
+db.insertRowI64("t", [10]);
+db.insertRowI64("t", [20]);
+db.insertRowI64("t", [10]);
+
+const deleted = db.deleteByColumnI64("t", "val", 10); // 2
+// Only the row with val=20 remains
+```
+
+### 9. Row Count
+
+```typescript
+const db = new Database("CountRows");
+db.createTable("t", [{ name: "x", dataType: DataType.Integer }]);
+db.insertRowI64("t", [1]);
+db.insertRowI64("t", [2]);
+console.log(db.countRows("t")); // 2
 ```
 
 ---
