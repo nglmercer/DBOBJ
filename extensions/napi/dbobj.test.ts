@@ -1,11 +1,11 @@
 import { expect, test, describe } from "bun:test";
-const { Database } = require("./index.js") as typeof import("./index.d.ts");
+const { Database, DataType } = require("./index.js") as typeof import("./index.d.ts");
 
 describe("DBOBJ N-API Bindings - Full Operations", () => {
   test("CRUD Operations", () => {
     const db = new Database("CRUD_Test");
     db.createTable("users", [
-      { name: "age", dataType: "integer" },
+      { name: "age", dataType: DataType.Integer },
     ]);
 
     // Insert
@@ -37,10 +37,10 @@ describe("DBOBJ N-API Bindings - Full Operations", () => {
   test("Hash Join", () => {
     const db = new Database("Join_Test");
     db.createTable("t1", [
-      { name: "val", dataType: "integer" },
+      { name: "val", dataType: DataType.Integer },
     ]);
     db.createTable("t2", [
-      { name: "val", dataType: "integer" },
+      { name: "val", dataType: DataType.Integer },
     ]);
 
     db.insertRowI64("t1", [10]); // ID 0

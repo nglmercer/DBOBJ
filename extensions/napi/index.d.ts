@@ -31,7 +31,7 @@ export declare class PreparedStatement {
 
 export interface ColumnDefinition {
   name: string
-  dataType: string
+  dataType: DataType
   /** Defaults to true if not specified */
   nullable?: boolean
 }

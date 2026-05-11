@@ -12,7 +12,7 @@ pub enum DataType {
 #[napi(object)]
 pub struct ColumnDefinition {
     pub name: String,
-    pub data_type: String,
+    pub data_type: DataType,
     /// Defaults to true if not specified
     pub nullable: Option<bool>,
 }

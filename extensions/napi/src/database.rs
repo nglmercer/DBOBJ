@@ -284,13 +284,12 @@ impl Database {
                 if col.name == "id" {
                     has_id = true;
                 }
-                let data_type = match col.data_type.to_lowercase().as_str() {
-                    "integer" => dbobj::DataType::Integer,
-                    "float" => dbobj::DataType::Float,
-                    "string" => dbobj::DataType::String,
-                    "boolean" => dbobj::DataType::Boolean,
-                    "blob" => dbobj::DataType::Blob,
-                    _ => return Err(napi::Error::from_reason(format!("Unknown data type: {}", col.data_type))),
+                let data_type = match col.data_type {
+                    crate::types::DataType::Integer => dbobj::DataType::Integer,
+                    crate::types::DataType::Float => dbobj::DataType::Float,
+                    crate::types::DataType::String => dbobj::DataType::String,
+                    crate::types::DataType::Boolean => dbobj::DataType::Boolean,
+                    crate::types::DataType::Blob => dbobj::DataType::Blob,
                 };
                 Ok(dbobj::ColumnDefinition {
                     name: col.name.into(),
