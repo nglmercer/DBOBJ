@@ -5,19 +5,21 @@ use napi_derive::napi;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-fn either3_to_value(val: Either3<f64, String, bool>) -> dbobj::Value {
+fn json_to_db_value(val: serde_json::Value) -> dbobj::Value {
     match val {
-        Either3::A(f) => {
-            if f.fract() == 0.0 && f.is_finite()
-                && f >= i64::MIN as f64 && f <= i64::MAX as f64
-            {
-                dbobj::Value::Integer(f as i64)
-            } else {
+        serde_json::Value::Null => dbobj::Value::Null,
+        serde_json::Value::Bool(b) => dbobj::Value::Boolean(b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                dbobj::Value::Integer(i)
+            } else if let Some(f) = n.as_f64() {
                 dbobj::Value::Float(f)
+            } else {
+                dbobj::Value::Null
             }
         }
-        Either3::B(s) => dbobj::Value::String(s.into()),
-        Either3::C(b) => dbobj::Value::Boolean(b),
+        serde_json::Value::String(s) => dbobj::Value::String(s.into()),
+        _ => dbobj::Value::Null,
     }
 }
 
@@ -110,16 +112,23 @@ impl PreparedStatement {
     }
 
     #[napi]
-    pub fn run_batch_values(&self, flat_params: Vec<Either3<f64, String, bool>>, params_per_row: u32) -> Result<()> {
+    pub fn run_batch_values(&self, flat_params: Vec<serde_json::Value>, params_per_row: u32) -> Result<()> {
         let executor = dbobj_sql::SqlExecutor::new(&self.db);
-        let num_params = flat_params.len();
         let pprow = params_per_row as usize;
-        let mut batch = Vec::with_capacity(num_params / pprow);
-        for start in (0..num_params).step_by(pprow) {
+        let total = flat_params.len();
+        let mut iter = flat_params.into_iter();
+        let mut batch = Vec::with_capacity(total / pprow);
+        'outer: while let Some(v0) = iter.next() {
             let mut row = Vec::with_capacity(pprow);
-            let end = (start + pprow).min(num_params);
-            for j in start..end {
-                row.push(either3_to_value(flat_params[j].clone()));
+            row.push(json_to_db_value(v0));
+            for _ in 1..pprow {
+                match iter.next() {
+                    Some(v) => row.push(json_to_db_value(v)),
+                    None => {
+                        batch.push(row);
+                        break 'outer;
+                    }
+                }
             }
             batch.push(row);
         }
@@ -349,8 +358,8 @@ impl Database {
     }
 
     #[napi]
-    pub fn insert_row(&self, table_name: String, values: Vec<Either3<f64, String, bool>>) -> Result<()> {
-        let row_values: Vec<dbobj::Value> = values.into_iter().map(either3_to_value).collect();
+    pub fn insert_row(&self, table_name: String, values: Vec<serde_json::Value>) -> Result<()> {
+        let row_values: Vec<dbobj::Value> = values.into_iter().map(json_to_db_value).collect();
         self.inner
             .insert_values(&table_name, row_values)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
@@ -359,14 +368,22 @@ impl Database {
     }
 
     #[napi]
-    pub fn insert_batch(&self, table_name: String, values: Vec<Either3<f64, String, bool>>, num_columns: u32) -> Result<()> {
+    pub fn insert_batch(&self, table_name: String, values: Vec<serde_json::Value>, num_columns: u32) -> Result<()> {
         let num_cols = num_columns as usize;
-        let mut batch = Vec::with_capacity(values.len() / num_cols);
-        for start in (0..values.len()).step_by(num_cols) {
-            let end = (start + num_cols).min(values.len());
+        let total = values.len();
+        let mut iter = values.into_iter();
+        let mut batch = Vec::with_capacity(total / num_cols);
+        'outer: while let Some(v0) = iter.next() {
             let mut row = Vec::with_capacity(num_cols);
-            for j in start..end {
-                row.push(either3_to_value(values[j].clone()));
+            row.push(json_to_db_value(v0));
+            for _ in 1..num_cols {
+                match iter.next() {
+                    Some(v) => row.push(json_to_db_value(v)),
+                    None => {
+                        batch.push(row);
+                        break 'outer;
+                    }
+                }
             }
             batch.push(row);
         }
@@ -423,9 +440,9 @@ impl Database {
     }
 
     #[napi]
-    pub fn update_row(&self, table_name: String, id: u32, values: Vec<Either3<f64, String, bool>>) -> Result<()> {
+    pub fn update_row(&self, table_name: String, id: u32, values: Vec<serde_json::Value>) -> Result<()> {
         use dbobj::Id;
-        let row_values: Vec<dbobj::Value> = values.into_iter().map(either3_to_value).collect();
+        let row_values: Vec<dbobj::Value> = values.into_iter().map(json_to_db_value).collect();
         self.inner
             .update_values(&table_name, &Id::Integer(id as u64), row_values)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;

@@ -11,11 +11,11 @@ export declare class Database {
   insertBatchI64(tableName: string, values: BigInt64Array, numColumns: number): void
   createTable(name: string, columns: Array<ColumnDefinition>): void
   insertRowI64(tableName: string, values: Array<number>): void
-  insertRow(tableName: string, values: Array<number | string | boolean>): void
-  insertBatch(tableName: string, values: Array<number | string | boolean>, numColumns: number): void
+  insertRow(tableName: string, values: Array<any>): void
+  insertBatch(tableName: string, values: Array<any>, numColumns: number): void
   getColumnI64(tableName: string, columnName: string): BigInt64Array
   updateRowI64(tableName: string, id: number, values: Array<number>): void
-  updateRow(tableName: string, id: number, values: Array<number | string | boolean>): void
+  updateRow(tableName: string, id: number, values: Array<any>): void
   deleteRow(tableName: string, id: number): void
   findByI64(tableName: string, columnName: string, value: number): BigInt64Array
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
@@ -29,7 +29,7 @@ export declare class PreparedStatement {
   run(params: Array<number>): void
   allI64(params: Array<number>): BigInt64Array
   runBatch(batchParams: Array<Array<number>>): void
-  runBatchValues(flatParams: Array<number | string | boolean>, paramsPerRow: number): void
+  runBatchValues(flatParams: Array<any>, paramsPerRow: number): void
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void
 }
 
