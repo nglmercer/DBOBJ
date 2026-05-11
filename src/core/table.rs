@@ -327,6 +327,14 @@ impl Table {
         Ok(ids)
     }
 
+    fn col_info(&self) -> String {
+        let cols: Vec<String> = self.schema.columns.iter()
+            .enumerate()
+            .map(|(i, c)| format!("  {}: {} ({:?})", i, c.name, c.data_type))
+            .collect();
+        format!("table `{}` ({} columns):\n{}", self.name, self.num_columns, cols.join("\n"))
+    }
+
     pub fn insert_batch_raw(&mut self, batch: Vec<Box<[Value]>>) -> Result<Vec<Id>, TableError> {
         let batch_size = batch.len();
         self.data.reserve(batch_size * self.num_columns);
@@ -350,9 +358,10 @@ impl Table {
         for values in batch {
             if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
-                    "Raw batch row has {} columns, expected {}",
+                    "insert_batch_raw: row has {} columns, expected {}\n{}",
                     values.len(),
-                    expected_cols
+                    expected_cols,
+                    self.col_info()
                 )));
             }
 
@@ -414,9 +423,10 @@ impl Table {
         for mut values in batch {
             if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
-                    "Batch row has {} columns, expected {}",
+                    "insert_batch_values: row has {} columns, expected {}\n{}",
                     values.len(),
-                    expected_cols
+                    expected_cols,
+                    self.col_info()
                 )));
             }
 
@@ -460,7 +470,8 @@ impl Table {
     pub fn insert_batch_flat_i64(&mut self, values: &[i64], num_columns: usize) -> Result<Vec<Id>, TableError> {
         if num_columns != self.num_columns {
             return Err(TableError::SchemaViolation(format!(
-                "Batch row has {} columns, expected {}", num_columns, self.num_columns
+                "insert_batch_flat_i64: {} columns passed, expected {}\n{}",
+                num_columns, self.num_columns, self.col_info()
             )));
         }
         let batch_size = values.len() / num_columns;
@@ -535,8 +546,8 @@ impl Table {
     pub fn update_values(&mut self, id: &Id, mut values: Vec<Value>) -> Result<(), TableError> {
         if values.len() != self.num_columns {
             return Err(TableError::SchemaViolation(format!(
-                "Expected {} columns, got {}",
-                self.num_columns, values.len()
+                "update_values: expected {} values, got {}\n{}",
+                self.num_columns, values.len(), self.col_info()
             )));
         }
         let idx = self
