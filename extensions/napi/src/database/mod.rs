@@ -1,6 +1,8 @@
+pub(crate) mod cursor;
+pub(crate) mod error;
 pub(crate) mod insert;
-pub(crate) mod schema;
 pub(crate) mod query;
+pub(crate) mod schema;
 pub(crate) mod update;
 
 use crate::types::{ColumnDefinition, TableMetadata};
@@ -540,7 +542,8 @@ impl Database {
     ) -> Result<serde_json::Value> {
         let inner = self.inner.clone();
         napi::tokio::task::spawn_blocking(move || {
-            let table_lock = inner.get_table(&table_name)
+            let table_lock = inner
+                .get_table(&table_name)
                 .ok_or_else(|| format!("Table {} not found", table_name))?;
             let table = table_lock.read();
 
@@ -570,11 +573,14 @@ impl Database {
                         dbobj::Value::Null => serde_json::Value::Null,
                         dbobj::Value::Integer(i) => serde_json::Value::Number((*i).into()),
                         dbobj::Value::Float(f) => serde_json::Number::from_f64(*f)
-                            .map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null),
+                            .map(serde_json::Value::Number)
+                            .unwrap_or(serde_json::Value::Null),
                         dbobj::Value::String(s) => serde_json::Value::String(s.to_string()),
                         dbobj::Value::Boolean(b) => serde_json::Value::Bool(*b),
                         dbobj::Value::Blob(b) => serde_json::Value::Array(
-                            b.iter().map(|&x| serde_json::Value::Number(x.into())).collect(),
+                            b.iter()
+                                .map(|&x| serde_json::Value::Number(x.into()))
+                                .collect(),
                         ),
                         dbobj::Value::InternedString(id) => {
                             table.string_pool.resolve(*id).map_or_else(
@@ -588,9 +594,15 @@ impl Database {
                 results.push(serde_json::Value::Object(map));
             }
             Ok::<_, String>(serde_json::Value::Array(results))
-        }).await
-            .map_err(|e| napi::Error::from_reason(format!("Async task panicked: {}", e)))?
-            .map_err(|e| napi::Error::from_reason(e))
+        })
+        .await
+        .map_err(|e| napi::Error::from_reason(format!("Async task panicked: {}", e)))?
+        .map_err(|e| napi::Error::from_reason(e))
+    }
+
+    #[napi]
+    pub fn cursor(&self, table_name: String, batch_size: Option<u32>) -> cursor::Cursor {
+        cursor::create_cursor(self.inner.clone(), table_name, batch_size)
     }
 
     #[napi]
@@ -620,7 +632,9 @@ impl Database {
 
     #[napi(getter)]
     pub fn schema(&self) -> schema::Schema {
-        schema::Schema { db: self.inner.clone() }
+        schema::Schema {
+            db: self.inner.clone(),
+        }
     }
 
     // ── TRANSACTIONS ──────────────────────────────────────────────────
@@ -781,6 +795,17 @@ impl Database {
         self.inner
             .create_unique_index(&table_name, &column_name)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(())
+    }
+
+    #[napi]
+    pub fn create_composite_index(&self, table_name: String, column_names: Vec<String>) -> Result<()> {
+        for col in &column_names {
+            self.inner
+                .create_index(&table_name, col)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        }
         self.save_if_needed();
         Ok(())
     }

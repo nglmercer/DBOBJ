@@ -215,6 +215,7 @@ impl<'a> Tokenizer<'a> {
             "AS" => Ok(Token::KwAs),
             "INTEGER" => Ok(Token::KwInteger),
             "INT" => Ok(Token::KwInt),
+        "LIKE" => Ok(Token::KwLike),
             "BIGINT" => Ok(Token::KwBigInt),
             "FLOAT" => Ok(Token::KwFloat),
             "DOUBLE" => Ok(Token::KwDouble),

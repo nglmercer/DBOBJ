@@ -44,6 +44,7 @@ pub enum Token {
     KwOn,
     KwAnd,
     KwOr,
+    KwLike,
     KwTrue,
     KwFalse,
     KwNull,

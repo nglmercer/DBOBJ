@@ -347,6 +347,13 @@ impl<'a> Parser<'a> {
 
     fn parse_comparison(&mut self) -> Result<Expr, ParseError> {
         let left = self.parse_atom()?;
+
+        if self.current == Token::KwLike {
+            self.advance()?;
+            let right = self.parse_atom()?;
+            return Ok(Expr::Binary(Box::new(left), Operator::Like, Box::new(right)));
+        }
+
         let op = match &self.current {
             Token::Equals => Operator::Eq,
             Token::OpNotEq => Operator::Neq,

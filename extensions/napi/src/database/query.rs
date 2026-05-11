@@ -47,12 +47,15 @@ pub(crate) fn get_column_float(
 }
 
 pub(crate) fn sum_column(db: &Database, table_name: String, column_name: String) -> Result<i64> {
-    let table_lock = db.inner.get_table(&table_name)
+    let table_lock = db
+        .inner
+        .get_table(&table_name)
         .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
     let table = table_lock.read();
-    let col_idx = *table.column_map.get(&column_name).ok_or_else(|| {
-        napi::Error::from_reason(format!("Column '{}' not found", column_name))
-    })?;
+    let col_idx = *table
+        .column_map
+        .get(&column_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Column '{}' not found", column_name)))?;
     let mut sum: i64 = 0;
     for i in 0..table.ids.len() {
         if let dbobj::Value::Integer(v) = &table.data[i * table.num_columns + col_idx] {
@@ -63,55 +66,86 @@ pub(crate) fn sum_column(db: &Database, table_name: String, column_name: String)
 }
 
 pub(crate) fn min_column(db: &Database, table_name: String, column_name: String) -> Result<i64> {
-    let table_lock = db.inner.get_table(&table_name)
+    let table_lock = db
+        .inner
+        .get_table(&table_name)
         .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
     let table = table_lock.read();
-    let col_idx = *table.column_map.get(&column_name).ok_or_else(|| {
-        napi::Error::from_reason(format!("Column '{}' not found", column_name))
-    })?;
+    let col_idx = *table
+        .column_map
+        .get(&column_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Column '{}' not found", column_name)))?;
     let mut min = i64::MAX;
     for i in 0..table.ids.len() {
         if let dbobj::Value::Integer(v) = &table.data[i * table.num_columns + col_idx] {
-            if *v < min { min = *v; }
+            if *v < min {
+                min = *v;
+            }
         }
     }
-    if min == i64::MAX { Ok(0) } else { Ok(min) }
+    if min == i64::MAX {
+        Ok(0)
+    } else {
+        Ok(min)
+    }
 }
 
 pub(crate) fn max_column(db: &Database, table_name: String, column_name: String) -> Result<i64> {
-    let table_lock = db.inner.get_table(&table_name)
+    let table_lock = db
+        .inner
+        .get_table(&table_name)
         .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
     let table = table_lock.read();
-    let col_idx = *table.column_map.get(&column_name).ok_or_else(|| {
-        napi::Error::from_reason(format!("Column '{}' not found", column_name))
-    })?;
+    let col_idx = *table
+        .column_map
+        .get(&column_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Column '{}' not found", column_name)))?;
     let mut max = i64::MIN;
     for i in 0..table.ids.len() {
         if let dbobj::Value::Integer(v) = &table.data[i * table.num_columns + col_idx] {
-            if *v > max { max = *v; }
+            if *v > max {
+                max = *v;
+            }
         }
     }
-    if max == i64::MIN { Ok(0) } else { Ok(max) }
+    if max == i64::MIN {
+        Ok(0)
+    } else {
+        Ok(max)
+    }
 }
 
 pub(crate) fn avg_column(db: &Database, table_name: String, column_name: String) -> Result<f64> {
-    let table_lock = db.inner.get_table(&table_name)
+    let table_lock = db
+        .inner
+        .get_table(&table_name)
         .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
     let table = table_lock.read();
-    let col_idx = *table.column_map.get(&column_name).ok_or_else(|| {
-        napi::Error::from_reason(format!("Column '{}' not found", column_name))
-    })?;
+    let col_idx = *table
+        .column_map
+        .get(&column_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Column '{}' not found", column_name)))?;
     let mut sum: f64 = 0.0;
     let mut count = 0u64;
     for i in 0..table.ids.len() {
         let val = &table.data[i * table.num_columns + col_idx];
         match val {
-            dbobj::Value::Integer(v) => { sum += *v as f64; count += 1; }
-            dbobj::Value::Float(v) => { sum += *v; count += 1; }
+            dbobj::Value::Integer(v) => {
+                sum += *v as f64;
+                count += 1;
+            }
+            dbobj::Value::Float(v) => {
+                sum += *v;
+                count += 1;
+            }
             _ => {}
         }
     }
-    if count == 0 { Ok(0.0) } else { Ok(sum / count as f64) }
+    if count == 0 {
+        Ok(0.0)
+    } else {
+        Ok(sum / count as f64)
+    }
 }
 
 pub(crate) fn count_rows(db: &Database, table_name: String) -> Result<u32> {

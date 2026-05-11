@@ -20,6 +20,8 @@ pub enum Operator {
     Lte,
     And,
     Or,
+    Like,
+    Not,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,6 +70,14 @@ impl Expr {
                     Operator::Gte => Value::Boolean(l >= r),
                     Operator::Lt => Value::Boolean(l < r),
                     Operator::Lte => Value::Boolean(l <= r),
+                    Operator::Like => Value::Boolean(like_match(&l, &r)),
+                    Operator::Not => {
+                        if let Value::Boolean(b) = l {
+                            Value::Boolean(!b)
+                        } else {
+                            Value::Boolean(false)
+                        }
+                    }
                 }
             }
             Expr::Not(expr) => {
@@ -144,6 +154,16 @@ impl Expr {
                     _ => {}
                 }
 
+                // Resolve InternedString for LIKE pattern matching
+                if matches!(op, Operator::Like) {
+                    if let Value::InternedString(id) = &l {
+                        l = table.string_pool.resolve(*id).map_or(Value::Null, Value::String);
+                    }
+                    if let Value::InternedString(id) = &r {
+                        r = table.string_pool.resolve(*id).map_or(Value::Null, Value::String);
+                    }
+                }
+
                 match op {
                     Operator::Eq => Value::Boolean(l == r),
                     Operator::Neq => Value::Boolean(l != r),
@@ -151,7 +171,15 @@ impl Expr {
                     Operator::Gte => Value::Boolean(l >= r),
                     Operator::Lt => Value::Boolean(l < r),
                     Operator::Lte => Value::Boolean(l <= r),
-                    _ => self.evaluate(&row.data, mapping), // Fallback for And/Or
+                    Operator::Like => Value::Boolean(like_match(&l, &r)),
+                    Operator::Not => {
+                        if let Value::Boolean(b) = l {
+                            Value::Boolean(!b)
+                        } else {
+                            Value::Boolean(false)
+                        }
+                    }
+                    Operator::And | Operator::Or => self.evaluate(&row.data, mapping),
                 }
             }
             _ => self.evaluate(&row.data, mapping),
@@ -192,4 +220,46 @@ impl Expr {
         }
         QueryPlan::FullScan(table.name.clone().into(), self.clone())
     }
+}
+
+/// SQL LIKE pattern matching.
+/// `%` matches any sequence of characters (including empty).
+/// `_` matches any single character.
+fn like_match(value: &Value, pattern: &Value) -> bool {
+    let s = match value {
+        Value::String(s) => s.as_str(),
+        _ => return false,
+    };
+    let pat = match pattern {
+        Value::String(p) => p.as_str(),
+        _ => return false,
+    };
+
+    let s_chars: Vec<char> = s.chars().collect();
+    let pat_chars: Vec<char> = pat.chars().collect();
+    let (mut si, mut pi) = (0, 0);
+    let (mut match_si, mut match_pi) = (0, 0);
+    let mut star = false;
+
+    while si < s_chars.len() {
+        if pi < pat_chars.len() && (pat_chars[pi] == '_' || pat_chars[pi] == s_chars[si]) {
+            si += 1;
+            pi += 1;
+        } else if pi < pat_chars.len() && pat_chars[pi] == '%' {
+            star = true;
+            match_si = si;
+            match_pi = pi;
+            pi += 1;
+        } else if star {
+            si = match_si + 1;
+            match_si = si;
+            pi = match_pi + 1;
+        } else {
+            return false;
+        }
+    }
+    while pi < pat_chars.len() && pat_chars[pi] == '%' {
+        pi += 1;
+    }
+    pi == pat_chars.len()
 }
