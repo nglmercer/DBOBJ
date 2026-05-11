@@ -15,7 +15,7 @@ async function runBenchmark() {
 
   console.log(`\n--- BENCHMARK: ${ROW_COUNT} Rows ---`);
 
-  const results: any = {};
+  const results: Record<string, Record<string, number>> = {};
 
   for (const suite of suites) {
     console.log(`\nTesting ${suite.name}...`);
