@@ -74,10 +74,9 @@ impl PreparedStatement {
                         napi::Error::from_reason(format!("Table {} not found", table_name))
                     })?;
                     let table_ref = table_lock.read();
-                    let col_idx =
-                        *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
-                            napi::Error::from_reason(format!("Column {} not found", cols[0]))
-                        })?;
+                    let col_idx = *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
+                        napi::Error::from_reason(format!("Column {} not found", cols[0]))
+                    })?;
 
                     let num_rows = table_ref.ids.len();
                     let mut result = Vec::with_capacity(num_rows);
@@ -286,7 +285,16 @@ impl Database {
     }
 
     #[napi]
-    pub fn insert_row(&self, table_name: String, values: Vec<Option<serde_json::Value>>) -> Result<()> {
+    pub fn insert_row_float(&self, table_name: String, values: Vec<f64>) -> Result<()> {
+        insert::insert_row_float(self, table_name, values)
+    }
+
+    #[napi]
+    pub fn insert_row(
+        &self,
+        table_name: String,
+        values: Vec<Option<serde_json::Value>>,
+    ) -> Result<()> {
         insert::insert_row(self, table_name, values)
     }
 
@@ -301,13 +309,13 @@ impl Database {
     }
 
     #[napi]
-    pub fn insert_batch_bool(
-        &self,
-        table_name: String,
-        values: Vec<bool>,
-        num_columns: u32,
-    ) -> Result<()> {
+    pub fn insert_batch_bool(&self, table_name: String, values: Vec<bool>, num_columns: u32) -> Result<()> {
         insert::insert_batch_bool(self, table_name, values, num_columns)
+    }
+
+    #[napi]
+    pub fn insert_batch_float(&self, table_name: String, values: Vec<f64>, num_columns: u32) -> Result<()> {
+        insert::insert_batch_float(self, table_name, values, num_columns)
     }
 
     #[napi]
@@ -343,6 +351,11 @@ impl Database {
     }
 
     #[napi]
+    pub fn update_row_float(&self, table_name: String, id: u32, values: Vec<f64>) -> Result<()> {
+        update::update_row_float(self, table_name, id, values)
+    }
+
+    #[napi]
     pub fn update_row(
         &self,
         table_name: String,
@@ -353,8 +366,48 @@ impl Database {
     }
 
     #[napi]
+    pub fn update_batch_i64(
+        &self,
+        table_name: String,
+        column_name: String,
+        values: BigInt64Array,
+    ) -> Result<()> {
+        update::update_batch_i64(self, table_name, column_name, values.as_ref())
+    }
+
+    #[napi]
     pub fn delete_row(&self, table_name: String, id: u32) -> Result<()> {
         update::delete_row(self, table_name, id)
+    }
+
+    #[napi]
+    pub fn delete_by_column_i64(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: i64,
+    ) -> Result<u32> {
+        update::delete_by_column_i64(self, table_name, column_name, value)
+    }
+
+    #[napi]
+    pub fn delete_by_column_string(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: String,
+    ) -> Result<u32> {
+        update::delete_by_column_string(self, table_name, column_name, value)
+    }
+
+    #[napi]
+    pub fn delete_by_column_bool(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: bool,
+    ) -> Result<u32> {
+        update::delete_by_column_bool(self, table_name, column_name, value)
     }
 
     // ── QUERY ────────────────────────────────────────────────────────
@@ -409,12 +462,13 @@ impl Database {
     }
 
     #[napi]
-    pub fn get_column_bool(
-        &self,
-        table_name: String,
-        column_name: String,
-    ) -> Result<Vec<bool>> {
+    pub fn get_column_bool(&self, table_name: String, column_name: String) -> Result<Vec<bool>> {
         query::get_column_bool(self, table_name, column_name)
+    }
+
+    #[napi]
+    pub fn get_column_float(&self, table_name: String, column_name: String) -> Result<Vec<f64>> {
+        query::get_column_float(self, table_name, column_name)
     }
 
     #[napi]
@@ -436,6 +490,11 @@ impl Database {
         offset: Option<u32>,
     ) -> Result<serde_json::Value> {
         query::get_rows(self, table_name, limit, offset)
+    }
+
+    #[napi]
+    pub fn count_rows(&self, table_name: String) -> Result<u32> {
+        query::count_rows(self, table_name)
     }
 
     // ── SQL ──────────────────────────────────────────────────────────

@@ -7,23 +7,32 @@ export declare class Database {
   insertRowI64(tableName: string, values: Array<number>): void
   insertRowString(tableName: string, values: Array<string>): void
   insertRowBool(tableName: string, values: Array<boolean>): void
+  insertRowFloat(tableName: string, values: Array<number>): void
   insertRow(tableName: string, values: Array<any | undefined | null>): void
   insertBatchString(tableName: string, values: Array<string>, numColumns: number): void
   insertBatchBool(tableName: string, values: Array<boolean>, numColumns: number): void
+  insertBatchFloat(tableName: string, values: Array<number>, numColumns: number): void
   insertBatch(tableName: string, values: Array<any | undefined | null>, numColumns: number): void
   updateRowI64(tableName: string, id: number, values: Array<number>): void
   updateRowString(tableName: string, id: number, values: Array<string>): void
   updateRowBool(tableName: string, id: number, values: Array<boolean>): void
+  updateRowFloat(tableName: string, id: number, values: Array<number>): void
   updateRow(tableName: string, id: number, values: Array<any | undefined | null>): void
+  updateBatchI64(tableName: string, columnName: string, values: BigInt64Array): void
   deleteRow(tableName: string, id: number): void
+  deleteByColumnI64(tableName: string, columnName: string, value: number): number
+  deleteByColumnString(tableName: string, columnName: string, value: string): number
+  deleteByColumnBool(tableName: string, columnName: string, value: boolean): number
   getColumnI64(tableName: string, columnName: string): BigInt64Array
   findByI64(tableName: string, columnName: string, value: number): BigInt64Array
   findByString(tableName: string, columnName: string, value: string): BigInt64Array
   findByBool(tableName: string, columnName: string, value: boolean): BigInt64Array
   getColumnString(tableName: string, columnName: string): Array<string>
   getColumnBool(tableName: string, columnName: string): Array<boolean>
+  getColumnFloat(tableName: string, columnName: string): Array<number>
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
   getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
+  countRows(tableName: string): number
   executeSql(sql: string): any
   prepare(sql: string): PreparedStatement
   queryI64(sql: string): BigInt64Array

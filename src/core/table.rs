@@ -971,4 +971,18 @@ impl Table {
         }
         Some(result)
     }
+
+    pub fn export_column_f64(&self, column_name: &str) -> Option<Vec<f64>> {
+        let col_idx = *self.column_map.get(column_name)?;
+        let num_rows = self.ids.len();
+        let mut result = Vec::with_capacity(num_rows);
+
+        for i in 0..num_rows {
+            match &self.data[i * self.num_columns + col_idx] {
+                Value::Float(v) => result.push(*v),
+                _ => result.push(0.0),
+            }
+        }
+        Some(result)
+    }
 }

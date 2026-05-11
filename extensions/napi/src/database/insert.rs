@@ -56,6 +56,47 @@ pub(crate) fn insert_row_bool(
     Ok(())
 }
 
+pub(crate) fn insert_row_float(
+    db: &Database,
+    table_name: String,
+    values: Vec<f64>,
+) -> Result<(), napi::Error> {
+    let row_values: Vec<Value> = values.into_iter().map(Value::Float).collect();
+    db.inner
+        .insert_values(&table_name, row_values)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    db.save_if_needed();
+    Ok(())
+}
+
+pub(crate) fn insert_batch_float(
+    db: &Database,
+    table_name: String,
+    values: Vec<f64>,
+    num_columns: u32,
+) -> Result<(), napi::Error> {
+    let num_cols = num_columns as usize;
+    let total = values.len();
+    let mut iter = values.into_iter();
+    let mut batch = Vec::with_capacity(total / num_cols);
+    'outer: while let Some(v0) = iter.next() {
+        let mut row = Vec::with_capacity(num_cols);
+        row.push(Value::Float(v0));
+        for _ in 1..num_cols {
+            match iter.next() {
+                Some(v) => row.push(Value::Float(v)),
+                None => { batch.push(row); break 'outer; }
+            }
+        }
+        batch.push(row);
+    }
+    db.inner
+        .insert_batch_values(&table_name, batch)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    db.save_if_needed();
+    Ok(())
+}
+
 pub(crate) fn insert_row(
     db: &Database,
     table_name: String,

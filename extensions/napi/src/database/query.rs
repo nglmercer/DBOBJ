@@ -31,6 +31,30 @@ pub(crate) fn get_column_i64(
     }
 }
 
+pub(crate) fn get_column_float(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+) -> Result<Vec<f64>> {
+    let table_lock = db
+        .inner
+        .get_table(&table_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+    let table = table_lock.read();
+    table.export_column_f64(&column_name).ok_or_else(|| {
+        napi::Error::from_reason(format!("Column {} not found", column_name))
+    })
+}
+
+pub(crate) fn count_rows(db: &Database, table_name: String) -> Result<u32> {
+    let table_lock = db
+        .inner
+        .get_table(&table_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+    let len = table_lock.read().ids.len();
+    Ok(len as u32)
+}
+
 pub(crate) fn get_column_string(
     db: &Database,
     table_name: String,
@@ -41,9 +65,9 @@ pub(crate) fn get_column_string(
         .get_table(&table_name)
         .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
     let table = table_lock.read();
-    table.export_column_string(&column_name).ok_or_else(|| {
-        napi::Error::from_reason(format!("Column {} not found", column_name))
-    })
+    table
+        .export_column_string(&column_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Column {} not found", column_name)))
 }
 
 pub(crate) fn get_column_bool(
@@ -56,9 +80,9 @@ pub(crate) fn get_column_bool(
         .get_table(&table_name)
         .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
     let table = table_lock.read();
-    table.export_column_bool(&column_name).ok_or_else(|| {
-        napi::Error::from_reason(format!("Column {} not found", column_name))
-    })
+    table
+        .export_column_bool(&column_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Column {} not found", column_name)))
 }
 
 pub(crate) fn find_by_string(
@@ -73,12 +97,19 @@ pub(crate) fn find_by_string(
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let mut ids: Vec<i64> = results
         .into_iter()
-        .map(|r| match r.id { Id::Integer(i) => i as i64, _ => 0 })
+        .map(|r| match r.id {
+            Id::Integer(i) => i as i64,
+            _ => 0,
+        })
         .collect();
     let ptr = ids.as_mut_ptr();
     let len = ids.len();
     std::mem::forget(ids);
-    unsafe { Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| { let _ = Vec::from_raw_parts(ptr, len, len); })) }
+    unsafe {
+        Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+            let _ = Vec::from_raw_parts(ptr, len, len);
+        }))
+    }
 }
 
 pub(crate) fn find_by_bool(
@@ -93,12 +124,19 @@ pub(crate) fn find_by_bool(
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     let mut ids: Vec<i64> = results
         .into_iter()
-        .map(|r| match r.id { Id::Integer(i) => i as i64, _ => 0 })
+        .map(|r| match r.id {
+            Id::Integer(i) => i as i64,
+            _ => 0,
+        })
         .collect();
     let ptr = ids.as_mut_ptr();
     let len = ids.len();
     std::mem::forget(ids);
-    unsafe { Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| { let _ = Vec::from_raw_parts(ptr, len, len); })) }
+    unsafe {
+        Ok(BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+            let _ = Vec::from_raw_parts(ptr, len, len);
+        }))
+    }
 }
 
 pub(crate) fn find_by_i64(
