@@ -251,20 +251,8 @@ impl Database {
         values: BigInt64Array,
         num_columns: u32,
     ) -> Result<()> {
-        use dbobj::Value;
-        let num_cols = num_columns as usize;
-        let mut batch = Vec::with_capacity(values.len() / num_cols);
-
-        for chunk in values.as_ref().chunks(num_cols) {
-            let mut row = Vec::with_capacity(num_cols);
-            for &v in chunk {
-                row.push(Value::Integer(v));
-            }
-            batch.push(row);
-        }
-
         self.inner
-            .insert_batch_values(&table_name, batch)
+            .insert_batch_flat_i64(&table_name, values.as_ref(), num_columns as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.save_if_needed();
         Ok(())

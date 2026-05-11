@@ -439,6 +439,67 @@ impl Table {
         Ok(ids)
     }
 
+    /// Ultra-fast batch insert from flat i64 slice — zero per-row allocations.
+    /// Takes values as `[v0_col0, v0_col1, v1_col0, v1_col1, ...]` and directly
+    /// extends the internal data Vec in one tight loop. Skips the Vec<Vec<Value>>
+    /// intermediate entirely.
+    pub fn insert_batch_flat_i64(&mut self, values: &[i64], num_columns: usize) -> Result<Vec<Id>, TableError> {
+        if num_columns != self.num_columns {
+            return Err(TableError::SchemaViolation(format!(
+                "Batch row has {} columns, expected {}", num_columns, self.num_columns
+            )));
+        }
+        let batch_size = values.len() / num_columns;
+        if values.len() % num_columns != 0 {
+            return Err(TableError::SchemaViolation(
+                "values length not divisible by num_columns".into()
+            ));
+        }
+        self.data.reserve(batch_size * num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
+        self.string_pool.reserve(batch_size);
+
+        let starting_idx = self.ids.len();
+        let start_id = self.next_int_id;
+        self.next_int_id += batch_size as u64;
+
+        for &v in values {
+            self.data.push(Value::Integer(v));
+        }
+
+        for i in 0..batch_size {
+            self.ids.push(Id::Integer(start_id + i as u64));
+            self.versions.push(1);
+        }
+
+        let ids: Vec<Id> = (0..batch_size)
+            .map(|i| Id::Integer(start_id + i as u64))
+            .collect();
+
+        if !self.is_sequential_ids {
+            for i in 0..batch_size {
+                self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i);
+            }
+        }
+
+        for index_obj in self.indexes.values_mut() {
+            for row_offset in 0..batch_size {
+                let actual_idx = starting_idx + row_offset;
+                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+                if index_obj.is_unique {
+                    index_obj.unique_map.insert(val.clone(), actual_idx);
+                } else {
+                    index_obj.map.entry(val.clone())
+                        .or_default()
+                        .push(self.ids[actual_idx].clone());
+                }
+            }
+        }
+
+        Ok(ids)
+    }
+
     /// Insert a single row from positional values — no RowData/HashMap overhead.
     /// For single inserts, this avoids the double conversion of
     /// RowData → validate_and_convert → Vec<Value>.

@@ -341,6 +341,47 @@ impl Database {
         Ok(ids)
     }
 
+    pub fn insert_batch_flat_i64(
+        &self,
+        table_name: &str,
+        values: &[i64],
+        num_columns: usize,
+    ) -> Result<Vec<Id>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
+        })?;
+        let mut table = table_lock.write();
+
+        let ids = table.insert_batch_flat_i64(values, num_columns)?;
+
+        if let Some(wal_lock) = &self.wal {
+            let mut wal = wal_lock.write();
+            for id in &ids {
+                let row = table.get(id).unwrap();
+                let _ = wal.append(&crate::storage::wal::WalEntry {
+                    table_name: table_name.to_string(),
+                    row_id: id.clone(),
+                    change_type: ChangeType::Insert,
+                    data: Some(table.values_to_row(&row.data)),
+                });
+            }
+        }
+
+        if let Some(first_id) = ids.first() {
+            self.version_log.write().record_batch(
+                table_name.to_string(),
+                first_id.clone(),
+                ids.len(),
+            );
+        }
+
+        Ok(ids)
+    }
+
     /// Single-row insert from positional values — no RowData/HashMap overhead.
     /// Skips the JSON→RowData→Vec<Value> double conversion.
     pub fn insert_values(
