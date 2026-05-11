@@ -578,10 +578,4 @@ if (!nativeBinding) {
 module.exports = nativeBinding
 module.exports.Database = nativeBinding.Database
 module.exports.PreparedStatement = nativeBinding.PreparedStatement
-module.exports.DataType = {
-  Integer: "integer",
-  Float: "float",
-  String: "string",
-  Boolean: "boolean",
-  Blob: "blob",
-};
+module.exports.DataType = nativeBinding.DataType

@@ -1,5 +1,4 @@
-const { Database: DBOBJ } = require("./index.node") as typeof import("./index.d.ts");
-const { Database: DBOBJ } = require("./index.node") as typeof import("./index.d.ts");
+const { Database: DBOBJ, DataType } = require("./index.node") as typeof import("./index.d.ts");
 import { Database as SQLite } from "bun:sqlite";
 
 const ROW_COUNT = 100_000;
