@@ -33,7 +33,12 @@ export declare class Database {
   getColumnFloat(tableName: string, columnName: string): Array<number>
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
   getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
+  getRowsAsync(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): Promise<any>
   countRows(tableName: string): number
+  sumColumn(tableName: string, columnName: string): number
+  minColumn(tableName: string, columnName: string): number
+  maxColumn(tableName: string, columnName: string): number
+  avgColumn(tableName: string, columnName: string): number
   get schema(): Schema
   beginTransaction(): Transaction
   executeSql(sql: string): any
@@ -57,6 +62,11 @@ export declare class PreparedStatement {
 }
 
 export declare class Schema {
+  /**
+   * Returns a description of schema violations in the given row values.
+   * Returns an empty array if the row is valid.
+   */
+  validateRow(tableName: string, values: Array<any>): Array<string>
   getColumnNames(tableName: string): Array<string>
   getColumnType(tableName: string, columnName: string): DataType
   hasColumn(tableName: string, columnName: string): boolean

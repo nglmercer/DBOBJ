@@ -532,8 +532,90 @@ impl Database {
     }
 
     #[napi]
+    pub async fn get_rows_async(
+        &self,
+        table_name: String,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<serde_json::Value> {
+        let inner = self.inner.clone();
+        napi::tokio::task::spawn_blocking(move || {
+            let table_lock = inner.get_table(&table_name)
+                .ok_or_else(|| format!("Table {} not found", table_name))?;
+            let table = table_lock.read();
+
+            let num_rows = table.ids.len();
+            let start = offset.unwrap_or(0) as usize;
+            let count = limit.unwrap_or(u32::MAX) as usize;
+            if start >= num_rows {
+                return Ok(serde_json::Value::Array(Vec::new()));
+            }
+            let end = (start + count).min(num_rows);
+
+            let mut results = Vec::with_capacity(end - start);
+            for row_idx in start..end {
+                let mut map = serde_json::Map::with_capacity(table.num_columns + 1);
+                match &table.ids[row_idx] {
+                    dbobj::Id::Integer(id) => {
+                        map.insert("id".into(), serde_json::Value::Number((*id).into()));
+                    }
+                    dbobj::Id::String(s) => {
+                        map.insert("id".into(), serde_json::Value::String(s.to_string()));
+                    }
+                }
+                let base = row_idx * table.num_columns;
+                for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
+                    let val = &table.data[base + col_idx];
+                    let json_val = match val {
+                        dbobj::Value::Null => serde_json::Value::Null,
+                        dbobj::Value::Integer(i) => serde_json::Value::Number((*i).into()),
+                        dbobj::Value::Float(f) => serde_json::Number::from_f64(*f)
+                            .map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null),
+                        dbobj::Value::String(s) => serde_json::Value::String(s.to_string()),
+                        dbobj::Value::Boolean(b) => serde_json::Value::Bool(*b),
+                        dbobj::Value::Blob(b) => serde_json::Value::Array(
+                            b.iter().map(|&x| serde_json::Value::Number(x.into())).collect(),
+                        ),
+                        dbobj::Value::InternedString(id) => {
+                            table.string_pool.resolve(*id).map_or_else(
+                                || serde_json::Value::String(format!("<interned:{}>", id)),
+                                |s| serde_json::Value::String(s.to_string()),
+                            )
+                        }
+                    };
+                    map.insert(col_def.name.to_string(), json_val);
+                }
+                results.push(serde_json::Value::Object(map));
+            }
+            Ok::<_, String>(serde_json::Value::Array(results))
+        }).await
+            .map_err(|e| napi::Error::from_reason(format!("Async task panicked: {}", e)))?
+            .map_err(|e| napi::Error::from_reason(e))
+    }
+
+    #[napi]
     pub fn count_rows(&self, table_name: String) -> Result<u32> {
         query::count_rows(self, table_name)
+    }
+
+    #[napi]
+    pub fn sum_column(&self, table_name: String, column_name: String) -> Result<i64> {
+        query::sum_column(self, table_name, column_name)
+    }
+
+    #[napi]
+    pub fn min_column(&self, table_name: String, column_name: String) -> Result<i64> {
+        query::min_column(self, table_name, column_name)
+    }
+
+    #[napi]
+    pub fn max_column(&self, table_name: String, column_name: String) -> Result<i64> {
+        query::max_column(self, table_name, column_name)
+    }
+
+    #[napi]
+    pub fn avg_column(&self, table_name: String, column_name: String) -> Result<f64> {
+        query::avg_column(self, table_name, column_name)
     }
 
     #[napi(getter)]
