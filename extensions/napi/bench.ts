@@ -54,7 +54,10 @@ class DBOBJDirectSuite implements TestSuite {
   }
 
   join(t1: string, c1: string, t2: string, c2: string) {
-    this.db.createTable(t2, ["id", "score"], ["integer", "integer"]);
+    this.db.createTable(t2, [
+      { name: "id", dataType: DataType.Integer, nullable: false },
+      { name: "score", dataType: DataType.Integer },
+    ]);
     for (let i = 0; i < JOIN_COUNT; i++) this.db.insertRowI64(t2, [i, i + 5]);
 
     const t0 = performance.now();

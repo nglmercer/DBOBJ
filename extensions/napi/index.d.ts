@@ -9,7 +9,7 @@ export declare class Database {
   createUniqueIndex(tableName: string, columnName: string): void
   getTableMetadata(name: string): TableMetadata | null
   insertBatchI64(tableName: string, values: BigInt64Array, numColumns: number): void
-  createTable(name: string, columnNames: Array<string>, columnTypes: Array<string>): void
+  createTable(name: string, columns: Array<ColumnDefinition>): void
   insertRowI64(tableName: string, values: Array<number>): void
   getColumnI64(tableName: string, columnName: string): BigInt64Array
   updateRowI64(tableName: string, id: number, values: Array<number>): void
@@ -27,6 +27,20 @@ export declare class PreparedStatement {
   allI64(params: Array<number>): BigInt64Array
   runBatch(batchParams: Array<Array<number>>): void
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void
+}
+
+export interface ColumnDefinition {
+  name: string
+  dataType: string
+  nullable: boolean
+}
+
+export declare const enum DataType {
+  Integer = 0,
+  Float = 1,
+  String = 2,
+  Boolean = 3,
+  Blob = 4
 }
 
 export interface TableMetadata {

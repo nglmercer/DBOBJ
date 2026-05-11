@@ -34,8 +34,12 @@ describe("DBOBJ N-API Bindings - Full Operations", () => {
 
   test("Hash Join", () => {
     const db = new Database("Join_Test");
-    db.createTable("t1", ["val"], ["integer"]);
-    db.createTable("t2", ["val"], ["integer"]);
+    db.createTable("t1", [
+      { name: "val", dataType: DataType.Integer },
+    ]);
+    db.createTable("t2", [
+      { name: "val", dataType: DataType.Integer },
+    ]);
 
     db.insertRowI64("t1", [10]); // ID 0
     db.insertRowI64("t2", [10]); // ID 0

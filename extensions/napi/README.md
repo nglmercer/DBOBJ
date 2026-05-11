@@ -37,9 +37,8 @@ Saves the current database state to the specified file path.
 #### `listTables(): Array<string>`
 Returns an array of all table names in the database.
 
-#### `createTable(name: string, columnNames: Array<string>, columnTypes: Array<string>): void`
+#### `createTable(name: string, columns: Array<ColumnDefinition>): void`
 Creates a new table.
-- `columnTypes` can be: `"integer"`, `"string"`, `"float"`, `"boolean"`, `"blob"`.
 - **Note:** If a column is named `"id"`, a unique index is automatically created for it.
 
 #### `createIndex(tableName: string, columnName: string): void`
@@ -111,10 +110,12 @@ export interface TableMetadata {
 
 ### 1. CRUD Operations
 ```typescript
-import { Database } from "dbobj-napi";
+import { Database, DataType } from "dbobj-napi";
 
 const db = new Database("CRUD_Test");
-db.createTable("users", ["age"], ["integer"]);
+db.createTable("users", [
+  { name: "age", dataType: DataType.Integer },
+]);
 
 // Insert Data
 db.insertRowI64("users", [25]);
@@ -192,4 +193,6 @@ bun bench.ts
 ```
 
 ## 📜 License
+MIT / Apache-2.0
+📜 License
 MIT / Apache-2.0

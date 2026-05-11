@@ -1,7 +1,7 @@
 [package]
 name = "dbobj-napi"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "N-API bindings for the DBOBJ database"
 license = "MIT"
 repository = "https://github.com/nglmercer/DBOBJ"

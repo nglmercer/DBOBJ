@@ -1,4 +1,4 @@
-use crate::types::TableMetadata;
+use crate::types::{ColumnDefinition, TableMetadata};
 use dbobj::Database as CoreDatabase;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -273,35 +273,34 @@ impl Database {
     pub fn create_table(
         &self,
         name: String,
-        column_names: Vec<String>,
-        column_types: Vec<String>,
+        columns: Vec<ColumnDefinition>,
     ) -> Result<()> {
-        use dbobj::{ColumnDefinition, DataType, Schema};
-        let mut columns = Vec::new();
+        use dbobj::Schema;
         let mut has_id = false;
+        let schema_columns: Vec<dbobj::ColumnDefinition> = columns
+            .into_iter()
+            .map(|col| {
+                if col.name == "id" {
+                    has_id = true;
+                }
+                let data_type = match col.data_type.as_str() {
+                    "Integer" => dbobj::DataType::Integer,
+                    "Float" => dbobj::DataType::Float,
+                    "String" => dbobj::DataType::String,
+                    "Boolean" => dbobj::DataType::Boolean,
+                    "Blob" => dbobj::DataType::Blob,
+                    _ => panic!("Unknown data type: {}", col.data_type),
+                };
+                dbobj::ColumnDefinition {
+                    name: col.name.into(),
+                    data_type,
+                    nullable: col.nullable,
+                }
+            })
+            .collect();
 
-        for (col_name, ty) in column_names.into_iter().zip(column_types) {
-            if col_name == "id" {
-                has_id = true;
-            }
-            let data_type = match ty.as_str() {
-                "integer" => DataType::Integer,
-                "string" => DataType::String,
-                "float" => DataType::Float,
-                "boolean" => DataType::Boolean,
-                "blob" => DataType::Blob,
-                _ => DataType::Integer,
-            };
-            columns.push(ColumnDefinition {
-                name: col_name.into(),
-                data_type,
-                nullable: true,
-            });
-        }
+        self.inner.create_table(name.clone(), Schema { columns: schema_columns });
 
-        self.inner.create_table(name.clone(), Schema { columns });
-
-        // Auto-create unique index for "id" column
         if has_id {
             let _ = self.inner.create_unique_index(&name, "id");
         }
