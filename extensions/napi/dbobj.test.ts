@@ -398,6 +398,7 @@ describe("DBOBJ N-API Bindings - Full Operations", () => {
       db.insertRow("users", [1]);
       expect.unreachable();
     } catch (e: any) {
+      //console.log(e);
       expect(e.message).toContain("users");
       expect(e.message).toContain("id (Integer)");
       expect(e.message).toContain("name (String)");
