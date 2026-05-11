@@ -347,8 +347,6 @@ impl Table {
             }
         }
 
-        let is_seq = self.is_sequential_ids;
-
         for values in batch {
             if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
@@ -372,15 +370,7 @@ impl Table {
                 self.id_map.insert(id.clone(), index);
             }
 
-            // Update indexes (skip unique "id" index when ids are sequential)
             for index_obj in self.indexes.values_mut() {
-                let is_redundant_id_index = is_seq
-                    && index_obj.is_unique
-                    && self.schema.columns.get(index_obj.col_idx)
-                        .map_or(false, |c| c.name == "id");
-                if is_redundant_id_index {
-                    continue;
-                }
                 let start = index * self.num_columns;
                 let val = &self.data[start + index_obj.col_idx];
                 index_obj
@@ -421,8 +411,6 @@ impl Table {
             }
         }
 
-        let is_seq = self.is_sequential_ids;
-
         for mut values in batch {
             if values.len() != expected_cols {
                 return Err(TableError::SchemaViolation(format!(
@@ -445,15 +433,7 @@ impl Table {
                 self.id_map.insert(id.clone(), index);
             }
 
-            // Update indexes (skip unique "id" index when ids are sequential)
             for index_obj in self.indexes.values_mut() {
-                let is_redundant_id_index = is_seq
-                    && index_obj.is_unique
-                    && self.schema.columns.get(index_obj.col_idx)
-                        .map_or(false, |c| c.name == "id");
-                if is_redundant_id_index {
-                    continue;
-                }
                 let start = index * self.num_columns;
                 let val = &self.data[start + index_obj.col_idx];
 
@@ -526,15 +506,7 @@ impl Table {
             }
         }
 
-        let is_seq = self.is_sequential_ids;
         for index_obj in self.indexes.values_mut() {
-            let is_redundant_id_index = is_seq
-                && index_obj.is_unique
-                && self.schema.columns.get(index_obj.col_idx)
-                    .map_or(false, |c| c.name == "id");
-            if is_redundant_id_index {
-                continue;
-            }
             for row_offset in 0..batch_size {
                 let actual_idx = starting_idx + row_offset;
                 let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
@@ -847,8 +819,8 @@ impl Table {
     }
 
     pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<Row> {
-        // Fast path: sequential integer IDs are O(1) via direct index
-        if column_name == "id" && self.is_sequential_ids {
+        // Fast path: sequential integer IDs for tables WITHOUT an explicit "id" column
+        if column_name == "id" && self.is_sequential_ids && !self.column_map.contains_key("id") {
             if let super::Value::Integer(id_val) = value {
                 let idx = *id_val as usize;
                 if idx < self.ids.len() && self.ids[idx] == super::Id::Integer(*id_val as u64) {
