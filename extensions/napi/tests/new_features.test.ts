@@ -111,3 +111,107 @@ test("Schema violation error", () => {
   db.createTable("t", [{ name: "x", dataType: DataType.Integer }]);
   expect(() => db.insertRow("t", [1, 2])).toThrow();
 });
+
+// ── UPSERT ───────────────────────────────────────────────────────────
+
+test("insertOrReplace inserts new row", () => {
+  const db = new Database("Test_UpsertIns");
+  db.createTable("t", [
+    { name: "id", dataType: DataType.Integer },
+    { name: "v", dataType: DataType.Integer },
+  ]);
+  db.createUniqueIndex("t", "id");
+  db.insertOrReplace("t", [1, 100], "id");
+  const rows = db.getRows("t");
+  expect(rows.length).toBe(1);
+  expect(rows[0].id).toBe(1);
+  expect(rows[0].v).toBe(100);
+});
+
+test("insertOrReplace replaces existing row", () => {
+  const db = new Database("Test_UpsertRep");
+  db.createTable("t", [
+    { name: "id", dataType: DataType.Integer },
+    { name: "v", dataType: DataType.Integer },
+  ]);
+  db.createUniqueIndex("t", "id");
+  db.insertOrReplace("t", [1, 100], "id");
+  db.insertOrReplace("t", [1, 999], "id");
+  const rows = db.getRows("t");
+  expect(rows.length).toBe(1);
+  expect(rows[0].v).toBe(999);
+});
+
+test("insertOrReplace on string unique column", () => {
+  const db = new Database("Test_UpsertStr");
+  db.createTable("t", [
+    { name: "email", dataType: DataType.String },
+    { name: "name", dataType: DataType.String },
+  ]);
+  db.createUniqueIndex("t", "email");
+  db.insertOrReplace("t", ["a@x.com", "Alice"], "email");
+  db.insertOrReplace("t", ["a@x.com", "Alice2"], "email");
+  expect(db.countRows("t")).toBe(1);
+  expect(db.getRows("t")[0].name).toBe("Alice2");
+});
+
+test("insertOrReplace without unique index still works", () => {
+  const db = new Database("Test_UpsertNoIdx");
+  db.createTable("t", [
+    { name: "id", dataType: DataType.Integer },
+    { name: "v", dataType: DataType.Integer },
+  ]);
+  db.insertOrReplace("t", [1, 100], "id");
+  db.insertOrReplace("t", [1, 200], "id");
+  expect(db.countRows("t")).toBe(1);
+});
+
+// ── COLUMN UPDATE ────────────────────────────────────────────────────
+
+test("updateColumnI64", () => {
+  const db = new Database("Test_ColI64");
+  db.createTable("t", [{ name: "v", dataType: DataType.Integer }]);
+  db.insertRowI64("t", [10]);
+  db.updateColumnI64("t", 0, "v", 42);
+  expect(db.getColumnI64("t", "v")[0]).toBe(42n);
+});
+
+test("updateColumnString", () => {
+  const db = new Database("Test_ColStr");
+  db.createTable("t", [{ name: "name", dataType: DataType.String }]);
+  db.insertRowString("t", ["hello"]);
+  db.updateColumnString("t", 0, "name", "world");
+  expect(db.getColumnString("t", "name")[0]).toBe("world");
+});
+
+test("updateColumnBool", () => {
+  const db = new Database("Test_ColBool");
+  db.createTable("t", [{ name: "active", dataType: DataType.Boolean }]);
+  db.insertRowBool("t", [true]);
+  db.updateColumnBool("t", 0, "active", false);
+  expect(db.getColumnBool("t", "active")[0]).toBe(false);
+});
+
+test("updateColumnFloat", () => {
+  const db = new Database("Test_ColFlt");
+  db.createTable("t", [{ name: "val", dataType: DataType.Float }]);
+  db.insertRowFloat("t", [1.5]);
+  db.updateColumnFloat("t", 0, "val", 3.14);
+  expect(db.getColumnFloat("t", "val")[0]).toBe(3.14);
+});
+
+test("updateColumn on table with multiple columns", () => {
+  const db = new Database("Test_ColMulti");
+  db.createTable("t", [
+    { name: "id", dataType: DataType.Integer },
+    { name: "name", dataType: DataType.String },
+    { name: "val", dataType: DataType.Integer },
+  ]);
+  db.insertRow("t", [1, "Alice", 100]);
+  db.updateColumnI64("t", 0, "val", 200);
+  db.updateColumnString("t", 0, "name", "Alicia");
+  const rows = db.getRows("t");
+  expect(rows[0].name).toBe("Alicia");
+  expect(rows[0].val).toBe(200);
+  expect(rows[0].id).toBe(1); // Other columns unchanged
+});

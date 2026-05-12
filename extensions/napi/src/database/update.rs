@@ -160,9 +160,17 @@ fn delete_by_column(
 
 // ── Update single column by ID ────────────────────────────────────
 
-fn update_column(db: &Database, table_name: String, id: u32, column_name: String, value: Value) -> Result<(), napi::Error> {
+fn update_column(
+    db: &Database,
+    table_name: String,
+    id: u32,
+    column_name: String,
+    value: Value,
+) -> Result<(), napi::Error> {
     let col_idx = {
-        let table_lock = db.inner.get_table(&table_name)
+        let table_lock = db
+            .inner
+            .get_table(&table_name)
             .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
         let map = &table_lock.read().column_map;
         *map.get(&column_name).ok_or_else(|| {
@@ -176,19 +184,43 @@ fn update_column(db: &Database, table_name: String, id: u32, column_name: String
     Ok(())
 }
 
-pub(crate) fn update_column_i64(db: &Database, table_name: String, id: u32, column_name: String, value: i64) -> Result<(), napi::Error> {
+pub(crate) fn update_column_i64(
+    db: &Database,
+    table_name: String,
+    id: u32,
+    column_name: String,
+    value: i64,
+) -> Result<(), napi::Error> {
     update_column(db, table_name, id, column_name, Value::Integer(value))
 }
 
-pub(crate) fn update_column_string(db: &Database, table_name: String, id: u32, column_name: String, value: String) -> Result<(), napi::Error> {
+pub(crate) fn update_column_string(
+    db: &Database,
+    table_name: String,
+    id: u32,
+    column_name: String,
+    value: String,
+) -> Result<(), napi::Error> {
     update_column(db, table_name, id, column_name, Value::String(value.into()))
 }
 
-pub(crate) fn update_column_bool(db: &Database, table_name: String, id: u32, column_name: String, value: bool) -> Result<(), napi::Error> {
+pub(crate) fn update_column_bool(
+    db: &Database,
+    table_name: String,
+    id: u32,
+    column_name: String,
+    value: bool,
+) -> Result<(), napi::Error> {
     update_column(db, table_name, id, column_name, Value::Boolean(value))
 }
 
-pub(crate) fn update_column_float(db: &Database, table_name: String, id: u32, column_name: String, value: f64) -> Result<(), napi::Error> {
+pub(crate) fn update_column_float(
+    db: &Database,
+    table_name: String,
+    id: u32,
+    column_name: String,
+    value: f64,
+) -> Result<(), napi::Error> {
     update_column(db, table_name, id, column_name, Value::Float(value))
 }
 
