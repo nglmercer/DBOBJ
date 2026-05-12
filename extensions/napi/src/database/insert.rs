@@ -89,26 +89,8 @@ pub(crate) fn insert_batch_float(
     values: Vec<f64>,
     num_columns: u32,
 ) -> Result<bool, napi::Error> {
-    let num_cols = num_columns as usize;
-    let total = values.len();
-    let mut iter = values.into_iter();
-    let mut batch = Vec::with_capacity(total / num_cols);
-    'outer: while let Some(v0) = iter.next() {
-        let mut row = Vec::with_capacity(num_cols);
-        row.push(Value::Float(v0));
-        for _ in 1..num_cols {
-            match iter.next() {
-                Some(v) => row.push(Value::Float(v)),
-                None => {
-                    batch.push(row);
-                    break 'outer;
-                }
-            }
-        }
-        batch.push(row);
-    }
     db.inner
-        .insert_batch_values(&table_name, batch)
+        .insert_batch_flat_f64(&table_name, &values, num_columns as usize)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
     Ok(true)
@@ -133,26 +115,8 @@ pub(crate) fn insert_batch_string(
     values: Vec<String>,
     num_columns: u32,
 ) -> Result<bool, napi::Error> {
-    let num_cols = num_columns as usize;
-    let total = values.len();
-    let mut iter = values.into_iter();
-    let mut batch = Vec::with_capacity(total / num_cols);
-    'outer: while let Some(v0) = iter.next() {
-        let mut row = Vec::with_capacity(num_cols);
-        row.push(Value::String(v0.into()));
-        for _ in 1..num_cols {
-            match iter.next() {
-                Some(v) => row.push(Value::String(v.into())),
-                None => {
-                    batch.push(row);
-                    break 'outer;
-                }
-            }
-        }
-        batch.push(row);
-    }
     db.inner
-        .insert_batch_values(&table_name, batch)
+        .insert_batch_flat_string(&table_name, &values, num_columns as usize)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
     Ok(true)
@@ -164,26 +128,8 @@ pub(crate) fn insert_batch_bool(
     values: Vec<bool>,
     num_columns: u32,
 ) -> Result<bool, napi::Error> {
-    let num_cols = num_columns as usize;
-    let total = values.len();
-    let mut iter = values.into_iter();
-    let mut batch = Vec::with_capacity(total / num_cols);
-    'outer: while let Some(v0) = iter.next() {
-        let mut row = Vec::with_capacity(num_cols);
-        row.push(Value::Boolean(v0));
-        for _ in 1..num_cols {
-            match iter.next() {
-                Some(v) => row.push(Value::Boolean(v)),
-                None => {
-                    batch.push(row);
-                    break 'outer;
-                }
-            }
-        }
-        batch.push(row);
-    }
     db.inner
-        .insert_batch_values(&table_name, batch)
+        .insert_batch_flat_bool(&table_name, &values, num_columns as usize)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
     Ok(true)
@@ -195,20 +141,18 @@ pub(crate) fn insert_batch(
     values: Vec<Option<serde_json::Value>>,
     num_columns: u32,
 ) -> Result<bool, napi::Error> {
+    use dbobj::Value as V;
     let num_cols = num_columns as usize;
     let total = values.len();
     let mut iter = values.into_iter();
     let mut batch = Vec::with_capacity(total / num_cols);
-    'outer: while let Some(v0) = iter.next() {
+    while let Some(v0) = iter.next() {
         let mut row = Vec::with_capacity(num_cols);
         row.push(super::json_to_db_value(v0));
         for _ in 1..num_cols {
             match iter.next() {
                 Some(v) => row.push(super::json_to_db_value(v)),
-                None => {
-                    batch.push(row);
-                    break 'outer;
-                }
+                None => { batch.push(row); return Ok(true); }
             }
         }
         batch.push(row);

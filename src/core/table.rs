@@ -551,6 +551,155 @@ impl Table {
         Ok(ids)
     }
 
+    /// Ultra-fast batch insert from flat string slice — zero per-row allocations.
+    pub fn insert_batch_flat_string(
+        &mut self,
+        values: &[String],
+        num_columns: usize,
+    ) -> Result<Vec<Id>, TableError> {
+        if num_columns != self.num_columns {
+            return Err(TableError::SchemaViolation(format!(
+                "insert_batch_flat_string: {} columns passed, expected {}\n{}",
+                num_columns, self.num_columns, self.col_info()
+            )));
+        }
+        let batch_size = values.len() / num_columns;
+        if !values.len().is_multiple_of(num_columns) {
+            return Err(TableError::SchemaViolation("values length not divisible by num_columns".into()));
+        }
+        self.data.reserve(batch_size * num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
+        self.string_pool.reserve(batch_size);
+
+        let starting_idx = self.ids.len();
+        let start_id = self.next_int_id;
+        self.next_int_id += batch_size as u64;
+
+        // Batch intern all strings, then push as InternedString
+        let interned: Vec<u32> = values.iter().map(|s| self.string_pool.intern(compact_str::CompactString::from(s.as_str()))).collect();
+        for &id in &interned {
+            self.data.push(Value::InternedString(id));
+        }
+
+        for i in 0..batch_size {
+            self.ids.push(Id::Integer(start_id + i as u64));
+            self.versions.push(1);
+        }
+        let ids: Vec<Id> = (0..batch_size).map(|i| Id::Integer(start_id + i as u64)).collect();
+
+        if !self.is_sequential_ids {
+            for i in 0..batch_size {
+                self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i);
+            }
+        }
+        for index_obj in self.indexes.values_mut() {
+            if index_obj.is_unique { index_obj.unique_map.reserve(batch_size); }
+            else { index_obj.map.reserve(batch_size); }
+        }
+        for index_obj in self.indexes.values_mut() {
+            for row_offset in 0..batch_size {
+                let actual_idx = starting_idx + row_offset;
+                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+                if index_obj.is_unique { index_obj.unique_map.insert(val.clone(), actual_idx); }
+                else { index_obj.map.entry(val.clone()).or_default().push(self.ids[actual_idx].clone()); }
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Ultra-fast batch insert from flat bool slice.
+    pub fn insert_batch_flat_bool(
+        &mut self,
+        values: &[bool],
+        num_columns: usize,
+    ) -> Result<Vec<Id>, TableError> {
+        if num_columns != self.num_columns {
+            return Err(TableError::SchemaViolation(format!(
+                "insert_batch_flat_bool: {} columns passed, expected {}\n{}",
+                num_columns, self.num_columns, self.col_info()
+            )));
+        }
+        let batch_size = values.len() / num_columns;
+        if !values.len().is_multiple_of(num_columns) {
+            return Err(TableError::SchemaViolation("values length not divisible by num_columns".into()));
+        }
+        self.data.reserve(batch_size * num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
+
+        let starting_idx = self.ids.len();
+        let start_id = self.next_int_id;
+        self.next_int_id += batch_size as u64;
+
+        for &v in values { self.data.push(Value::Boolean(v)); }
+        for i in 0..batch_size { self.ids.push(Id::Integer(start_id + i as u64)); self.versions.push(1); }
+        let ids: Vec<Id> = (0..batch_size).map(|i| Id::Integer(start_id + i as u64)).collect();
+
+        if !self.is_sequential_ids {
+            for i in 0..batch_size { self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i); }
+        }
+        for index_obj in self.indexes.values_mut() {
+            if index_obj.is_unique { index_obj.unique_map.reserve(batch_size); }
+            else { index_obj.map.reserve(batch_size); }
+        }
+        for index_obj in self.indexes.values_mut() {
+            for row_offset in 0..batch_size {
+                let actual_idx = starting_idx + row_offset;
+                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+                if index_obj.is_unique { index_obj.unique_map.insert(val.clone(), actual_idx); }
+                else { index_obj.map.entry(val.clone()).or_default().push(self.ids[actual_idx].clone()); }
+            }
+        }
+        Ok(ids)
+    }
+
+    /// Ultra-fast batch insert from flat f64 slice.
+    pub fn insert_batch_flat_f64(
+        &mut self,
+        values: &[f64],
+        num_columns: usize,
+    ) -> Result<Vec<Id>, TableError> {
+        if num_columns != self.num_columns {
+            return Err(TableError::SchemaViolation(format!(
+                "insert_batch_flat_f64: {} columns passed, expected {}\n{}",
+                num_columns, self.num_columns, self.col_info()
+            )));
+        }
+        let batch_size = values.len() / num_columns;
+        if !values.len().is_multiple_of(num_columns) {
+            return Err(TableError::SchemaViolation("values length not divisible by num_columns".into()));
+        }
+        self.data.reserve(batch_size * num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
+
+        let starting_idx = self.ids.len();
+        let start_id = self.next_int_id;
+        self.next_int_id += batch_size as u64;
+
+        for &v in values { self.data.push(Value::Float(v)); }
+        for i in 0..batch_size { self.ids.push(Id::Integer(start_id + i as u64)); self.versions.push(1); }
+        let ids: Vec<Id> = (0..batch_size).map(|i| Id::Integer(start_id + i as u64)).collect();
+
+        if !self.is_sequential_ids {
+            for i in 0..batch_size { self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i); }
+        }
+        for index_obj in self.indexes.values_mut() {
+            if index_obj.is_unique { index_obj.unique_map.reserve(batch_size); }
+            else { index_obj.map.reserve(batch_size); }
+        }
+        for index_obj in self.indexes.values_mut() {
+            for row_offset in 0..batch_size {
+                let actual_idx = starting_idx + row_offset;
+                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+                if index_obj.is_unique { index_obj.unique_map.insert(val.clone(), actual_idx); }
+                else { index_obj.map.entry(val.clone()).or_default().push(self.ids[actual_idx].clone()); }
+            }
+        }
+        Ok(ids)
+    }
+
     /// Insert a single row from positional values — no RowData/HashMap overhead.
     /// For single inserts, this avoids the double conversion of
     /// RowData → validate_and_convert → Vec<Value>.

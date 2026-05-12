@@ -393,6 +393,73 @@ impl Database {
         Ok(ids)
     }
 
+    fn log_insert(&self, table_name: &str, table: &mut crate::core::table::Table, ids: &[Id]) {
+        if let Some(wal_lock) = &self.wal {
+            let mut wal = wal_lock.write();
+            for id in ids {
+                if let Some(row) = table.get(id) {
+                    let _ = wal.append(&crate::storage::wal::WalEntry {
+                        table_name: table_name.to_string(),
+                        row_id: id.clone(),
+                        change_type: ChangeType::Insert,
+                        data: Some(table.values_to_row(&row.data)),
+                    });
+                }
+            }
+        }
+        if let Some(first_id) = ids.first() {
+            self.version_log.write().record_batch(table_name.to_string(), first_id.clone(), ids.len());
+        }
+    }
+
+    pub fn insert_batch_flat_string(
+        &self,
+        table_name: &str,
+        values: &[String],
+        num_columns: usize,
+    ) -> Result<Vec<Id>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        let mut table = table_lock.write();
+        let ids = table.insert_batch_flat_string(values, num_columns)?;
+        self.log_insert(table_name, &mut *table, &ids);
+        Ok(ids)
+    }
+
+    pub fn insert_batch_flat_bool(
+        &self,
+        table_name: &str,
+        values: &[bool],
+        num_columns: usize,
+    ) -> Result<Vec<Id>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        let mut table = table_lock.write();
+        let ids = table.insert_batch_flat_bool(values, num_columns)?;
+        self.log_insert(table_name, &mut *table, &ids);
+        Ok(ids)
+    }
+
+    pub fn insert_batch_flat_f64(
+        &self,
+        table_name: &str,
+        values: &[f64],
+        num_columns: usize,
+    ) -> Result<Vec<Id>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+        })?;
+        let mut table = table_lock.write();
+        let ids = table.insert_batch_flat_f64(values, num_columns)?;
+        self.log_insert(table_name, &mut *table, &ids);
+        Ok(ids)
+    }
+
     /// Single-row insert from positional values — no RowData/HashMap overhead.
     /// Skips the JSON→RowData→Vec<Value> double conversion.
     pub fn insert_values(

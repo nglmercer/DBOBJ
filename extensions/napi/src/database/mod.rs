@@ -49,7 +49,9 @@ pub struct Transaction {
 #[napi]
 impl Transaction {
     #[napi]
-    pub fn commit(&self) -> bool { true }
+    pub fn commit(&self) -> bool {
+        true
+    }
 
     #[napi]
     pub fn rollback(&self) -> bool {
