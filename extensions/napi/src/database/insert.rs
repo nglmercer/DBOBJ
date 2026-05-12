@@ -14,6 +14,20 @@ pub(crate) fn insert_batch_i64(
     Ok(())
 }
 
+pub(crate) fn insert_or_replace(
+    db: &Database,
+    table_name: String,
+    values: Vec<Option<serde_json::Value>>,
+    unique_column: String,
+) -> Result<(), napi::Error> {
+    let row_values: Vec<dbobj::Value> = values.into_iter().map(super::json_to_db_value).collect();
+    db.inner
+        .insert_or_replace(&table_name, row_values, &unique_column)
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    db.save_if_needed();
+    Ok(())
+}
+
 pub(crate) fn insert_row_i64(
     db: &Database,
     table_name: String,

@@ -13,6 +13,7 @@ export declare class Database {
   insertRowBool(tableName: string, values: Array<boolean>): void
   insertRowFloat(tableName: string, values: Array<number>): void
   insertRow(tableName: string, values: Array<any | undefined | null>): void
+  insertOrReplace(tableName: string, values: Array<any | undefined | null>, uniqueColumn: string): void
   insertBatchString(tableName: string, values: Array<string>, numColumns: number): void
   insertBatchBool(tableName: string, values: Array<boolean>, numColumns: number): void
   insertBatchFloat(tableName: string, values: Array<number>, numColumns: number): void
@@ -22,6 +23,10 @@ export declare class Database {
   updateRowBool(tableName: string, id: number, values: Array<boolean>): void
   updateRowFloat(tableName: string, id: number, values: Array<number>): void
   updateRow(tableName: string, id: number, values: Array<any | undefined | null>): void
+  updateColumnI64(tableName: string, id: number, columnName: string, value: number): void
+  updateColumnString(tableName: string, id: number, columnName: string, value: string): void
+  updateColumnBool(tableName: string, id: number, columnName: string, value: boolean): void
+  updateColumnFloat(tableName: string, id: number, columnName: string, value: number): void
   updateBatchI64(tableName: string, columnName: string, values: BigInt64Array): void
   deleteRow(tableName: string, id: number): void
   deleteByColumnI64(tableName: string, columnName: string, value: number): number

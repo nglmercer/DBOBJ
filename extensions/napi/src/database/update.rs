@@ -158,6 +158,40 @@ fn delete_by_column(
     Ok(count)
 }
 
+// ── Update single column by ID ────────────────────────────────────
+
+fn update_column(db: &Database, table_name: String, id: u32, column_name: String, value: Value) -> Result<(), napi::Error> {
+    let col_idx = {
+        let table_lock = db.inner.get_table(&table_name)
+            .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+        let map = &table_lock.read().column_map;
+        *map.get(&column_name).ok_or_else(|| {
+            napi::Error::from_reason(format!("Column '{}' not found", column_name))
+        })?
+    };
+    db.inner
+        .update_row_by_indices(&table_name, &Id::Integer(id as u64), &[(col_idx, value)])
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    db.save_if_needed();
+    Ok(())
+}
+
+pub(crate) fn update_column_i64(db: &Database, table_name: String, id: u32, column_name: String, value: i64) -> Result<(), napi::Error> {
+    update_column(db, table_name, id, column_name, Value::Integer(value))
+}
+
+pub(crate) fn update_column_string(db: &Database, table_name: String, id: u32, column_name: String, value: String) -> Result<(), napi::Error> {
+    update_column(db, table_name, id, column_name, Value::String(value.into()))
+}
+
+pub(crate) fn update_column_bool(db: &Database, table_name: String, id: u32, column_name: String, value: bool) -> Result<(), napi::Error> {
+    update_column(db, table_name, id, column_name, Value::Boolean(value))
+}
+
+pub(crate) fn update_column_float(db: &Database, table_name: String, id: u32, column_name: String, value: f64) -> Result<(), napi::Error> {
+    update_column(db, table_name, id, column_name, Value::Float(value))
+}
+
 pub(crate) fn delete_by_column_i64(
     db: &Database,
     table_name: String,

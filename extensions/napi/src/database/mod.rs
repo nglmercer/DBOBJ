@@ -325,6 +325,16 @@ impl Database {
     }
 
     #[napi]
+    pub fn insert_or_replace(
+        &self,
+        table_name: String,
+        values: Vec<Option<serde_json::Value>>,
+        unique_column: String,
+    ) -> Result<()> {
+        insert::insert_or_replace(self, table_name, values, unique_column)
+    }
+
+    #[napi]
     pub fn insert_batch_string(
         &self,
         table_name: String,
@@ -399,6 +409,50 @@ impl Database {
         values: Vec<Option<serde_json::Value>>,
     ) -> Result<()> {
         update::update_row(self, table_name, id, values)
+    }
+
+    #[napi]
+    pub fn update_column_i64(
+        &self,
+        table_name: String,
+        id: u32,
+        column_name: String,
+        value: i64,
+    ) -> Result<()> {
+        update::update_column_i64(self, table_name, id, column_name, value)
+    }
+
+    #[napi]
+    pub fn update_column_string(
+        &self,
+        table_name: String,
+        id: u32,
+        column_name: String,
+        value: String,
+    ) -> Result<()> {
+        update::update_column_string(self, table_name, id, column_name, value)
+    }
+
+    #[napi]
+    pub fn update_column_bool(
+        &self,
+        table_name: String,
+        id: u32,
+        column_name: String,
+        value: bool,
+    ) -> Result<()> {
+        update::update_column_bool(self, table_name, id, column_name, value)
+    }
+
+    #[napi]
+    pub fn update_column_float(
+        &self,
+        table_name: String,
+        id: u32,
+        column_name: String,
+        value: f64,
+    ) -> Result<()> {
+        update::update_column_float(self, table_name, id, column_name, value)
     }
 
     #[napi]

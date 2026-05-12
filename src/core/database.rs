@@ -418,6 +418,40 @@ impl Database {
         Ok(id)
     }
 
+    /// Insert or replace: if a row with `unique_column=values[col_idx]` exists, replace it;
+    /// otherwise insert a new row. Returns the row ID.
+    pub fn insert_or_replace(
+        &self,
+        table_name: &str,
+        values: Vec<Value>,
+        unique_column: &str,
+    ) -> Result<Id, crate::core::table::TableError> {
+        let col_idx = {
+            let tables = self.tables.read();
+            let table_lock = tables.get(table_name).ok_or_else(|| {
+                crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            })?;
+            let map = &table_lock.read().column_map;
+            *map.get(unique_column).ok_or_else(|| {
+                crate::core::table::TableError::SchemaViolation(format!("Column '{}' not found", unique_column))
+            })?
+        };
+        let unique_val = values[col_idx].clone();
+
+        // Try to find existing row with same unique value
+        let existing = self.find(table_name, unique_column, unique_val);
+        let existing_id = existing.ok().and_then(|rows| rows.into_iter().next().map(|r| r.id));
+
+        if let Some(id) = existing_id {
+            // Update existing row
+            self.update_values(table_name, &id, values)?;
+            Ok(id)
+        } else {
+            // Insert new row
+            self.insert_values(table_name, values)
+        }
+    }
+
     /// Typed: insert a row of i64 values directly.
     pub fn insert_values_i64(
         &self,
@@ -542,7 +576,7 @@ impl Database {
 
         let mut table = table_lock.write();
         for (id, updates) in batch {
-            if let Some(&idx) = table.id_map.get(id) {
+            if let Some(idx) = table.get_index(id) {
                 for (col_idx, val) in updates {
                     let start = idx * table.num_columns;
                     let mut final_val = val.clone();
