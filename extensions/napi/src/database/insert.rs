@@ -6,12 +6,12 @@ pub(crate) fn insert_batch_i64(
     table_name: String,
     values: &[i64],
     num_columns: usize,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     db.inner
         .insert_batch_flat_i64(&table_name, values, num_columns)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_or_replace(
@@ -19,33 +19,33 @@ pub(crate) fn insert_or_replace(
     table_name: String,
     values: Vec<Option<serde_json::Value>>,
     unique_column: String,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<dbobj::Value> = values.into_iter().map(super::json_to_db_value).collect();
     db.inner
         .insert_or_replace(&table_name, row_values, &unique_column)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_row_i64(
     db: &Database,
     table_name: String,
     values: Vec<i64>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(Value::Integer).collect();
     db.inner
         .insert_values(&table_name, row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_row_string(
     db: &Database,
     table_name: String,
     values: Vec<String>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values
         .into_iter()
         .map(|s| Value::String(s.into()))
@@ -54,33 +54,33 @@ pub(crate) fn insert_row_string(
         .insert_values(&table_name, row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_row_bool(
     db: &Database,
     table_name: String,
     values: Vec<bool>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(Value::Boolean).collect();
     db.inner
         .insert_values(&table_name, row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_row_float(
     db: &Database,
     table_name: String,
     values: Vec<f64>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(Value::Float).collect();
     db.inner
         .insert_values(&table_name, row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_batch_float(
@@ -88,7 +88,7 @@ pub(crate) fn insert_batch_float(
     table_name: String,
     values: Vec<f64>,
     num_columns: u32,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let num_cols = num_columns as usize;
     let total = values.len();
     let mut iter = values.into_iter();
@@ -111,20 +111,20 @@ pub(crate) fn insert_batch_float(
         .insert_batch_values(&table_name, batch)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_row(
     db: &Database,
     table_name: String,
     values: Vec<Option<serde_json::Value>>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(super::json_to_db_value).collect();
     db.inner
         .insert_values(&table_name, row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_batch_string(
@@ -132,7 +132,7 @@ pub(crate) fn insert_batch_string(
     table_name: String,
     values: Vec<String>,
     num_columns: u32,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let num_cols = num_columns as usize;
     let total = values.len();
     let mut iter = values.into_iter();
@@ -155,7 +155,7 @@ pub(crate) fn insert_batch_string(
         .insert_batch_values(&table_name, batch)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_batch_bool(
@@ -163,7 +163,7 @@ pub(crate) fn insert_batch_bool(
     table_name: String,
     values: Vec<bool>,
     num_columns: u32,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let num_cols = num_columns as usize;
     let total = values.len();
     let mut iter = values.into_iter();
@@ -186,7 +186,7 @@ pub(crate) fn insert_batch_bool(
         .insert_batch_values(&table_name, batch)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn insert_batch(
@@ -194,7 +194,7 @@ pub(crate) fn insert_batch(
     table_name: String,
     values: Vec<Option<serde_json::Value>>,
     num_columns: u32,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let num_cols = num_columns as usize;
     let total = values.len();
     let mut iter = values.into_iter();
@@ -217,5 +217,5 @@ pub(crate) fn insert_batch(
         .insert_batch_values(&table_name, batch)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }

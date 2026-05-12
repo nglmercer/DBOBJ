@@ -49,10 +49,10 @@ pub struct Transaction {
 #[napi]
 impl Transaction {
     #[napi]
-    pub fn commit(&self) {}
+    pub fn commit(&self) -> bool { true }
 
     #[napi]
-    pub fn rollback(&self) {
+    pub fn rollback(&self) -> bool {
         let mut tables = self.db.tables.write();
         for (name, table) in &self.original_tables {
             tables.insert(
@@ -60,6 +60,7 @@ impl Transaction {
                 Arc::new(parking_lot::RwLock::new(table.clone())),
             );
         }
+        true
     }
 }
 
@@ -73,14 +74,14 @@ pub struct PreparedStatement {
 #[napi]
 impl PreparedStatement {
     #[napi]
-    pub fn run(&self, params: Vec<i64>) -> Result<()> {
+    pub fn run(&self, params: Vec<i64>) -> Result<bool> {
         let executor = dbobj_sql::SqlExecutor::new(&self.db);
         let vals: Vec<_> = params.into_iter().map(dbobj::Value::Integer).collect();
         executor
             .execute_prepared(&self.inner, &vals)
             .map_err(napi::Error::from_reason)?;
         self.is_dirty.store(true, Ordering::Relaxed);
-        Ok(())
+        Ok(true)
     }
 
     #[napi]
@@ -138,7 +139,7 @@ impl PreparedStatement {
     }
 
     #[napi]
-    pub fn run_batch(&self, batch_params: Vec<Vec<i64>>) -> Result<()> {
+    pub fn run_batch(&self, batch_params: Vec<Vec<i64>>) -> Result<bool> {
         let executor = dbobj_sql::SqlExecutor::new(&self.db);
         let batch: Vec<Vec<dbobj::Value>> = batch_params
             .into_iter()
@@ -148,7 +149,7 @@ impl PreparedStatement {
             .execute_prepared_batch(&self.inner, &batch)
             .map_err(napi::Error::from_reason)?;
         self.is_dirty.store(true, Ordering::Relaxed);
-        Ok(())
+        Ok(true)
     }
 
     #[napi]
@@ -156,7 +157,7 @@ impl PreparedStatement {
         &self,
         flat_params: Vec<Option<serde_json::Value>>,
         params_per_row: u32,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let executor = dbobj_sql::SqlExecutor::new(&self.db);
         let pprow = params_per_row as usize;
         let total = flat_params.len();
@@ -180,11 +181,11 @@ impl PreparedStatement {
             .execute_prepared_batch(&self.inner, &batch)
             .map_err(napi::Error::from_reason)?;
         self.is_dirty.store(true, Ordering::Relaxed);
-        Ok(())
+        Ok(true)
     }
 
     #[napi]
-    pub fn run_batch_i64(&self, flat_params: BigInt64Array, params_per_row: u32) -> Result<()> {
+    pub fn run_batch_i64(&self, flat_params: BigInt64Array, params_per_row: u32) -> Result<bool> {
         let executor = dbobj_sql::SqlExecutor::new(&self.db);
         let params_slice = flat_params.as_ref();
         let num_params = params_slice.len();
@@ -204,7 +205,7 @@ impl PreparedStatement {
             .execute_prepared_batch(&self.inner, &batch)
             .map_err(napi::Error::from_reason)?;
         self.is_dirty.store(true, Ordering::Relaxed);
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -256,7 +257,7 @@ impl Database {
     // ── DDL ──────────────────────────────────────────────────────────
 
     #[napi]
-    pub fn create_table(&self, name: String, columns: Vec<ColumnDefinition>) -> Result<()> {
+    pub fn create_table(&self, name: String, columns: Vec<ColumnDefinition>) -> Result<bool> {
         use dbobj::Schema;
         let mut has_id = false;
         let schema_columns: Vec<dbobj::ColumnDefinition> = columns
@@ -289,7 +290,7 @@ impl Database {
             let _ = self.inner.create_unique_index(&name, "id");
         }
         self.save_if_needed();
-        Ok(())
+        Ok(true)
     }
 
     // ── INSERT ───────────────────────────────────────────────────────
@@ -300,27 +301,27 @@ impl Database {
         table_name: String,
         values: BigInt64Array,
         num_columns: u32,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         insert::insert_batch_i64(self, table_name, values.as_ref(), num_columns as usize)
     }
 
     #[napi]
-    pub fn insert_row_i64(&self, table_name: String, values: Vec<i64>) -> Result<()> {
+    pub fn insert_row_i64(&self, table_name: String, values: Vec<i64>) -> Result<bool> {
         insert::insert_row_i64(self, table_name, values)
     }
 
     #[napi]
-    pub fn insert_row_string(&self, table_name: String, values: Vec<String>) -> Result<()> {
+    pub fn insert_row_string(&self, table_name: String, values: Vec<String>) -> Result<bool> {
         insert::insert_row_string(self, table_name, values)
     }
 
     #[napi]
-    pub fn insert_row_bool(&self, table_name: String, values: Vec<bool>) -> Result<()> {
+    pub fn insert_row_bool(&self, table_name: String, values: Vec<bool>) -> Result<bool> {
         insert::insert_row_bool(self, table_name, values)
     }
 
     #[napi]
-    pub fn insert_row_float(&self, table_name: String, values: Vec<f64>) -> Result<()> {
+    pub fn insert_row_float(&self, table_name: String, values: Vec<f64>) -> Result<bool> {
         insert::insert_row_float(self, table_name, values)
     }
 
@@ -329,7 +330,7 @@ impl Database {
         &self,
         table_name: String,
         values: Vec<Option<serde_json::Value>>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         insert::insert_row(self, table_name, values)
     }
 
@@ -339,7 +340,7 @@ impl Database {
         table_name: String,
         values: Vec<Option<serde_json::Value>>,
         unique_column: String,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         insert::insert_or_replace(self, table_name, values, unique_column)
     }
 
@@ -349,7 +350,7 @@ impl Database {
         table_name: String,
         values: Vec<String>,
         num_columns: u32,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         insert::insert_batch_string(self, table_name, values, num_columns)
     }
 
@@ -359,7 +360,7 @@ impl Database {
         table_name: String,
         values: Vec<bool>,
         num_columns: u32,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         insert::insert_batch_bool(self, table_name, values, num_columns)
     }
 
@@ -369,7 +370,7 @@ impl Database {
         table_name: String,
         values: Vec<f64>,
         num_columns: u32,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         insert::insert_batch_float(self, table_name, values, num_columns)
     }
 
@@ -379,14 +380,14 @@ impl Database {
         table_name: String,
         values: Vec<Option<serde_json::Value>>,
         num_columns: u32,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         insert::insert_batch(self, table_name, values, num_columns)
     }
 
     // ── UPDATE ───────────────────────────────────────────────────────
 
     #[napi]
-    pub fn update_row_i64(&self, table_name: String, id: u32, values: Vec<i64>) -> Result<()> {
+    pub fn update_row_i64(&self, table_name: String, id: u32, values: Vec<i64>) -> Result<bool> {
         update::update_row_i64(self, table_name, id, values)
     }
 
@@ -396,17 +397,17 @@ impl Database {
         table_name: String,
         id: u32,
         values: Vec<String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         update::update_row_string(self, table_name, id, values)
     }
 
     #[napi]
-    pub fn update_row_bool(&self, table_name: String, id: u32, values: Vec<bool>) -> Result<()> {
+    pub fn update_row_bool(&self, table_name: String, id: u32, values: Vec<bool>) -> Result<bool> {
         update::update_row_bool(self, table_name, id, values)
     }
 
     #[napi]
-    pub fn update_row_float(&self, table_name: String, id: u32, values: Vec<f64>) -> Result<()> {
+    pub fn update_row_float(&self, table_name: String, id: u32, values: Vec<f64>) -> Result<bool> {
         update::update_row_float(self, table_name, id, values)
     }
 
@@ -416,7 +417,7 @@ impl Database {
         table_name: String,
         id: u32,
         values: Vec<Option<serde_json::Value>>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         update::update_row(self, table_name, id, values)
     }
 
@@ -427,7 +428,7 @@ impl Database {
         id: u32,
         column_name: String,
         value: i64,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         update::update_column_i64(self, table_name, id, column_name, value)
     }
 
@@ -438,7 +439,7 @@ impl Database {
         id: u32,
         column_name: String,
         value: String,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         update::update_column_string(self, table_name, id, column_name, value)
     }
 
@@ -449,7 +450,7 @@ impl Database {
         id: u32,
         column_name: String,
         value: bool,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         update::update_column_bool(self, table_name, id, column_name, value)
     }
 
@@ -460,7 +461,7 @@ impl Database {
         id: u32,
         column_name: String,
         value: f64,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         update::update_column_float(self, table_name, id, column_name, value)
     }
 
@@ -470,12 +471,12 @@ impl Database {
         table_name: String,
         column_name: String,
         values: BigInt64Array,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         update::update_batch_i64(self, table_name, column_name, values.as_ref())
     }
 
     #[napi]
-    pub fn delete_row(&self, table_name: String, id: u32) -> Result<()> {
+    pub fn delete_row(&self, table_name: String, id: u32) -> Result<bool> {
         update::delete_row(self, table_name, id)
     }
 
@@ -866,12 +867,12 @@ impl Database {
     }
 
     #[napi]
-    pub fn save(&self, path: String) -> Result<()> {
+    pub fn save(&self, path: String) -> Result<bool> {
         self.inner
             .save_to_mmap(path)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.is_dirty.store(false, Ordering::Relaxed);
-        Ok(())
+        Ok(true)
     }
 
     #[napi]
@@ -880,21 +881,21 @@ impl Database {
     }
 
     #[napi]
-    pub fn create_index(&self, table_name: String, column_name: String) -> Result<()> {
+    pub fn create_index(&self, table_name: String, column_name: String) -> Result<bool> {
         self.inner
             .create_index(&table_name, &column_name)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.save_if_needed();
-        Ok(())
+        Ok(true)
     }
 
     #[napi]
-    pub fn create_unique_index(&self, table_name: String, column_name: String) -> Result<()> {
+    pub fn create_unique_index(&self, table_name: String, column_name: String) -> Result<bool> {
         self.inner
             .create_unique_index(&table_name, &column_name)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.save_if_needed();
-        Ok(())
+        Ok(true)
     }
 
     #[napi]
@@ -902,14 +903,14 @@ impl Database {
         &self,
         table_name: String,
         column_names: Vec<String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         for col in &column_names {
             self.inner
                 .create_index(&table_name, col)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         }
         self.save_if_needed();
-        Ok(())
+        Ok(true)
     }
 
     #[napi]

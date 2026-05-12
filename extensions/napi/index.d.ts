@@ -6,29 +6,29 @@ export declare class Cursor {
 
 export declare class Database {
   constructor(name: string)
-  createTable(name: string, columns: Array<ColumnDefinition>): void
-  insertBatchI64(tableName: string, values: BigInt64Array, numColumns: number): void
-  insertRowI64(tableName: string, values: Array<number>): void
-  insertRowString(tableName: string, values: Array<string>): void
-  insertRowBool(tableName: string, values: Array<boolean>): void
-  insertRowFloat(tableName: string, values: Array<number>): void
-  insertRow(tableName: string, values: Array<any | undefined | null>): void
-  insertOrReplace(tableName: string, values: Array<any | undefined | null>, uniqueColumn: string): void
-  insertBatchString(tableName: string, values: Array<string>, numColumns: number): void
-  insertBatchBool(tableName: string, values: Array<boolean>, numColumns: number): void
-  insertBatchFloat(tableName: string, values: Array<number>, numColumns: number): void
-  insertBatch(tableName: string, values: Array<any | undefined | null>, numColumns: number): void
-  updateRowI64(tableName: string, id: number, values: Array<number>): void
-  updateRowString(tableName: string, id: number, values: Array<string>): void
-  updateRowBool(tableName: string, id: number, values: Array<boolean>): void
-  updateRowFloat(tableName: string, id: number, values: Array<number>): void
-  updateRow(tableName: string, id: number, values: Array<any | undefined | null>): void
-  updateColumnI64(tableName: string, id: number, columnName: string, value: number): void
-  updateColumnString(tableName: string, id: number, columnName: string, value: string): void
-  updateColumnBool(tableName: string, id: number, columnName: string, value: boolean): void
-  updateColumnFloat(tableName: string, id: number, columnName: string, value: number): void
-  updateBatchI64(tableName: string, columnName: string, values: BigInt64Array): void
-  deleteRow(tableName: string, id: number): void
+  createTable(name: string, columns: Array<ColumnDefinition>): boolean
+  insertBatchI64(tableName: string, values: BigInt64Array, numColumns: number): boolean
+  insertRowI64(tableName: string, values: Array<number>): boolean
+  insertRowString(tableName: string, values: Array<string>): boolean
+  insertRowBool(tableName: string, values: Array<boolean>): boolean
+  insertRowFloat(tableName: string, values: Array<number>): boolean
+  insertRow(tableName: string, values: Array<any | undefined | null>): boolean
+  insertOrReplace(tableName: string, values: Array<any | undefined | null>, uniqueColumn: string): boolean
+  insertBatchString(tableName: string, values: Array<string>, numColumns: number): boolean
+  insertBatchBool(tableName: string, values: Array<boolean>, numColumns: number): boolean
+  insertBatchFloat(tableName: string, values: Array<number>, numColumns: number): boolean
+  insertBatch(tableName: string, values: Array<any | undefined | null>, numColumns: number): boolean
+  updateRowI64(tableName: string, id: number, values: Array<number>): boolean
+  updateRowString(tableName: string, id: number, values: Array<string>): boolean
+  updateRowBool(tableName: string, id: number, values: Array<boolean>): boolean
+  updateRowFloat(tableName: string, id: number, values: Array<number>): boolean
+  updateRow(tableName: string, id: number, values: Array<any | undefined | null>): boolean
+  updateColumnI64(tableName: string, id: number, columnName: string, value: number): boolean
+  updateColumnString(tableName: string, id: number, columnName: string, value: string): boolean
+  updateColumnBool(tableName: string, id: number, columnName: string, value: boolean): boolean
+  updateColumnFloat(tableName: string, id: number, columnName: string, value: number): boolean
+  updateBatchI64(tableName: string, columnName: string, values: BigInt64Array): boolean
+  deleteRow(tableName: string, id: number): boolean
   deleteByColumnI64(tableName: string, columnName: string, value: number): number
   deleteByColumnString(tableName: string, columnName: string, value: string): number
   deleteByColumnBool(tableName: string, columnName: string, value: boolean): number
@@ -60,11 +60,11 @@ export declare class Database {
   queryI64(sql: string): BigInt64Array
   queryJoinI64(sql: string): BigInt64Array
   static load(path: string): Database
-  save(path: string): void
+  save(path: string): boolean
   listTables(): Array<string>
-  createIndex(tableName: string, columnName: string): void
-  createUniqueIndex(tableName: string, columnName: string): void
-  createCompositeIndex(tableName: string, columnNames: Array<string>): void
+  createIndex(tableName: string, columnName: string): boolean
+  createUniqueIndex(tableName: string, columnName: string): boolean
+  createCompositeIndex(tableName: string, columnNames: Array<string>): boolean
   getTableMetadata(name: string): TableMetadata | null
 }
 
@@ -74,11 +74,11 @@ export declare class DbError {
 }
 
 export declare class PreparedStatement {
-  run(params: Array<number>): void
+  run(params: Array<number>): boolean
   allI64(params: Array<number>): BigInt64Array
-  runBatch(batchParams: Array<Array<number>>): void
-  runBatchValues(flatParams: Array<any | undefined | null>, paramsPerRow: number): void
-  runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): void
+  runBatch(batchParams: Array<Array<number>>): boolean
+  runBatchValues(flatParams: Array<any | undefined | null>, paramsPerRow: number): boolean
+  runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): boolean
 }
 
 export declare class Schema {
@@ -93,8 +93,8 @@ export declare class Schema {
 }
 
 export declare class Transaction {
-  commit(): void
-  rollback(): void
+  commit(): boolean
+  rollback(): boolean
 }
 
 export interface ColumnDefinition {

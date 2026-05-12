@@ -6,13 +6,13 @@ pub(crate) fn update_row_i64(
     table_name: String,
     id: u32,
     values: Vec<i64>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(Value::Integer).collect();
     db.inner
         .update_values(&table_name, &Id::Integer(id as u64), row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn update_row_string(
@@ -20,7 +20,7 @@ pub(crate) fn update_row_string(
     table_name: String,
     id: u32,
     values: Vec<String>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values
         .into_iter()
         .map(|s| Value::String(s.into()))
@@ -29,7 +29,7 @@ pub(crate) fn update_row_string(
         .update_values(&table_name, &Id::Integer(id as u64), row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn update_row_bool(
@@ -37,13 +37,13 @@ pub(crate) fn update_row_bool(
     table_name: String,
     id: u32,
     values: Vec<bool>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(Value::Boolean).collect();
     db.inner
         .update_values(&table_name, &Id::Integer(id as u64), row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn update_row_float(
@@ -51,13 +51,13 @@ pub(crate) fn update_row_float(
     table_name: String,
     id: u32,
     values: Vec<f64>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(Value::Float).collect();
     db.inner
         .update_values(&table_name, &Id::Integer(id as u64), row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn update_row(
@@ -65,21 +65,21 @@ pub(crate) fn update_row(
     table_name: String,
     id: u32,
     values: Vec<Option<serde_json::Value>>,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let row_values: Vec<Value> = values.into_iter().map(super::json_to_db_value).collect();
     db.inner
         .update_values(&table_name, &Id::Integer(id as u64), row_values)
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
-pub(crate) fn delete_row(db: &Database, table_name: String, id: u32) -> Result<(), napi::Error> {
+pub(crate) fn delete_row(db: &Database, table_name: String, id: u32) -> Result<bool, napi::Error> {
     db.inner
         .delete_row(&table_name, &Id::Integer(id as u64))
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn delete_batch_i64(
@@ -103,7 +103,7 @@ pub(crate) fn update_batch_i64(
     table_name: String,
     column_name: String,
     flat_params: &[i64],
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let col_idx =
         {
             let table_lock = db.inner.get_table(&table_name).ok_or_else(|| {
@@ -134,7 +134,7 @@ pub(crate) fn update_batch_i64(
         i += 2;
     }
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 // ── Delete by column value ────────────────────────────────────────
@@ -166,7 +166,7 @@ fn update_column(
     id: u32,
     column_name: String,
     value: Value,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     let col_idx = {
         let table_lock = db
             .inner
@@ -181,7 +181,7 @@ fn update_column(
         .update_row_by_indices(&table_name, &Id::Integer(id as u64), &[(col_idx, value)])
         .map_err(|e| napi::Error::from_reason(e.to_string()))?;
     db.save_if_needed();
-    Ok(())
+    Ok(true)
 }
 
 pub(crate) fn update_column_i64(
@@ -190,7 +190,7 @@ pub(crate) fn update_column_i64(
     id: u32,
     column_name: String,
     value: i64,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     update_column(db, table_name, id, column_name, Value::Integer(value))
 }
 
@@ -200,7 +200,7 @@ pub(crate) fn update_column_string(
     id: u32,
     column_name: String,
     value: String,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     update_column(db, table_name, id, column_name, Value::String(value.into()))
 }
 
@@ -210,7 +210,7 @@ pub(crate) fn update_column_bool(
     id: u32,
     column_name: String,
     value: bool,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     update_column(db, table_name, id, column_name, Value::Boolean(value))
 }
 
@@ -220,7 +220,7 @@ pub(crate) fn update_column_float(
     id: u32,
     column_name: String,
     value: f64,
-) -> Result<(), napi::Error> {
+) -> Result<bool, napi::Error> {
     update_column(db, table_name, id, column_name, Value::Float(value))
 }
 
