@@ -4,11 +4,11 @@
 
 | Operation | Direct (API) | SQL Bulk | SQL Prep | Bun SQLite |
 |-----------|-------------|----------|----------|------------|
-| INSERT    | ~100ms      | ~400ms   | ~170ms   | ~550ms     |
-| READ      | ~0.6ms      | ~27ms    | ~0.7ms   | ~34ms      |
-| FIND      | ~0.02ms     | ~0.08ms  | ~0.07ms  | ~0.25ms    |
-| UPDATE    | ~7ms        | ~70ms    | ~4ms     | ~25ms      |
-| JOIN      | ~3ms        | ~40ms    | ~5ms     | ~20ms      |
+| INSERT    | **~69ms**   | ~340ms   | ~144ms   | ~526ms     |
+| READ      | **~0.6ms**  | ~19ms    | ~0.7ms   | ~26ms      |
+| FIND      | **~0.02ms**  | ~0.08ms  | ~0.07ms  | ~0.21ms    |
+| UPDATE    | **~8ms**    | ~66ms    | ~4ms     | ~18ms      |
+| JOIN      | **~4ms**    | ~34ms    | ~5ms     | ~16ms      |
 
 Run locally:
 

@@ -141,7 +141,6 @@ pub(crate) fn insert_batch(
     values: Vec<Option<serde_json::Value>>,
     num_columns: u32,
 ) -> Result<bool, napi::Error> {
-    use dbobj::Value as V;
     let num_cols = num_columns as usize;
     let total = values.len();
     let mut iter = values.into_iter();
@@ -152,7 +151,10 @@ pub(crate) fn insert_batch(
         for _ in 1..num_cols {
             match iter.next() {
                 Some(v) => row.push(super::json_to_db_value(v)),
-                None => { batch.push(row); return Ok(true); }
+                None => {
+                    batch.push(row);
+                    return Ok(true);
+                }
             }
         }
         batch.push(row);
