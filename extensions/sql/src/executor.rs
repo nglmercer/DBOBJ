@@ -843,7 +843,6 @@ impl<'a> SqlExecutor<'a> {
 
         let mut results = Vec::with_capacity(joined_rows.len());
         
-        // Pre-calculate column keys to avoid formatting strings in every row
         let t1_keys: Vec<CompactString> = t1.schema.columns.iter()
             .map(|c| CompactString::from(format!("{}.{}", table1_name, c.name)))
             .collect();
@@ -854,14 +853,16 @@ impl<'a> SqlExecutor<'a> {
         for (r1, r2) in joined_rows {
             let mut combined = RowData::with_capacity_and_hasher(t1_keys.len() + t2_keys.len(), Default::default());
             
-            for (i, val) in r1.data.iter().enumerate() {
-                if i < t1_keys.len() {
-                    combined.insert(t1_keys[i].clone(), val.clone());
+            let r1_map = r1.to_map(&t1);
+            let r2_map = r2.to_map(&t2);
+            for (key, col_name) in t1_keys.iter().zip(t1.schema.columns.iter()) {
+                if let Some(val) = r1_map.get(col_name.name.as_str()) {
+                    combined.insert(key.clone(), val.clone());
                 }
             }
-            for (i, val) in r2.data.iter().enumerate() {
-                if i < t2_keys.len() {
-                    combined.insert(t2_keys[i].clone(), val.clone());
+            for (key, col_name) in t2_keys.iter().zip(t2.schema.columns.iter()) {
+                if let Some(val) = r2_map.get(col_name.name.as_str()) {
+                    combined.insert(key.clone(), val.clone());
                 }
             }
             results.push(combined);

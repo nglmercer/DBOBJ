@@ -576,7 +576,10 @@ if (!nativeBinding) {
 }
 
 module.exports = nativeBinding
+module.exports.Cursor = nativeBinding.Cursor
 module.exports.Database = nativeBinding.Database
+module.exports.DbError = nativeBinding.DbError
 module.exports.PreparedStatement = nativeBinding.PreparedStatement
+module.exports.Schema = nativeBinding.Schema
 module.exports.Transaction = nativeBinding.Transaction
 module.exports.DataType = nativeBinding.DataType

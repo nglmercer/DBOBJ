@@ -1,5 +1,5 @@
 use dbobj::core::Database;
-use dbobj::sql::{SqlExecutor, SqlResult};
+use dbobj_sql::{SqlExecutor, SqlResult};
 
 #[test]
 fn test_sql_basic_flow() {
@@ -249,7 +249,7 @@ fn test_sql_alter_table() {
 
 #[test]
 fn test_sql_join() {
-    let db = Database::new("test_db".to_string());
+    let db = Database::new("test_sql_join_db".to_string());
     let executor = SqlExecutor::new(&db);
 
     executor
@@ -276,8 +276,7 @@ fn test_sql_join() {
         .execute("SELECT * FROM users INNER JOIN orders ON users.user_id = orders.user_id")
         .unwrap();
     if let SqlResult::Rows(rows) = result {
-        assert_eq!(rows.len(), 2);
-        // Find Alice in the results
+        assert_eq!(rows.len(), 2, "Expected 2 joined rows");
         let alice_row = rows.iter().find(|r| {
             r.get("users.name")
                 .map(|v| v == &"Alice".into())
@@ -300,8 +299,8 @@ fn test_sql_errors() {
     // Missing table
     assert!(executor.execute("SELECT * FROM non_existent").is_err());
 
-    // Unsupported operation
-    assert!(executor.execute("DROP TABLE users").is_err());
+    // DROP TABLE on non-existent table returns error
+    assert!(executor.execute("DROP TABLE non_existent").is_err());
 }
 
 #[test]
@@ -324,6 +323,107 @@ fn test_sql_positional_insert() {
         assert_eq!(rows[0].get("id").unwrap().clone(), 1.into());
     } else {
         panic!("Expected Rows result");
+    }
+}
+
+// ── New SQL feature tests ──
+
+#[test]
+fn test_sql_drop_table() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+    executor.execute("CREATE TABLE t (id INTEGER)").unwrap();
+    executor.execute("INSERT INTO t VALUES (1)").unwrap();
+    executor.execute("DROP TABLE t").unwrap();
+    assert!(executor.execute("SELECT * FROM t").is_err());
+}
+
+#[test]
+fn test_sql_order_by() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+    executor.execute("CREATE TABLE t (id INTEGER, name TEXT)").unwrap();
+    executor.execute("INSERT INTO t VALUES (2, 'Bob')").unwrap();
+    executor.execute("INSERT INTO t VALUES (1, 'Alice')").unwrap();
+    executor.execute("INSERT INTO t VALUES (3, 'Charlie')").unwrap();
+
+    let result = executor.execute("SELECT * FROM t ORDER BY name").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows[0].get("name").unwrap().clone(), "Alice".into());
+        assert_eq!(rows[2].get("name").unwrap().clone(), "Charlie".into());
+    }
+
+    let result = executor.execute("SELECT * FROM t ORDER BY name DESC").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows[0].get("name").unwrap().clone(), "Charlie".into());
+    }
+}
+
+#[test]
+fn test_sql_limit_offset() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+    executor.execute("CREATE TABLE t (id INTEGER)").unwrap();
+    for i in 0..10 { executor.execute(&format!("INSERT INTO t VALUES ({})", i)).unwrap(); }
+
+    let result = executor.execute("SELECT * FROM t ORDER BY id LIMIT 3").unwrap();
+    if let SqlResult::Rows(rows) = result { assert_eq!(rows.len(), 3); }
+
+    let result = executor.execute("SELECT * FROM t ORDER BY id LIMIT 3 OFFSET 7").unwrap();
+    if let SqlResult::Rows(rows) = result { assert_eq!(rows.len(), 3); } // rows 7,8,9
+}
+
+#[test]
+fn test_sql_aggregation() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+    executor.execute("CREATE TABLE t (val INTEGER)").unwrap();
+    executor.execute("INSERT INTO t VALUES (10), (20), (30)").unwrap();
+
+    let result = executor.execute("SELECT COUNT(*) FROM t").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows[0].get("COUNT(*)").unwrap().clone(), 3.into());
+    }
+
+    let result = executor.execute("SELECT SUM(val) FROM t").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows[0].get("SUM").unwrap().clone(), 60.into());
+    }
+
+    let result = executor.execute("SELECT MIN(val) FROM t").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows[0].get("MIN").unwrap().clone(), 10.into());
+    }
+
+    let result = executor.execute("SELECT MAX(val) FROM t").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows[0].get("MAX").unwrap().clone(), 30.into());
+    }
+}
+
+#[test]
+fn test_sql_not_null_create_table() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+    executor.execute("CREATE TABLE t (id INTEGER NOT NULL, name TEXT)").unwrap();
+    // Table created successfully
+    executor.execute("INSERT INTO t (id, name) VALUES (1, 'Alice')").unwrap();
+    let result = executor.execute("SELECT * FROM t").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 1);
+    }
+}
+
+#[test]
+fn test_sql_like_with_order() {
+    let db = Database::new("test_db".to_string());
+    let executor = SqlExecutor::new(&db);
+    executor.execute("CREATE TABLE t (id INTEGER, name TEXT)").unwrap();
+    executor.execute("INSERT INTO t VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Alex')").unwrap();
+
+    let result = executor.execute("SELECT * FROM t WHERE name LIKE 'A%' ORDER BY id").unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 2);
     }
 }
 

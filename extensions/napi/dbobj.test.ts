@@ -10,6 +10,6 @@ describe("DBOBJ N-API Bindings - Full Operations", () => {
   import("./tests/transactions.test");
   import("./tests/aggregation.test");
   import("./tests/schema.test");
-  import("./tests/new_features.test");
+  import("./tests/cursor.test");
   import("./tests/errors.test");
 });

@@ -326,6 +326,7 @@ dependencies = [
  "bitcode",
  "compact_str",
  "criterion",
+ "dbobj-sql",
  "memmap2",
  "mimalloc",
  "nohash-hasher",
@@ -334,6 +335,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "sqlparser",
  "string-interner",
  "thiserror",
 ]

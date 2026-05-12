@@ -1,6 +1,6 @@
 use compact_str::CompactString;
 use dbobj::core::{DataType, Operator, Value};
-use dbobj::sql::local_parser::{Expr, Parser, Statement, Token, Tokenizer};
+use dbobj_sql::local_parser::{Expr, Parser, Statement, Token, Tokenizer};
 
 // ── Tokenizer tests ──
 
@@ -99,7 +99,7 @@ fn test_tokenize_full_statement() {
 
 // ── Helper to run parser ──
 
-fn parse_one(sql: &str) -> dbobj::sql::local_parser::Statement {
+fn parse_one(sql: &str) -> dbobj_sql::local_parser::Statement {
     let mut parser = Parser::new(sql);
     let stmts = parser.parse_statements().unwrap();
     assert_eq!(stmts.len(), 1, "Expected exactly one statement");
@@ -149,7 +149,7 @@ fn test_parse_alter_table() {
     let stmt = parse_one("ALTER TABLE users ADD COLUMN age INTEGER");
     if let Statement::AlterTable { name, operation } = &stmt {
         assert_eq!(name.as_str(), "users");
-        let dbobj::sql::local_parser::AlterOperation::AddColumn(col_def) = operation else {
+        let dbobj_sql::local_parser::AlterOperation::AddColumn(col_def) = operation else {
             panic!("Expected AddColumn");
         };
         assert_eq!(col_def.name.as_str(), "age");
@@ -163,7 +163,7 @@ fn test_parse_alter_table() {
 fn test_parse_alter_table_without_column_keyword() {
     let stmt = parse_one("ALTER TABLE users ADD age INTEGER");
     if let Statement::AlterTable { operation, .. } = &stmt {
-        let dbobj::sql::local_parser::AlterOperation::AddColumn(col_def) = operation else {
+        let dbobj_sql::local_parser::AlterOperation::AddColumn(col_def) = operation else {
             panic!("Expected AddColumn");
         };
         assert_eq!(col_def.name.as_str(), "age");
@@ -281,7 +281,7 @@ fn test_parse_select_star() {
     if let Statement::Select { columns, table, .. } = &stmt {
         assert!(matches!(
             columns,
-            dbobj::sql::local_parser::SelectColumns::Star
+            dbobj_sql::local_parser::SelectColumns::Star
         ));
         assert_eq!(table.as_str(), "users");
     } else {
@@ -291,12 +291,13 @@ fn test_parse_select_star() {
 
 #[test]
 fn test_parse_select_columns() {
+    use dbobj_sql::local_parser::Expr;
     let stmt = parse_one("SELECT name, age FROM users");
     if let Statement::Select { columns, .. } = &stmt {
-        if let dbobj::sql::local_parser::SelectColumns::List(cols) = columns {
+        if let dbobj_sql::local_parser::SelectColumns::List(cols) = columns {
             assert_eq!(cols.len(), 2);
-            assert_eq!(cols[0].as_str(), "name");
-            assert_eq!(cols[1].as_str(), "age");
+            assert!(matches!(&cols[0].expr, Expr::Column(c) if c == "name"));
+            assert!(matches!(&cols[1].expr, Expr::Column(c) if c == "age"));
         } else {
             panic!("Expected column list");
         }
@@ -464,6 +465,126 @@ fn test_parse_column_with_alias_keyword() {
 
 // ── Cross-validation against sqlparser ──
 
+// ── New SQL features ──
+
+#[test]
+fn test_parse_drop_table() {
+    let stmt = parse_one("DROP TABLE users");
+    assert!(matches!(stmt, Statement::DropTable { .. }));
+    if let Statement::DropTable { name } = &stmt {
+        assert_eq!(name.as_str(), "users");
+    }
+}
+
+#[test]
+fn test_parse_order_by() {
+    let stmt = parse_one("SELECT * FROM users ORDER BY name");
+    if let Statement::Select { order_by, .. } = &stmt {
+        let ob = order_by.as_ref().unwrap();
+        assert_eq!(ob.column.as_str(), "name");
+        assert!(!ob.descending);
+    } else {
+        panic!("Expected Select");
+    }
+}
+
+#[test]
+fn test_parse_order_by_desc() {
+    let stmt = parse_one("SELECT * FROM users ORDER BY name DESC");
+    if let Statement::Select { order_by, .. } = &stmt {
+        let ob = order_by.as_ref().unwrap();
+        assert_eq!(ob.column.as_str(), "name");
+        assert!(ob.descending);
+    } else {
+        panic!("Expected Select");
+    }
+}
+
+#[test]
+fn test_parse_limit() {
+    let stmt = parse_one("SELECT * FROM users LIMIT 10");
+    if let Statement::Select { limit, .. } = &stmt {
+        assert_eq!(*limit, Some(10));
+    } else {
+        panic!("Expected Select");
+    }
+}
+
+#[test]
+fn test_parse_limit_offset() {
+    let stmt = parse_one("SELECT * FROM users LIMIT 5 OFFSET 10");
+    if let Statement::Select { limit, offset, .. } = &stmt {
+        assert_eq!(*limit, Some(5));
+        assert_eq!(*offset, Some(10));
+    } else {
+        panic!("Expected Select");
+    }
+}
+
+#[test]
+fn test_parse_order_by_limit() {
+    let stmt = parse_one("SELECT * FROM users ORDER BY id LIMIT 10 OFFSET 5");
+    if let Statement::Select { order_by, limit, offset, .. } = &stmt {
+        assert!(order_by.is_some());
+        assert_eq!(*limit, Some(10));
+        assert_eq!(*offset, Some(5));
+    } else {
+        panic!("Expected Select");
+    }
+}
+
+#[test]
+fn test_parse_create_table_not_null() {
+    let stmt = parse_one("CREATE TABLE users (id INTEGER NOT NULL, name TEXT)");
+    if let Statement::CreateTable { columns, .. } = &stmt {
+        assert_eq!(columns[0].nullable, Some(false));
+        assert_eq!(columns[1].nullable, None);
+    } else {
+        panic!("Expected CreateTable");
+    }
+}
+
+#[test]
+fn test_parse_aggregation() {
+    use dbobj_sql::local_parser::AggFunc;
+    let stmt = parse_one("SELECT COUNT(*), SUM(val), MIN(val), MAX(val) FROM t");
+    if let Statement::Select { columns, .. } = &stmt {
+        if let dbobj_sql::local_parser::SelectColumns::List(cols) = columns {
+            assert_eq!(cols.len(), 4);
+            assert!(matches!(&cols[0].expr, dbobj_sql::local_parser::Expr::Agg(AggFunc::Count, _)));
+            assert!(matches!(&cols[1].expr, dbobj_sql::local_parser::Expr::Agg(AggFunc::Sum, _)));
+            assert!(matches!(&cols[2].expr, dbobj_sql::local_parser::Expr::Agg(AggFunc::Min, _)));
+            assert!(matches!(&cols[3].expr, dbobj_sql::local_parser::Expr::Agg(AggFunc::Max, _)));
+        } else {
+            panic!("Expected column list");
+        }
+    } else {
+        panic!("Expected Select");
+    }
+}
+
+#[test]
+fn test_parse_like_with_order() {
+    let stmt = parse_one("SELECT * FROM users WHERE name LIKE 'A%' ORDER BY id");
+    if let Statement::Select { selection, order_by, .. } = &stmt {
+        assert!(selection.is_some());
+        assert!(order_by.is_some());
+    } else {
+        panic!("Expected Select");
+    }
+}
+
+#[test]
+fn test_parse_select_column_with_alias() {
+    let stmt = parse_one("SELECT name AS username FROM users");
+    if let Statement::Select { columns, .. } = &stmt {
+        if let dbobj_sql::local_parser::SelectColumns::List(cols) = columns {
+            assert_eq!(cols.len(), 1);
+            assert!(matches!(&cols[0].expr, dbobj_sql::local_parser::Expr::Column(c) if c == "name"));
+        }
+    }
+}
+
 #[test]
 fn test_roundtrip_vs_sqlparser_create_table() {
     use sqlparser::dialect::SQLiteDialect;
@@ -525,7 +646,7 @@ fn test_roundtrip_vs_sqlparser_join() {
 #[test]
 fn test_local_parser_produces_executable_ast() {
     use dbobj::core::Database;
-    use dbobj::sql::{SqlExecutor, SqlResult};
+    use dbobj_sql::{SqlExecutor, SqlResult};
 
     let db = Database::new("test_local_parser_db".to_string());
     let executor = SqlExecutor::new(&db);

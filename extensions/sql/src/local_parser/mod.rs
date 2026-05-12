@@ -282,7 +282,9 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expr()?;
                 let alias = if self.current == Token::KwAs {
                     self.advance()?;
-                    Some(self.current_ident_owned()?)
+                    let name = self.current_ident_owned()?;
+                    self.advance()?;
+                    Some(name)
                 } else { None };
                 cols.push(SelectColumn { expr, alias });
                 if self.current != Token::Comma { break; }

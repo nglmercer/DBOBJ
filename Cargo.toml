@@ -41,3 +41,5 @@ harness = false
 [dev-dependencies]
 criterion = "0.8.2"
 rusqlite = "0.31.0"
+sqlparser = "0.61"
+dbobj-sql = { path = "extensions/sql" }
