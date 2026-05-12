@@ -307,6 +307,101 @@ pub(crate) fn hash_join_i64(
     }
 }
 
+fn row_to_json(table: &dbobj::core::table::Table, row_idx: usize) -> serde_json::Value {
+    let num_cols = table.num_columns;
+    let mut map = serde_json::Map::with_capacity(num_cols + 1);
+    match &table.ids[row_idx] {
+        dbobj::Id::Integer(id) => { map.insert("id".into(), serde_json::Value::Number((*id).into())); }
+        dbobj::Id::String(s) => { map.insert("id".into(), serde_json::Value::String(s.to_string())); }
+    }
+    let base = row_idx * num_cols;
+    for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
+        let val = &table.data[base + col_idx];
+        let json_val = match val {
+            dbobj::Value::Null => serde_json::Value::Null,
+            dbobj::Value::Integer(i) => serde_json::Value::Number((*i).into()),
+            dbobj::Value::Float(f) => serde_json::Number::from_f64(*f)
+                .map(serde_json::Value::Number).unwrap_or(serde_json::Value::Null),
+            dbobj::Value::String(s) => serde_json::Value::String(s.to_string()),
+            dbobj::Value::Boolean(b) => serde_json::Value::Bool(*b),
+            dbobj::Value::Blob(b) => serde_json::Value::Array(
+                b.iter().map(|&x| serde_json::Value::Number(x.into())).collect(),
+            ),
+            dbobj::Value::InternedString(id) => {
+                table.string_pool.resolve(*id).map_or_else(
+                    || serde_json::Value::String(format!("<interned:{}>", id)),
+                    |s| serde_json::Value::String(s.to_string()),
+                )
+            }
+        };
+        map.insert(col_def.name.to_string(), json_val);
+    }
+    serde_json::Value::Object(map)
+}
+
+pub(crate) fn get_row_by_id(
+    db: &Database,
+    table_name: String,
+    id: u32,
+) -> Result<Option<serde_json::Value>> {
+    let table_lock = db.inner.get_table(&table_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+    let table = table_lock.read();
+    let idx = table.get_index(&Id::Integer(id as u64));
+    match idx {
+        Some(idx) if idx < table.ids.len() => Ok(Some(row_to_json(&table, idx))),
+        _ => Ok(None),
+    }
+}
+
+pub(crate) fn get_row_by_column_i64(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+    value: i64,
+) -> Result<Option<serde_json::Value>> {
+    let rows = db.inner.find(&table_name, &column_name, Value::Integer(value))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    if rows.is_empty() { return Ok(None); }
+    let table_lock = db.inner.get_table(&table_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+    let table = table_lock.read();
+    let idx = table.get_index(&rows[0].id).unwrap_or(0);
+    Ok(Some(row_to_json(&table, idx)))
+}
+
+pub(crate) fn get_row_by_column_string(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+    value: String,
+) -> Result<Option<serde_json::Value>> {
+    let rows = db.inner.find(&table_name, &column_name, Value::String(value.into()))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    if rows.is_empty() { return Ok(None); }
+    let table_lock = db.inner.get_table(&table_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+    let table = table_lock.read();
+    let idx = table.get_index(&rows[0].id).unwrap_or(0);
+    Ok(Some(row_to_json(&table, idx)))
+}
+
+pub(crate) fn get_row_by_column_bool(
+    db: &Database,
+    table_name: String,
+    column_name: String,
+    value: bool,
+) -> Result<Option<serde_json::Value>> {
+    let rows = db.inner.find(&table_name, &column_name, Value::Boolean(value))
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+    if rows.is_empty() { return Ok(None); }
+    let table_lock = db.inner.get_table(&table_name)
+        .ok_or_else(|| napi::Error::from_reason(format!("Table {} not found", table_name)))?;
+    let table = table_lock.read();
+    let idx = table.get_index(&rows[0].id).unwrap_or(0);
+    Ok(Some(row_to_json(&table, idx)))
+}
+
 pub(crate) fn get_rows(
     db: &Database,
     table_name: String,
@@ -331,45 +426,7 @@ pub(crate) fn get_rows(
 
     let mut results = Vec::with_capacity(end - start);
     for row_idx in start..end {
-        let mut map = serde_json::Map::with_capacity(num_cols + 1);
-
-        match &table.ids[row_idx] {
-            dbobj::Id::Integer(id) => {
-                map.insert("id".into(), serde_json::Value::Number((*id).into()));
-            }
-            dbobj::Id::String(s) => {
-                map.insert("id".into(), serde_json::Value::String(s.to_string()));
-            }
-        }
-
-        let base = row_idx * num_cols;
-        for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
-            let val = &table.data[base + col_idx];
-            let json_val = match val {
-                dbobj::Value::Null => serde_json::Value::Null,
-                dbobj::Value::Integer(i) => serde_json::Value::Number((*i).into()),
-                dbobj::Value::Float(f) => serde_json::Number::from_f64(*f)
-                    .map(serde_json::Value::Number)
-                    .unwrap_or(serde_json::Value::Null),
-                dbobj::Value::String(s) => serde_json::Value::String(s.to_string()),
-                dbobj::Value::Boolean(b) => serde_json::Value::Bool(*b),
-                dbobj::Value::Blob(b) => serde_json::Value::Array(
-                    b.iter()
-                        .map(|&x| serde_json::Value::Number(x.into()))
-                        .collect(),
-                ),
-                dbobj::Value::InternedString(id) => {
-                    if let Some(s) = table.string_pool.resolve(*id) {
-                        serde_json::Value::String(s.to_string())
-                    } else {
-                        serde_json::Value::String(format!("<interned:{}>", id))
-                    }
-                }
-            };
-            map.insert(col_def.name.to_string(), json_val);
-        }
-
-        results.push(serde_json::Value::Object(map));
+        results.push(row_to_json(&table, row_idx));
     }
 
     Ok(serde_json::Value::Array(results))

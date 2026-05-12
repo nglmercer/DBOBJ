@@ -597,6 +597,45 @@ impl Database {
     }
 
     #[napi]
+    pub fn get_row_by_id(
+        &self,
+        table_name: String,
+        id: u32,
+    ) -> Result<Option<serde_json::Value>> {
+        query::get_row_by_id(self, table_name, id)
+    }
+
+    #[napi]
+    pub fn get_row_by_column_i64(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: i64,
+    ) -> Result<Option<serde_json::Value>> {
+        query::get_row_by_column_i64(self, table_name, column_name, value)
+    }
+
+    #[napi]
+    pub fn get_row_by_column_string(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: String,
+    ) -> Result<Option<serde_json::Value>> {
+        query::get_row_by_column_string(self, table_name, column_name, value)
+    }
+
+    #[napi]
+    pub fn get_row_by_column_bool(
+        &self,
+        table_name: String,
+        column_name: String,
+        value: bool,
+    ) -> Result<Option<serde_json::Value>> {
+        query::get_row_by_column_bool(self, table_name, column_name, value)
+    }
+
+    #[napi]
     pub async fn get_rows_async(
         &self,
         table_name: String,

@@ -42,6 +42,10 @@ export declare class Database {
   getColumnFloat(tableName: string, columnName: string): Array<number>
   hashJoinI64(table1: string, col1: string, table2: string, col2: string): BigInt64Array
   getRows(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): any
+  getRowById(tableName: string, id: number): any | null
+  getRowByColumnI64(tableName: string, columnName: string, value: number): any | null
+  getRowByColumnString(tableName: string, columnName: string, value: string): any | null
+  getRowByColumnBool(tableName: string, columnName: string, value: boolean): any | null
   getRowsAsync(tableName: string, limit?: number | undefined | null, offset?: number | undefined | null): Promise<any>
   cursor(tableName: string, batchSize?: number | undefined | null): Cursor
   countRows(tableName: string): number
