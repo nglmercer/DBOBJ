@@ -1,36 +1,81 @@
-# DBOBJ
+# DBOBJ: High-Performance Modular Database Engine
 
-High-performance modular database engine for Rust, Node.js, and Bun.
+DBOBJ is a high-performance, in-memory database engine written in Rust, designed for extreme speed, low latency, and zero-copy data access. It is modularized into three core components:
 
-| Component | Description |
-|-----------|-------------|
-| **Core** (`dbobj`) | Columnar storage, mmap persistence, hash joins |
-| **SQL** (`dbobj-sql`) | Embedded SQL parser and executor |
-| **NAPI** (`dbobj-napi`) | Native Node.js/Bun bindings |
+1.  **Core Engine (`dbobj`)**: The foundation. High-performance columnar/dense-row storage with `mmap` and `rkyv` support.
+2.  **SQL Extension (`dbobj-sql`)**: A high-performance SQL parser and executor specialized for DBOBJ.
+3.  **N-API Bridge (`dbobj-napi`)**: Native bindings for **Node.js** and **Bun**, providing zero-copy access to the Rust engine.
 
-## Docs
+---
 
-- [Getting Started](./docs/getting-started.md) — installation and quickstart
-- [API Reference](./docs/api-reference.md) — full method reference
-- [NAPI Methods](./docs/napi-methods.md) — all native methods with types
-- [SQL Reference](./docs/sql-reference.md) — supported SQL syntax
-- [Architecture](./docs/architecture.md) — engine design overview
-- [Benchmarks](./docs/benchmarks.md) — performance numbers
-- [Examples](./docs/examples.md) — usage examples
+## 📦 Project Structure
 
-## Quick Install
+### 1. Core Engine (`/`)
+The core library provides the fundamental database primitives:
+- **Dense Row Storage**: Optimized for cache locality.
+- **MMap + rkyv**: Instant database loading with zero-copy deserialization.
+- **Shared Memory**: Thread-safe access via `Arc<RwLock<...>>`.
 
-```bash
-bun add dbobj-napi
-# or
-npm install dbobj-napi
-```
+### 2. SQL Extension (`extensions/sql`)
+A specialized SQL implementation that is **up to 60x faster** than generic SQLite drivers.
+- **LocalParser**: Hand-written recursive descent parser.
+- **Optimized Executor**: Directly targets the core columnar storage.
+
+### 3. N-API Bindings (`extensions/napi`)
+The high-performance bridge for the JavaScript ecosystem.
+- **Bun/Node Support**: Pre-built binaries for high-speed integration.
+- **Zero-Copy Buffers**: Export entire columns as `BigInt64Array` without cloning data.
+
+---
+
+## 🛠 Usage (Bun / Node.js)
 
 ```typescript
-import { Database, DataType } from "dbobj-napi";
+import { Database } from "dbobj-napi";
+
 const db = new Database("my_db");
+
+// 1. Direct API (Maximum Performance)
+db.createTable("users", [
+  { name: "id", dataType: "integer", nullable: false },
+  { name: "val", dataType: "integer" },
+]);
+db.createIndex("users", "id");
+
+// 2. SQL API (Ease of Use)
+db.executeSql("INSERT INTO users (id, val) VALUES (1, 100)");
+const results = db.executeSql("SELECT * FROM users WHERE id = 1");
+
 ```
 
-## License
+---
 
+## 📚 Documentation
+
+- [Getting Started](./extensions/napi/docs/getting-started.md) — install and quickstart
+- [NAPI Methods](./extensions/napi/docs/napi-methods.md) — full method reference
+- [SQL Reference](./extensions/napi/docs/sql-reference.md) — supported SQL syntax
+- [Examples](./extensions/napi/docs/examples.md) — usage examples
+- [Benchmarks](./extensions/napi/docs/benchmarks.md) — performance numbers
+- [Architecture](./extensions/napi/docs/architecture.md) — engine design
+
+---
+
+## 📈 Benchmarking Methodology
+
+We maintain three benchmark suites:
+1.  **Rust Core**: `cargo bench` (Criterion) for micro-benchmarks of the engine.
+2.  **SQL Parser**: `cargo bench -p dbobj-sql` to compare parsing overhead.
+3.  **End-to-End**: `bun bench.ts` in the `extensions/napi` directory for a full real-world comparison against `bun:sqlite`.
+
+### Running the End-to-End Bench
+```bash
+cd extensions/napi
+npm run build
+bun bench.ts
+```
+
+---
+
+## 📜 License
 MIT / Apache-2.0

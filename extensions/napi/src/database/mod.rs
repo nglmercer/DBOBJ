@@ -597,11 +597,7 @@ impl Database {
     }
 
     #[napi]
-    pub fn get_row_by_id(
-        &self,
-        table_name: String,
-        id: u32,
-    ) -> Result<Option<serde_json::Value>> {
+    pub fn get_row_by_id(&self, table_name: String, id: u32) -> Result<Option<serde_json::Value>> {
         query::get_row_by_id(self, table_name, id)
     }
 
