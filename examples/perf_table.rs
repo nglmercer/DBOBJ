@@ -1,5 +1,5 @@
 use dbobj::{ColumnDefinition, DataType, Database, Schema, Value};
-use rusqlite::{Connection, params as sqlite_params};
+use rusqlite::{params as sqlite_params, Connection};
 use std::time::Instant;
 
 fn main() {

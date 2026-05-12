@@ -1,5 +1,5 @@
-use dbobj::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
 use dbobj::storage::MmapStorage;
+use dbobj::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
 use std::time::Instant;
 
 fn main() {

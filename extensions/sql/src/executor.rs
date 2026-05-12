@@ -1,11 +1,11 @@
 use std::cell::RefCell;
 
-use dbobj::{ColumnDefinition, Database, RowData, Schema, Value};
 use crate::local_parser::{
-    AggFunc, AlterOperation, Assignment, Expr, Join, OrderBy, Parser as LocalParser,
-    SelectColumn, SelectColumns, Statement,
+    AggFunc, AlterOperation, Assignment, Expr, Join, OrderBy, Parser as LocalParser, SelectColumn,
+    SelectColumns, Statement,
 };
 use compact_str::CompactString;
+use dbobj::{ColumnDefinition, Database, RowData, Schema, Value};
 
 const MAX_CACHE_SIZE: usize = 512;
 
@@ -29,10 +29,15 @@ impl PreparedStatement {
 
 fn count_stmt_placeholders(stmt: &Statement, count: &mut usize) {
     match stmt {
-        Statement::Select { selection: Some(sel), .. } => {
+        Statement::Select {
+            selection: Some(sel),
+            ..
+        } => {
             count_expr_placeholders(sel, count);
         }
-        Statement::Select { selection: None, .. } => {}
+        Statement::Select {
+            selection: None, ..
+        } => {}
         Statement::Insert { values, .. } => {
             for row in values {
                 for val in row {
@@ -83,7 +88,15 @@ fn count_expr_placeholders(expr: &Expr, count: &mut usize) {
 
 fn substitute_statement(stmt: &Statement, params: &[Value], idx: &mut usize) -> Statement {
     match stmt {
-        Statement::Select { columns, table, selection, join, order_by, limit, offset } => Statement::Select {
+        Statement::Select {
+            columns,
+            table,
+            selection,
+            join,
+            order_by,
+            limit,
+            offset,
+        } => Statement::Select {
             columns: columns.clone(),
             table: table.clone(),
             selection: selection.as_ref().map(|s| substitute_expr(s, params, idx)),
@@ -143,20 +156,20 @@ fn substitute_expr(expr: &Expr, params: &[Value], idx: &mut usize) -> Expr {
         Expr::Column(c) => Expr::Column(c.clone()),
         Expr::CompoundColumn(a, b) => Expr::CompoundColumn(a.clone(), b.clone()),
         Expr::Placeholder => {
-            let v = params.get(*idx).ok_or_else(|| format!("Not enough parameters at position {}", idx)).unwrap();
+            let v = params
+                .get(*idx)
+                .ok_or_else(|| format!("Not enough parameters at position {}", idx))
+                .unwrap();
             *idx += 1;
             Expr::Literal(v.clone())
         }
-        Expr::Binary(left, op, right) => {
-            Expr::Binary(
-                Box::new(substitute_expr(left, params, idx)),
-                op.clone(),
-                Box::new(substitute_expr(right, params, idx)),
-            )
-        }
+        Expr::Binary(left, op, right) => Expr::Binary(
+            Box::new(substitute_expr(left, params, idx)),
+            op.clone(),
+            Box::new(substitute_expr(right, params, idx)),
+        ),
         Expr::Nested(inner) => Expr::Nested(Box::new(substitute_expr(inner, params, idx))),
-        Expr::Agg(func, arg) => Expr::Agg(func.clone(), Box::new(substitute_expr(arg, params, idx))),
-        _ => expr.clone(),
+        Expr::Agg(func, arg) => Expr::Agg(*func, Box::new(substitute_expr(arg, params, idx))),
     }
 }
 
@@ -268,18 +281,26 @@ impl<'a> SqlExecutor<'a> {
                     // FAST PATH: Bulk insert
                     let table_name = table.to_string();
                     let num_rows = batch_params.len();
-                    let table_lock = self.db.get_table(&table_name)
+                    let table_lock = self
+                        .db
+                        .get_table(&table_name)
                         .ok_or_else(|| format!("Table {} not found", table_name))?;
                     let table_ref = table_lock.read();
                     let num_cols = table_ref.num_columns;
-                    
+
                     let col_indices = if columns.is_empty() {
                         (0..num_cols).collect()
                     } else {
-                        columns.iter().map(|col| {
-                            table_ref.column_map.get(col.as_str()).copied()
-                                .ok_or_else(|| format!("Column {} not found", col))
-                        }).collect::<Result<Vec<_>, _>>()?
+                        columns
+                            .iter()
+                            .map(|col| {
+                                table_ref
+                                    .column_map
+                                    .get(col.as_str())
+                                    .copied()
+                                    .ok_or_else(|| format!("Column {} not found", col))
+                            })
+                            .collect::<Result<Vec<_>, _>>()?
                     };
                     drop(table_ref);
 
@@ -293,52 +314,70 @@ impl<'a> SqlExecutor<'a> {
                         }
                         batch.push(row);
                     }
-                    self.db.insert_batch_values(&table_name, batch).map_err(|e| e.to_string())?;
+                    self.db
+                        .insert_batch_values(&table_name, batch)
+                        .map_err(|e| e.to_string())?;
                     return Ok(SqlResult::Ok);
                 }
-                Statement::Update { table, assignments, selection } => {
+                Statement::Update {
+                    table,
+                    assignments,
+                    selection,
+                } => {
                     // Check if it's "UPDATE table SET col = ? WHERE id = ?"
                     let table_name = table.to_string();
-                    let table_lock = self.db.get_table(&table_name)
+                    let table_lock = self
+                        .db
+                        .get_table(&table_name)
                         .ok_or_else(|| format!("Table {} not found", table_name))?;
                     let table_ref = table_lock.read();
                     let _has_id_column = table_ref.column_map.contains_key("id");
-                    
+
                     // Simple check for WHERE id = ?
                     if let Some(selection) = selection
                         && let Expr::Binary(left, op, right) = selection
                         && matches!(op, dbobj::Operator::Eq)
                     {
-                         let is_point_id = match (left.as_ref(), right.as_ref()) {
-                             (Expr::Column(c), Expr::Placeholder) if c == "id" => true,
-                             (Expr::Placeholder, Expr::Column(c)) if c == "id" => true,
-                             _ => false
-                         };
+                        let is_point_id = match (left.as_ref(), right.as_ref()) {
+                            (Expr::Column(c), Expr::Placeholder) if c == "id" => true,
+                            (Expr::Placeholder, Expr::Column(c)) if c == "id" => true,
+                            _ => false,
+                        };
 
-                         if is_point_id {
-                             // FAST PATH: Bulk Point Update
-                             let assignment_info: Vec<(usize, usize)> = assignments.iter().enumerate().map(|(i, a)| {
-                                 let col_idx = table_ref.column_map.get(a.column.as_str()).unwrap();
-                                 (*col_idx, i)
-                             }).collect();
-                             
-                             let id_placeholder_idx = assignments.len();
-                             drop(table_ref);
+                        if is_point_id {
+                            // FAST PATH: Bulk Point Update
+                            let assignment_info: Vec<(usize, usize)> = assignments
+                                .iter()
+                                .enumerate()
+                                .map(|(i, a)| {
+                                    let col_idx =
+                                        table_ref.column_map.get(a.column.as_str()).unwrap();
+                                    (*col_idx, i)
+                                })
+                                .collect();
 
-                             let mut batch_updates = Vec::with_capacity(batch_params.len());
-                             for params in batch_params {
-                                 if let Value::Integer(id_int) = &params[id_placeholder_idx] {
-                                     let id = dbobj::Id::Integer(*id_int as u64);
-                                     let updates: Vec<(usize, Value)> = assignment_info.iter().map(|(col_idx, param_idx)| {
-                                         (*col_idx, params[*param_idx].clone())
-                                     }).collect();
-                                     batch_updates.push((id, updates));
-                                 }
-                             }
-                             
-                             self.db.update_batch_by_indices(&table_name, &batch_updates).map_err(|e| e.to_string())?;
-                             return Ok(SqlResult::Ok);
-                         }
+                            let id_placeholder_idx = assignments.len();
+                            drop(table_ref);
+
+                            let mut batch_updates = Vec::with_capacity(batch_params.len());
+                            for params in batch_params {
+                                if let Value::Integer(id_int) = &params[id_placeholder_idx] {
+                                    let id = dbobj::Id::Integer(*id_int as u64);
+                                    let updates: Vec<(usize, Value)> = assignment_info
+                                        .iter()
+                                        .map(|(col_idx, param_idx)| {
+                                            (*col_idx, params[*param_idx].clone())
+                                        })
+                                        .collect();
+                                    batch_updates.push((id, updates));
+                                }
+                            }
+
+                            self.db
+                                .update_batch_by_indices(&table_name, &batch_updates)
+                                .map_err(|e| e.to_string())?;
+                            return Ok(SqlResult::Ok);
+                        }
                     }
                 }
                 _ => {}
@@ -422,7 +461,9 @@ impl<'a> SqlExecutor<'a> {
                 let col_defs: Vec<ColumnDefinition> = columns
                     .into_iter()
                     .map(|col| {
-                        if col.name.as_str() == "id" { has_id = true; }
+                        if col.name.as_str() == "id" {
+                            has_id = true;
+                        }
                         ColumnDefinition {
                             name: col.name,
                             data_type: col.data_type,
@@ -433,7 +474,9 @@ impl<'a> SqlExecutor<'a> {
                 let schema = Schema { columns: col_defs };
                 let table_name = name.to_string();
                 self.db.create_table(table_name.clone(), schema);
-                if has_id { let _ = self.db.create_unique_index(&table_name, "id"); }
+                if has_id {
+                    let _ = self.db.create_unique_index(&table_name, "id");
+                }
                 Ok(SqlResult::Ok)
             }
             Statement::DropTable { name } => {
@@ -698,7 +741,15 @@ impl<'a> SqlExecutor<'a> {
                 order_by,
                 limit,
                 offset,
-            } => self.execute_query(&table, &selection, join.as_ref(), &columns, order_by.as_ref(), limit, offset),
+            } => self.execute_query(
+                &table,
+                &selection,
+                join.as_ref(),
+                &columns,
+                order_by.as_ref(),
+                limit,
+                offset,
+            ),
         }
     }
 
@@ -785,19 +836,25 @@ impl<'a> SqlExecutor<'a> {
                 let mb = b.to_map(&table_ref);
                 let va = ma.get(ob.column.as_str());
                 let vb = mb.get(ob.column.as_str());
-                if ob.descending { vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal) }
-                else { va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal) }
+                if ob.descending {
+                    vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
+                }
             });
             rows
-        } else { rows };
+        } else {
+            rows
+        };
 
         // Apply LIMIT / OFFSET
         let start = offset.unwrap_or(0) as usize;
-        let rows: Vec<_> = if start >= rows.len() { Vec::new() }
-            else {
-                let end = start + limit.unwrap_or(u64::MAX) as usize;
-                rows[start..end.min(rows.len())].to_vec()
-            };
+        let rows: Vec<_> = if start >= rows.len() {
+            Vec::new()
+        } else {
+            let end = start + limit.unwrap_or(u64::MAX) as usize;
+            rows[start..end.min(rows.len())].to_vec()
+        };
 
         // Handle aggregation and column projection
         let results: Vec<RowData> = match select_columns {
@@ -806,22 +863,25 @@ impl<'a> SqlExecutor<'a> {
                 if cols.len() == 1 && has_aggregation(&cols[0].expr) {
                     evaluate_aggregation(&rows, cols, &table_ref)?
                 } else {
-                    rows.into_iter().map(|r| {
-                        let mut map = RowData::default();
-                        for sc in cols {
-                            let val = eval_select_expr(&sc.expr, &r, &table_ref);
-                            let key = sc.alias.clone().unwrap_or_else(|| column_name_from_expr(&sc.expr));
-                            map.insert(key, val);
-                        }
-                        map
-                    }).collect()
+                    rows.into_iter()
+                        .map(|r| {
+                            let mut map = RowData::default();
+                            for sc in cols {
+                                let val = eval_select_expr(&sc.expr, &r, &table_ref);
+                                let key = sc
+                                    .alias
+                                    .clone()
+                                    .unwrap_or_else(|| column_name_from_expr(&sc.expr));
+                                map.insert(key, val);
+                            }
+                            map
+                        })
+                        .collect()
                 }
             }
         };
         Ok(SqlResult::Rows(results))
     }
-
-
 
     fn execute_join(&self, table1_name: &str, join: &Join) -> Result<SqlResult, String> {
         let table2_name = join.table.to_string();
@@ -842,17 +902,26 @@ impl<'a> SqlExecutor<'a> {
         let t2 = t2_lock.read();
 
         let mut results = Vec::with_capacity(joined_rows.len());
-        
-        let t1_keys: Vec<CompactString> = t1.schema.columns.iter()
+
+        let t1_keys: Vec<CompactString> = t1
+            .schema
+            .columns
+            .iter()
             .map(|c| CompactString::from(format!("{}.{}", table1_name, c.name)))
             .collect();
-        let t2_keys: Vec<CompactString> = t2.schema.columns.iter()
+        let t2_keys: Vec<CompactString> = t2
+            .schema
+            .columns
+            .iter()
             .map(|c| CompactString::from(format!("{}.{}", table2_name, c.name)))
             .collect();
 
         for (r1, r2) in joined_rows {
-            let mut combined = RowData::with_capacity_and_hasher(t1_keys.len() + t2_keys.len(), Default::default());
-            
+            let mut combined = RowData::with_capacity_and_hasher(
+                t1_keys.len() + t2_keys.len(),
+                Default::default(),
+            );
+
             let r1_map = r1.to_map(&t1);
             let r2_map = r2.to_map(&t2);
             for (key, col_name) in t1_keys.iter().zip(t1.schema.columns.iter()) {
@@ -947,7 +1016,11 @@ fn has_aggregation(expr: &Expr) -> bool {
     }
 }
 
-fn evaluate_aggregation(rows: &[dbobj::table::Row], cols: &[SelectColumn], table: &dbobj::table::Table) -> Result<Vec<RowData>, String> {
+fn evaluate_aggregation(
+    rows: &[dbobj::table::Row],
+    cols: &[SelectColumn],
+    table: &dbobj::table::Table,
+) -> Result<Vec<RowData>, String> {
     let mut results = Vec::new();
     for sc in cols {
         match &sc.expr {
@@ -963,23 +1036,41 @@ fn evaluate_aggregation(rows: &[dbobj::table::Row], cols: &[SelectColumn], table
                     AggFunc::Sum => {
                         let mut sum: i64 = 0;
                         for row in rows {
-                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) { sum = sum.saturating_add(v); }
+                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) {
+                                sum = sum.saturating_add(v);
+                            }
                         }
                         dbobj::Value::Integer(sum)
                     }
                     AggFunc::Min => {
                         let mut min = i64::MAX;
                         for row in rows {
-                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) { if v < min { min = v; } }
+                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) {
+                                if v < min {
+                                    min = v;
+                                }
+                            }
                         }
-                        if min == i64::MAX { dbobj::Value::Null } else { dbobj::Value::Integer(min) }
+                        if min == i64::MAX {
+                            dbobj::Value::Null
+                        } else {
+                            dbobj::Value::Integer(min)
+                        }
                     }
                     AggFunc::Max => {
                         let mut max = i64::MIN;
                         for row in rows {
-                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) { if v > max { max = v; } }
+                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) {
+                                if v > max {
+                                    max = v;
+                                }
+                            }
                         }
-                        if max == i64::MIN { dbobj::Value::Null } else { dbobj::Value::Integer(max) }
+                        if max == i64::MIN {
+                            dbobj::Value::Null
+                        } else {
+                            dbobj::Value::Integer(max)
+                        }
                     }
                 };
                 let mut map = RowData::default();
@@ -996,20 +1087,36 @@ fn eval_agg_arg(expr: &Expr, row: &dbobj::table::Row, table: &dbobj::table::Tabl
     match expr {
         Expr::Column(c) => {
             if let Some(&idx) = table.column_map.get(c.as_str()) {
-                if idx < row.data.len() { row.data[idx].clone() } else { dbobj::Value::Null }
-            } else { dbobj::Value::Null }
+                if idx < row.data.len() {
+                    row.data[idx].clone()
+                } else {
+                    dbobj::Value::Null
+                }
+            } else {
+                dbobj::Value::Null
+            }
         }
         Expr::Literal(v) => v.clone(),
         _ => dbobj::Value::Null,
     }
 }
 
-fn eval_select_expr(expr: &Expr, row: &dbobj::table::Row, table: &dbobj::table::Table) -> dbobj::Value {
+fn eval_select_expr(
+    expr: &Expr,
+    row: &dbobj::table::Row,
+    table: &dbobj::table::Table,
+) -> dbobj::Value {
     match expr {
         Expr::Column(c) => {
             if let Some(&idx) = table.column_map.get(c.as_str()) {
-                if idx < row.data.len() { row.data[idx].clone() } else { dbobj::Value::Null }
-            } else { dbobj::Value::Null }
+                if idx < row.data.len() {
+                    row.data[idx].clone()
+                } else {
+                    dbobj::Value::Null
+                }
+            } else {
+                dbobj::Value::Null
+            }
         }
         Expr::Literal(v) => v.clone(),
         _ => dbobj::Value::Null,
@@ -1036,47 +1143,65 @@ impl<'a> SqlExecutor<'a> {
         if statements.len() != 1 {
             return Err("execute_i64 expects exactly one statement".to_string());
         }
-        
-        if let Statement::Select { columns, table, selection, join, .. } = &statements[0]
+
+        if let Statement::Select {
+            columns,
+            table,
+            selection,
+            join,
+            ..
+        } = &statements[0]
             && let crate::local_parser::SelectColumns::List(cols) = columns
             && cols.len() == 1
             && join.is_none()
         {
-                 let table_name = table.to_string();
-                 let table_lock = self.db.get_table(&table_name)
-                     .ok_or_else(|| format!("Table {} not found", table_name))?;
-                 let table_ref = table_lock.read();
-                 let col_name = match &cols[0].expr {
-                     Expr::Column(c) => c.as_str(),
-                     _ => return Err("execute_i64 requires a simple column reference".to_string()),
-                 };
-                 let col_idx = *table_ref.column_map.get(col_name)
-                     .ok_or_else(|| format!("Column {} not found", col_name))?;
-                 
-                 // Perform scan or indexed search
-                 let rows = if let Some(direct_id) = selection.as_ref().and_then(|s| Self::try_extract_id_filter(s, table_ref.column_map.contains_key("id"))) {
-                     if let Some(row) = table_ref.get(&direct_id) { vec![row] } else { vec![] }
-                 } else if let Some(sel) = selection {
-                     let mapped = map_expr_to_core(sel)?;
-                     let mut mapping = dbobj::FastHashMap::default();
-                     for (col, idx) in &table_ref.column_map {
-                         mapping.insert(col.clone(), *idx);
-                     }
-                     table_ref.select(|r| mapped.is_true(r, &mapping, &table_ref))
-                 } else {
-                     (0..table_ref.ids.len()).map(|i| table_ref.get_row_by_index(i)).collect()
-                 };
- 
-                 let mut results = Vec::with_capacity(rows.len());
-                 for row in rows {
-                     if let Value::Integer(i) = row.data[col_idx] {
-                         results.push(i);
-                     } else {
-                         results.push(0);
-                     }
-                 }
-                 return Ok(results);
-             }
+            let table_name = table.to_string();
+            let table_lock = self
+                .db
+                .get_table(&table_name)
+                .ok_or_else(|| format!("Table {} not found", table_name))?;
+            let table_ref = table_lock.read();
+            let col_name = match &cols[0].expr {
+                Expr::Column(c) => c.as_str(),
+                _ => return Err("execute_i64 requires a simple column reference".to_string()),
+            };
+            let col_idx = *table_ref
+                .column_map
+                .get(col_name)
+                .ok_or_else(|| format!("Column {} not found", col_name))?;
+
+            // Perform scan or indexed search
+            let rows = if let Some(direct_id) = selection.as_ref().and_then(|s| {
+                Self::try_extract_id_filter(s, table_ref.column_map.contains_key("id"))
+            }) {
+                if let Some(row) = table_ref.get(&direct_id) {
+                    vec![row]
+                } else {
+                    vec![]
+                }
+            } else if let Some(sel) = selection {
+                let mapped = map_expr_to_core(sel)?;
+                let mut mapping = dbobj::FastHashMap::default();
+                for (col, idx) in &table_ref.column_map {
+                    mapping.insert(col.clone(), *idx);
+                }
+                table_ref.select(|r| mapped.is_true(r, &mapping, &table_ref))
+            } else {
+                (0..table_ref.ids.len())
+                    .map(|i| table_ref.get_row_by_index(i))
+                    .collect()
+            };
+
+            let mut results = Vec::with_capacity(rows.len());
+            for row in rows {
+                if let Value::Integer(i) = row.data[col_idx] {
+                    results.push(i);
+                } else {
+                    results.push(0);
+                }
+            }
+            return Ok(results);
+        }
         Err("Query not suitable for execute_i64".to_string())
     }
 

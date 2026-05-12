@@ -1,5 +1,5 @@
+use dbobj::storage::{wal::Wal, Storage};
 use dbobj::{Database, Expr, Id, Operator, RowData, Schema, Value};
-use dbobj::storage::{Storage, wal::Wal};
 use std::sync::Arc;
 
 #[global_allocator]

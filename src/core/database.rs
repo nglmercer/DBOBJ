@@ -161,9 +161,10 @@ impl Database {
     pub fn drop_table(&self, name: &str) -> Result<(), crate::core::table::TableError> {
         let mut tables = self.tables.write();
         if tables.remove(name).is_none() {
-            return Err(crate::core::table::TableError::SchemaViolation(
-                format!("Table '{}' not found", name),
-            ));
+            return Err(crate::core::table::TableError::SchemaViolation(format!(
+                "Table '{}' not found",
+                name
+            )));
         }
         Ok(())
     }
@@ -439,18 +440,26 @@ impl Database {
         let col_idx = {
             let tables = self.tables.read();
             let table_lock = tables.get(table_name).ok_or_else(|| {
-                crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+                crate::core::table::TableError::SchemaViolation(format!(
+                    "Table {} not found",
+                    table_name
+                ))
             })?;
             let map = &table_lock.read().column_map;
             *map.get(unique_column).ok_or_else(|| {
-                crate::core::table::TableError::SchemaViolation(format!("Column '{}' not found", unique_column))
+                crate::core::table::TableError::SchemaViolation(format!(
+                    "Column '{}' not found",
+                    unique_column
+                ))
             })?
         };
         let unique_val = values[col_idx].clone();
 
         // Try to find existing row with same unique value
         let existing = self.find(table_name, unique_column, unique_val);
-        let existing_id = existing.ok().and_then(|rows| rows.into_iter().next().map(|r| r.id));
+        let existing_id = existing
+            .ok()
+            .and_then(|rows| rows.into_iter().next().map(|r| r.id));
 
         if let Some(id) = existing_id {
             // Update existing row
@@ -477,7 +486,13 @@ impl Database {
         table_name: &str,
         values: Vec<String>,
     ) -> Result<Id, crate::core::table::TableError> {
-        self.insert_values(table_name, values.into_iter().map(|s| Value::String(s.into())).collect())
+        self.insert_values(
+            table_name,
+            values
+                .into_iter()
+                .map(|s| Value::String(s.into()))
+                .collect(),
+        )
     }
 
     /// Typed: insert a row of bool values directly.
@@ -598,7 +613,7 @@ impl Database {
                 }
             }
         }
-        
+
         Ok(())
     }
 

@@ -342,10 +342,16 @@ fn test_sql_drop_table() {
 fn test_sql_order_by() {
     let db = Database::new("test_db".to_string());
     let executor = SqlExecutor::new(&db);
-    executor.execute("CREATE TABLE t (id INTEGER, name TEXT)").unwrap();
+    executor
+        .execute("CREATE TABLE t (id INTEGER, name TEXT)")
+        .unwrap();
     executor.execute("INSERT INTO t VALUES (2, 'Bob')").unwrap();
-    executor.execute("INSERT INTO t VALUES (1, 'Alice')").unwrap();
-    executor.execute("INSERT INTO t VALUES (3, 'Charlie')").unwrap();
+    executor
+        .execute("INSERT INTO t VALUES (1, 'Alice')")
+        .unwrap();
+    executor
+        .execute("INSERT INTO t VALUES (3, 'Charlie')")
+        .unwrap();
 
     let result = executor.execute("SELECT * FROM t ORDER BY name").unwrap();
     if let SqlResult::Rows(rows) = result {
@@ -353,7 +359,9 @@ fn test_sql_order_by() {
         assert_eq!(rows[2].get("name").unwrap().clone(), "Charlie".into());
     }
 
-    let result = executor.execute("SELECT * FROM t ORDER BY name DESC").unwrap();
+    let result = executor
+        .execute("SELECT * FROM t ORDER BY name DESC")
+        .unwrap();
     if let SqlResult::Rows(rows) = result {
         assert_eq!(rows[0].get("name").unwrap().clone(), "Charlie".into());
     }
@@ -364,13 +372,25 @@ fn test_sql_limit_offset() {
     let db = Database::new("test_db".to_string());
     let executor = SqlExecutor::new(&db);
     executor.execute("CREATE TABLE t (id INTEGER)").unwrap();
-    for i in 0..10 { executor.execute(&format!("INSERT INTO t VALUES ({})", i)).unwrap(); }
+    for i in 0..10 {
+        executor
+            .execute(&format!("INSERT INTO t VALUES ({})", i))
+            .unwrap();
+    }
 
-    let result = executor.execute("SELECT * FROM t ORDER BY id LIMIT 3").unwrap();
-    if let SqlResult::Rows(rows) = result { assert_eq!(rows.len(), 3); }
+    let result = executor
+        .execute("SELECT * FROM t ORDER BY id LIMIT 3")
+        .unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 3);
+    }
 
-    let result = executor.execute("SELECT * FROM t ORDER BY id LIMIT 3 OFFSET 7").unwrap();
-    if let SqlResult::Rows(rows) = result { assert_eq!(rows.len(), 3); } // rows 7,8,9
+    let result = executor
+        .execute("SELECT * FROM t ORDER BY id LIMIT 3 OFFSET 7")
+        .unwrap();
+    if let SqlResult::Rows(rows) = result {
+        assert_eq!(rows.len(), 3);
+    } // rows 7,8,9
 }
 
 #[test]
@@ -378,7 +398,9 @@ fn test_sql_aggregation() {
     let db = Database::new("test_db".to_string());
     let executor = SqlExecutor::new(&db);
     executor.execute("CREATE TABLE t (val INTEGER)").unwrap();
-    executor.execute("INSERT INTO t VALUES (10), (20), (30)").unwrap();
+    executor
+        .execute("INSERT INTO t VALUES (10), (20), (30)")
+        .unwrap();
 
     let result = executor.execute("SELECT COUNT(*) FROM t").unwrap();
     if let SqlResult::Rows(rows) = result {
@@ -405,9 +427,13 @@ fn test_sql_aggregation() {
 fn test_sql_not_null_create_table() {
     let db = Database::new("test_db".to_string());
     let executor = SqlExecutor::new(&db);
-    executor.execute("CREATE TABLE t (id INTEGER NOT NULL, name TEXT)").unwrap();
+    executor
+        .execute("CREATE TABLE t (id INTEGER NOT NULL, name TEXT)")
+        .unwrap();
     // Table created successfully
-    executor.execute("INSERT INTO t (id, name) VALUES (1, 'Alice')").unwrap();
+    executor
+        .execute("INSERT INTO t (id, name) VALUES (1, 'Alice')")
+        .unwrap();
     let result = executor.execute("SELECT * FROM t").unwrap();
     if let SqlResult::Rows(rows) = result {
         assert_eq!(rows.len(), 1);
@@ -418,10 +444,16 @@ fn test_sql_not_null_create_table() {
 fn test_sql_like_with_order() {
     let db = Database::new("test_db".to_string());
     let executor = SqlExecutor::new(&db);
-    executor.execute("CREATE TABLE t (id INTEGER, name TEXT)").unwrap();
-    executor.execute("INSERT INTO t VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Alex')").unwrap();
+    executor
+        .execute("CREATE TABLE t (id INTEGER, name TEXT)")
+        .unwrap();
+    executor
+        .execute("INSERT INTO t VALUES (1, 'Alice'), (2, 'Bob'), (3, 'Alex')")
+        .unwrap();
 
-    let result = executor.execute("SELECT * FROM t WHERE name LIKE 'A%' ORDER BY id").unwrap();
+    let result = executor
+        .execute("SELECT * FROM t WHERE name LIKE 'A%' ORDER BY id")
+        .unwrap();
     if let SqlResult::Rows(rows) = result {
         assert_eq!(rows.len(), 2);
     }

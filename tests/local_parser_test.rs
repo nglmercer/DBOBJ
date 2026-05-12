@@ -404,17 +404,13 @@ fn test_parse_errors() {
     // Invalid syntax
     assert!(Parser::new("CREATE TABLE (id)").parse_statements().is_err());
     assert!(Parser::new("SELECT FROM").parse_statements().is_err());
-    assert!(
-        Parser::new("INSERT INTO t VALUES")
-            .parse_statements()
-            .is_err()
-    );
+    assert!(Parser::new("INSERT INTO t VALUES")
+        .parse_statements()
+        .is_err());
     assert!(Parser::new("UNKNOWN COMMAND").parse_statements().is_err());
-    assert!(
-        Parser::new("SELECT * FROM t WHERE 1 = 'unterminated")
-            .parse_statements()
-            .is_err()
-    );
+    assert!(Parser::new("SELECT * FROM t WHERE 1 = 'unterminated")
+        .parse_statements()
+        .is_err());
 }
 
 #[test]
@@ -524,7 +520,13 @@ fn test_parse_limit_offset() {
 #[test]
 fn test_parse_order_by_limit() {
     let stmt = parse_one("SELECT * FROM users ORDER BY id LIMIT 10 OFFSET 5");
-    if let Statement::Select { order_by, limit, offset, .. } = &stmt {
+    if let Statement::Select {
+        order_by,
+        limit,
+        offset,
+        ..
+    } = &stmt
+    {
         assert!(order_by.is_some());
         assert_eq!(*limit, Some(10));
         assert_eq!(*offset, Some(5));
@@ -551,10 +553,22 @@ fn test_parse_aggregation() {
     if let Statement::Select { columns, .. } = &stmt {
         if let dbobj_sql::local_parser::SelectColumns::List(cols) = columns {
             assert_eq!(cols.len(), 4);
-            assert!(matches!(&cols[0].expr, dbobj_sql::local_parser::Expr::Agg(AggFunc::Count, _)));
-            assert!(matches!(&cols[1].expr, dbobj_sql::local_parser::Expr::Agg(AggFunc::Sum, _)));
-            assert!(matches!(&cols[2].expr, dbobj_sql::local_parser::Expr::Agg(AggFunc::Min, _)));
-            assert!(matches!(&cols[3].expr, dbobj_sql::local_parser::Expr::Agg(AggFunc::Max, _)));
+            assert!(matches!(
+                &cols[0].expr,
+                dbobj_sql::local_parser::Expr::Agg(AggFunc::Count, _)
+            ));
+            assert!(matches!(
+                &cols[1].expr,
+                dbobj_sql::local_parser::Expr::Agg(AggFunc::Sum, _)
+            ));
+            assert!(matches!(
+                &cols[2].expr,
+                dbobj_sql::local_parser::Expr::Agg(AggFunc::Min, _)
+            ));
+            assert!(matches!(
+                &cols[3].expr,
+                dbobj_sql::local_parser::Expr::Agg(AggFunc::Max, _)
+            ));
         } else {
             panic!("Expected column list");
         }
@@ -566,7 +580,12 @@ fn test_parse_aggregation() {
 #[test]
 fn test_parse_like_with_order() {
     let stmt = parse_one("SELECT * FROM users WHERE name LIKE 'A%' ORDER BY id");
-    if let Statement::Select { selection, order_by, .. } = &stmt {
+    if let Statement::Select {
+        selection,
+        order_by,
+        ..
+    } = &stmt
+    {
         assert!(selection.is_some());
         assert!(order_by.is_some());
     } else {
@@ -580,7 +599,9 @@ fn test_parse_select_column_with_alias() {
     if let Statement::Select { columns, .. } = &stmt {
         if let dbobj_sql::local_parser::SelectColumns::List(cols) = columns {
             assert_eq!(cols.len(), 1);
-            assert!(matches!(&cols[0].expr, dbobj_sql::local_parser::Expr::Column(c) if c == "name"));
+            assert!(
+                matches!(&cols[0].expr, dbobj_sql::local_parser::Expr::Column(c) if c == "name")
+            );
         }
     }
 }

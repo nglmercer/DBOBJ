@@ -1,7 +1,7 @@
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use dbobj::core::{ColumnDefinition, DataType, Database, RowData, Schema, Value};
 use dbobj::storage::MmapStorage;
-use rusqlite::{Connection, params as sqlite_params};
+use rusqlite::{params as sqlite_params, Connection};
 use std::time::Duration;
 
 fn bench_inserts(c: &mut Criterion) {

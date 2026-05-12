@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use memmap2::Mmap;
 
 use super::StorageError;
-use crate::core::Database;
 use crate::core::database::{ArchivedDatabaseSnapshot, DatabaseSnapshot};
+use crate::core::Database;
 
 /// Storage backend that uses memory-mapped files paired with `rkyv` for
 /// near-instant loading and zero-copy access to archived data.

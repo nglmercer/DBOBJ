@@ -38,6 +38,7 @@ impl From<&str> for DbError {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn map_err<T>(result: Result<T, impl ToString>) -> napi::Result<T> {
     result.map_err(|e| {
         let msg = e.to_string();

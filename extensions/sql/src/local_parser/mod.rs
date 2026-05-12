@@ -2,13 +2,13 @@ pub mod ast;
 pub mod tokenizer;
 
 pub use ast::{
-    AggFunc, AlterOperation, Assignment, ColumnDef, Expr, Join, OrderBy, ParseError,
-    SelectColumn, SelectColumns, Statement, Token,
+    AggFunc, AlterOperation, Assignment, ColumnDef, Expr, Join, OrderBy, ParseError, SelectColumn,
+    SelectColumns, Statement, Token,
 };
 pub use tokenizer::Tokenizer;
 
-use dbobj::{DataType, Operator, Value};
 use compact_str::CompactString;
+use dbobj::{DataType, Operator, Value};
 
 // ── Parser ──
 
@@ -117,8 +117,15 @@ impl<'a> Parser<'a> {
                     _ => break,
                 }
             }
-            columns.push(ColumnDef { name: col_name, data_type, nullable, default_value });
-            if self.current == Token::RightParen { break; }
+            columns.push(ColumnDef {
+                name: col_name,
+                data_type,
+                nullable,
+                default_value,
+            });
+            if self.current == Token::RightParen {
+                break;
+            }
             self.expect(Token::Comma)?;
         }
         self.expect(Token::RightParen)?;
@@ -285,9 +292,13 @@ impl<'a> Parser<'a> {
                     let name = self.current_ident_owned()?;
                     self.advance()?;
                     Some(name)
-                } else { None };
+                } else {
+                    None
+                };
                 cols.push(SelectColumn { expr, alias });
-                if self.current != Token::Comma { break; }
+                if self.current != Token::Comma {
+                    break;
+                }
                 self.advance()?;
             }
             SelectColumns::List(cols)
@@ -312,31 +323,57 @@ impl<'a> Parser<'a> {
             let col = self.current_ident_owned()?;
             self.advance()?;
             let descending = if self.current == Token::KwDesc {
-                self.advance()?; true
-            } else if self.current == Token::KwAsc { self.advance()?; false }
-            else { false };
-            Some(OrderBy { column: col, descending })
-        } else { None };
+                self.advance()?;
+                true
+            } else if self.current == Token::KwAsc {
+                self.advance()?;
+                false
+            } else {
+                false
+            };
+            Some(OrderBy {
+                column: col,
+                descending,
+            })
+        } else {
+            None
+        };
         let limit = if self.current == Token::KwLimit {
             self.advance()?;
             Some(self.parse_u64()?)
-        } else { None };
+        } else {
+            None
+        };
         let offset = if self.current == Token::KwOffset {
             self.advance()?;
             Some(self.parse_u64()?)
-        } else { None };
-        Ok(Statement::Select { columns, table, selection, join, order_by, limit, offset })
+        } else {
+            None
+        };
+        Ok(Statement::Select {
+            columns,
+            table,
+            selection,
+            join,
+            order_by,
+            limit,
+            offset,
+        })
     }
 
     fn parse_u64(&mut self) -> Result<u64, ParseError> {
         if let Token::Number(s) = &self.current {
             let n = s.parse::<u64>().map_err(|_| ParseError {
-                message: format!("Invalid number: {}", s), position: self.tokenizer.pos,
+                message: format!("Invalid number: {}", s),
+                position: self.tokenizer.pos,
             })?;
             self.advance()?;
             Ok(n)
         } else {
-            Err(ParseError { message: format!("Expected number, got {:?}", self.current), position: self.tokenizer.pos })
+            Err(ParseError {
+                message: format!("Expected number, got {:?}", self.current),
+                position: self.tokenizer.pos,
+            })
         }
     }
 
@@ -404,7 +441,11 @@ impl<'a> Parser<'a> {
         if self.current == Token::KwLike {
             self.advance()?;
             let right = self.parse_atom()?;
-            return Ok(Expr::Binary(Box::new(left), Operator::Like, Box::new(right)));
+            return Ok(Expr::Binary(
+                Box::new(left),
+                Operator::Like,
+                Box::new(right),
+            ));
         }
 
         let op = match &self.current {

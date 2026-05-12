@@ -328,11 +328,19 @@ impl Table {
     }
 
     fn col_info(&self) -> String {
-        let cols: Vec<String> = self.schema.columns.iter()
+        let cols: Vec<String> = self
+            .schema
+            .columns
+            .iter()
             .enumerate()
             .map(|(i, c)| format!("  {}: {} ({:?})", i, c.name, c.data_type))
             .collect();
-        format!("table `{}` ({} columns):\n{}", self.name, self.num_columns, cols.join("\n"))
+        format!(
+            "table `{}` ({} columns):\n{}",
+            self.name,
+            self.num_columns,
+            cols.join("\n")
+        )
     }
 
     pub fn insert_batch_raw(&mut self, batch: Vec<Box<[Value]>>) -> Result<Vec<Id>, TableError> {
@@ -467,17 +475,23 @@ impl Table {
     /// Takes values as `[v0_col0, v0_col1, v1_col0, v1_col1, ...]` and directly
     /// extends the internal data Vec in one tight loop. Skips the Vec<Vec<Value>>
     /// intermediate entirely.
-    pub fn insert_batch_flat_i64(&mut self, values: &[i64], num_columns: usize) -> Result<Vec<Id>, TableError> {
+    pub fn insert_batch_flat_i64(
+        &mut self,
+        values: &[i64],
+        num_columns: usize,
+    ) -> Result<Vec<Id>, TableError> {
         if num_columns != self.num_columns {
             return Err(TableError::SchemaViolation(format!(
                 "insert_batch_flat_i64: {} columns passed, expected {}\n{}",
-                num_columns, self.num_columns, self.col_info()
+                num_columns,
+                self.num_columns,
+                self.col_info()
             )));
         }
         let batch_size = values.len() / num_columns;
         if !values.len().is_multiple_of(num_columns) {
             return Err(TableError::SchemaViolation(
-                "values length not divisible by num_columns".into()
+                "values length not divisible by num_columns".into(),
             ));
         }
         self.data.reserve(batch_size * num_columns);
@@ -504,7 +518,8 @@ impl Table {
 
         if !self.is_sequential_ids {
             for i in 0..batch_size {
-                self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i);
+                self.id_map
+                    .insert(Id::Integer(start_id + i as u64), starting_idx + i);
             }
         }
 
@@ -524,7 +539,9 @@ impl Table {
                 if index_obj.is_unique {
                     index_obj.unique_map.insert(val.clone(), actual_idx);
                 } else {
-                    index_obj.map.entry(val.clone())
+                    index_obj
+                        .map
+                        .entry(val.clone())
                         .or_default()
                         .push(self.ids[actual_idx].clone());
                 }
@@ -538,7 +555,8 @@ impl Table {
     /// For single inserts, this avoids the double conversion of
     /// RowData → validate_and_convert → Vec<Value>.
     pub fn insert_values(&mut self, values: Vec<Value>) -> Result<Id, TableError> {
-        self.insert_batch_values(vec![values]).map(|mut ids| ids.remove(0))
+        self.insert_batch_values(vec![values])
+            .map(|mut ids| ids.remove(0))
     }
 
     /// Update a row from positional values — no RowData/HashMap overhead.
@@ -547,7 +565,9 @@ impl Table {
         if values.len() != self.num_columns {
             return Err(TableError::SchemaViolation(format!(
                 "update_values: expected {} values, got {}\n{}",
-                self.num_columns, values.len(), self.col_info()
+                self.num_columns,
+                values.len(),
+                self.col_info()
             )));
         }
         let idx = self
@@ -862,7 +882,9 @@ impl Table {
         // Fallback to linear scan
         if let Some(col_idx) = self.get_column_index(column_name) {
             let lookup_val = if let super::Value::String(s) = value {
-                self.string_pool.get_id(s.as_str()).map_or_else(|| value.clone(), |id| super::Value::InternedString(id))
+                self.string_pool
+                    .get_id(s.as_str())
+                    .map_or(value.clone(), |id| super::Value::InternedString(id))
             } else {
                 value.clone()
             };
@@ -947,10 +969,11 @@ impl Table {
             match val {
                 Value::String(s) => result.push(s.to_string()),
                 Value::InternedString(id) => {
-                    result.push(self.string_pool.resolve(*id).map_or_else(
-                        || format!("<interned:{}>", id),
-                        |s| s.to_string(),
-                    ));
+                    result.push(
+                        self.string_pool
+                            .resolve(*id)
+                            .map_or_else(|| format!("<interned:{}>", id), |s| s.to_string()),
+                    );
                 }
                 _ => result.push(String::new()),
             }

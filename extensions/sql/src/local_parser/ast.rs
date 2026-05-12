@@ -1,5 +1,5 @@
-use dbobj::{DataType, Operator, Value};
 use compact_str::CompactString;
+use dbobj::{DataType, Operator, Value};
 
 // ── Error ──
 

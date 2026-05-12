@@ -157,10 +157,16 @@ impl Expr {
                 // Resolve InternedString for LIKE pattern matching
                 if matches!(op, Operator::Like) {
                     if let Value::InternedString(id) = &l {
-                        l = table.string_pool.resolve(*id).map_or(Value::Null, Value::String);
+                        l = table
+                            .string_pool
+                            .resolve(*id)
+                            .map_or(Value::Null, Value::String);
                     }
                     if let Value::InternedString(id) = &r {
-                        r = table.string_pool.resolve(*id).map_or(Value::Null, Value::String);
+                        r = table
+                            .string_pool
+                            .resolve(*id)
+                            .map_or(Value::Null, Value::String);
                     }
                 }
 

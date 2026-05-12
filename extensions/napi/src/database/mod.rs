@@ -103,7 +103,11 @@ impl PreparedStatement {
                     let table_ref = table_lock.read();
                     let col_name = match &cols[0].expr {
                         dbobj_sql::local_parser::Expr::Column(c) => c.as_str(),
-                        _ => return Err(napi::Error::from_reason("allI64 requires a simple column reference".to_string())),
+                        _ => {
+                            return Err(napi::Error::from_reason(
+                                "allI64 requires a simple column reference".to_string(),
+                            ))
+                        }
                     };
                     let col_idx = *table_ref.column_map.get(col_name).ok_or_else(|| {
                         napi::Error::from_reason(format!("Column {} not found", col_name))
