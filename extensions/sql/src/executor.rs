@@ -2,7 +2,8 @@ use std::cell::RefCell;
 
 use dbobj::{ColumnDefinition, Database, RowData, Schema, Value};
 use crate::local_parser::{
-    AlterOperation, Assignment, Expr, Join, Parser as LocalParser, Statement,
+    AggFunc, AlterOperation, Assignment, Expr, Join, OrderBy, Parser as LocalParser,
+    SelectColumn, SelectColumns, Statement,
 };
 use compact_str::CompactString;
 
@@ -28,15 +29,10 @@ impl PreparedStatement {
 
 fn count_stmt_placeholders(stmt: &Statement, count: &mut usize) {
     match stmt {
-        Statement::Select {
-            selection: Some(sel),
-            ..
-        } => {
+        Statement::Select { selection: Some(sel), .. } => {
             count_expr_placeholders(sel, count);
         }
-        Statement::Select {
-            selection: None, ..
-        } => {}
+        Statement::Select { selection: None, .. } => {}
         Statement::Insert { values, .. } => {
             for row in values {
                 for val in row {
@@ -87,16 +83,14 @@ fn count_expr_placeholders(expr: &Expr, count: &mut usize) {
 
 fn substitute_statement(stmt: &Statement, params: &[Value], idx: &mut usize) -> Statement {
     match stmt {
-        Statement::Select {
-            columns,
-            table,
-            selection,
-            join,
-        } => Statement::Select {
+        Statement::Select { columns, table, selection, join, order_by, limit, offset } => Statement::Select {
             columns: columns.clone(),
             table: table.clone(),
             selection: selection.as_ref().map(|s| substitute_expr(s, params, idx)),
             join: join.clone(),
+            order_by: order_by.clone(),
+            limit: *limit,
+            offset: *offset,
         },
         Statement::Insert {
             table,
@@ -145,17 +139,23 @@ fn substitute_statement(stmt: &Statement, params: &[Value], idx: &mut usize) -> 
 
 fn substitute_expr(expr: &Expr, params: &[Value], idx: &mut usize) -> Expr {
     match expr {
+        Expr::Literal(v) => Expr::Literal(v.clone()),
+        Expr::Column(c) => Expr::Column(c.clone()),
+        Expr::CompoundColumn(a, b) => Expr::CompoundColumn(a.clone(), b.clone()),
         Expr::Placeholder => {
-            let val = params[*idx].clone();
+            let v = params.get(*idx).ok_or_else(|| format!("Not enough parameters at position {}", idx)).unwrap();
             *idx += 1;
-            Expr::Literal(val)
+            Expr::Literal(v.clone())
         }
-        Expr::Binary(left, op, right) => Expr::Binary(
-            Box::new(substitute_expr(left, params, idx)),
-            op.clone(),
-            Box::new(substitute_expr(right, params, idx)),
-        ),
+        Expr::Binary(left, op, right) => {
+            Expr::Binary(
+                Box::new(substitute_expr(left, params, idx)),
+                op.clone(),
+                Box::new(substitute_expr(right, params, idx)),
+            )
+        }
         Expr::Nested(inner) => Expr::Nested(Box::new(substitute_expr(inner, params, idx))),
+        Expr::Agg(func, arg) => Expr::Agg(func.clone(), Box::new(substitute_expr(arg, params, idx))),
         _ => expr.clone(),
     }
 }
@@ -422,22 +422,22 @@ impl<'a> SqlExecutor<'a> {
                 let col_defs: Vec<ColumnDefinition> = columns
                     .into_iter()
                     .map(|col| {
-                        if col.name.as_str() == "id" {
-                            has_id = true;
-                        }
+                        if col.name.as_str() == "id" { has_id = true; }
                         ColumnDefinition {
                             name: col.name,
                             data_type: col.data_type,
-                            nullable: true,
+                            nullable: col.nullable.unwrap_or(true),
                         }
                     })
                     .collect();
                 let schema = Schema { columns: col_defs };
                 let table_name = name.to_string();
                 self.db.create_table(table_name.clone(), schema);
-                if has_id {
-                    let _ = self.db.create_unique_index(&table_name, "id");
-                }
+                if has_id { let _ = self.db.create_unique_index(&table_name, "id"); }
+                Ok(SqlResult::Ok)
+            }
+            Statement::DropTable { name } => {
+                self.db.drop_table(&name).map_err(|e| e.to_string())?;
                 Ok(SqlResult::Ok)
             }
             Statement::Insert {
@@ -691,11 +691,14 @@ impl<'a> SqlExecutor<'a> {
                 Ok(SqlResult::Ok)
             }
             Statement::Select {
-                columns: _,
+                columns,
                 table,
                 selection,
                 join,
-            } => self.execute_query(&table, &selection, join.as_ref()),
+                order_by,
+                limit,
+                offset,
+            } => self.execute_query(&table, &selection, join.as_ref(), &columns, order_by.as_ref(), limit, offset),
         }
     }
 
@@ -704,6 +707,10 @@ impl<'a> SqlExecutor<'a> {
         table_name: &CompactString,
         selection: &Option<Expr>,
         join: Option<&Join>,
+        select_columns: &SelectColumns,
+        order_by: Option<&OrderBy>,
+        limit: Option<u64>,
+        offset: Option<u64>,
     ) -> Result<SqlResult, String> {
         let table_name_str = table_name.to_string();
 
@@ -770,9 +777,51 @@ impl<'a> SqlExecutor<'a> {
                 .collect()
         };
 
-        let results = rows.into_iter().map(|r| r.to_map(&table_ref)).collect();
+        // Apply ORDER BY
+        let rows: Vec<_> = if let Some(ob) = order_by {
+            let mut rows = rows;
+            rows.sort_by(|a, b| {
+                let ma = a.to_map(&table_ref);
+                let mb = b.to_map(&table_ref);
+                let va = ma.get(ob.column.as_str());
+                let vb = mb.get(ob.column.as_str());
+                if ob.descending { vb.partial_cmp(&va).unwrap_or(std::cmp::Ordering::Equal) }
+                else { va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal) }
+            });
+            rows
+        } else { rows };
+
+        // Apply LIMIT / OFFSET
+        let start = offset.unwrap_or(0) as usize;
+        let rows: Vec<_> = if start >= rows.len() { Vec::new() }
+            else {
+                let end = start + limit.unwrap_or(u64::MAX) as usize;
+                rows[start..end.min(rows.len())].to_vec()
+            };
+
+        // Handle aggregation and column projection
+        let results: Vec<RowData> = match select_columns {
+            SelectColumns::Star => rows.into_iter().map(|r| r.to_map(&table_ref)).collect(),
+            SelectColumns::List(cols) => {
+                if cols.len() == 1 && has_aggregation(&cols[0].expr) {
+                    evaluate_aggregation(&rows, cols, &table_ref)?
+                } else {
+                    rows.into_iter().map(|r| {
+                        let mut map = RowData::default();
+                        for sc in cols {
+                            let val = eval_select_expr(&sc.expr, &r, &table_ref);
+                            let key = sc.alias.clone().unwrap_or_else(|| column_name_from_expr(&sc.expr));
+                            map.insert(key, val);
+                        }
+                        map
+                    }).collect()
+                }
+            }
+        };
         Ok(SqlResult::Rows(results))
     }
+
+
 
     fn execute_join(&self, table1_name: &str, join: &Join) -> Result<SqlResult, String> {
         let table2_name = join.table.to_string();
@@ -878,14 +927,105 @@ fn map_expr_to_core(expr: &Expr) -> Result<dbobj::Expr, String> {
             Ok(dbobj::Expr::Binary(l, op.clone(), r))
         }
         Expr::Nested(inner) => Ok(map_expr_to_core(inner)?),
+        Expr::Agg(_, _) => Err("Aggregation not supported in WHERE clause".to_string()),
     }
 }
 
-#[derive(Debug)]
 pub enum SqlResult {
     Ok,
     Rows(Vec<RowData>),
     I64(Vec<i64>),
+}
+
+fn has_aggregation(expr: &Expr) -> bool {
+    match expr {
+        Expr::Agg(_, _) => true,
+        Expr::Binary(left, _, right) => has_aggregation(left) || has_aggregation(right),
+        Expr::Nested(inner) => has_aggregation(inner),
+        _ => false,
+    }
+}
+
+fn evaluate_aggregation(rows: &[dbobj::table::Row], cols: &[SelectColumn], table: &dbobj::table::Table) -> Result<Vec<RowData>, String> {
+    let mut results = Vec::new();
+    for sc in cols {
+        match &sc.expr {
+            Expr::Agg(func, arg) => {
+                let key = sc.alias.clone().unwrap_or_else(|| match func {
+                    AggFunc::Count => CompactString::from("COUNT(*)"),
+                    AggFunc::Sum => CompactString::from("SUM"),
+                    AggFunc::Min => CompactString::from("MIN"),
+                    AggFunc::Max => CompactString::from("MAX"),
+                });
+                let val = match func {
+                    AggFunc::Count => dbobj::Value::Integer(rows.len() as i64),
+                    AggFunc::Sum => {
+                        let mut sum: i64 = 0;
+                        for row in rows {
+                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) { sum = sum.saturating_add(v); }
+                        }
+                        dbobj::Value::Integer(sum)
+                    }
+                    AggFunc::Min => {
+                        let mut min = i64::MAX;
+                        for row in rows {
+                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) { if v < min { min = v; } }
+                        }
+                        if min == i64::MAX { dbobj::Value::Null } else { dbobj::Value::Integer(min) }
+                    }
+                    AggFunc::Max => {
+                        let mut max = i64::MIN;
+                        for row in rows {
+                            if let dbobj::Value::Integer(v) = eval_agg_arg(arg, row, table) { if v > max { max = v; } }
+                        }
+                        if max == i64::MIN { dbobj::Value::Null } else { dbobj::Value::Integer(max) }
+                    }
+                };
+                let mut map = RowData::default();
+                map.insert(key, val);
+                results.push(map);
+            }
+            _ => {}
+        }
+    }
+    Ok(results)
+}
+
+fn eval_agg_arg(expr: &Expr, row: &dbobj::table::Row, table: &dbobj::table::Table) -> dbobj::Value {
+    match expr {
+        Expr::Column(c) => {
+            if let Some(&idx) = table.column_map.get(c.as_str()) {
+                if idx < row.data.len() { row.data[idx].clone() } else { dbobj::Value::Null }
+            } else { dbobj::Value::Null }
+        }
+        Expr::Literal(v) => v.clone(),
+        _ => dbobj::Value::Null,
+    }
+}
+
+fn eval_select_expr(expr: &Expr, row: &dbobj::table::Row, table: &dbobj::table::Table) -> dbobj::Value {
+    match expr {
+        Expr::Column(c) => {
+            if let Some(&idx) = table.column_map.get(c.as_str()) {
+                if idx < row.data.len() { row.data[idx].clone() } else { dbobj::Value::Null }
+            } else { dbobj::Value::Null }
+        }
+        Expr::Literal(v) => v.clone(),
+        _ => dbobj::Value::Null,
+    }
+}
+
+fn column_name_from_expr(expr: &Expr) -> CompactString {
+    match expr {
+        Expr::Column(c) => c.clone(),
+        Expr::Agg(func, _) => match func {
+            AggFunc::Count => CompactString::from("COUNT(*)"),
+            AggFunc::Sum => CompactString::from("SUM"),
+            AggFunc::Min => CompactString::from("MIN"),
+            AggFunc::Max => CompactString::from("MAX"),
+        },
+        _ => CompactString::from("?"),
+    }
 }
 
 impl<'a> SqlExecutor<'a> {
@@ -896,7 +1036,7 @@ impl<'a> SqlExecutor<'a> {
             return Err("execute_i64 expects exactly one statement".to_string());
         }
         
-        if let Statement::Select { columns, table, selection, join } = &statements[0]
+        if let Statement::Select { columns, table, selection, join, .. } = &statements[0]
             && let crate::local_parser::SelectColumns::List(cols) = columns
             && cols.len() == 1
             && join.is_none()
@@ -905,8 +1045,12 @@ impl<'a> SqlExecutor<'a> {
                  let table_lock = self.db.get_table(&table_name)
                      .ok_or_else(|| format!("Table {} not found", table_name))?;
                  let table_ref = table_lock.read();
-                 let col_idx = *table_ref.column_map.get(cols[0].as_str())
-                     .ok_or_else(|| format!("Column {} not found", cols[0]))?;
+                 let col_name = match &cols[0].expr {
+                     Expr::Column(c) => c.as_str(),
+                     _ => return Err("execute_i64 requires a simple column reference".to_string()),
+                 };
+                 let col_idx = *table_ref.column_map.get(col_name)
+                     .ok_or_else(|| format!("Column {} not found", col_name))?;
                  
                  // Perform scan or indexed search
                  let rows = if let Some(direct_id) = selection.as_ref().and_then(|s| Self::try_extract_id_filter(s, table_ref.column_map.contains_key("id"))) {
@@ -947,6 +1091,7 @@ impl<'a> SqlExecutor<'a> {
             table,
             selection: _,
             join: Some(join),
+            ..
         } = &statements[0]
         {
             let table1_name = table.to_string();

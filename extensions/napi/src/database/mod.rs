@@ -92,6 +92,7 @@ impl PreparedStatement {
                 table,
                 selection: _,
                 join,
+                ..
             } = &stmt.statements[0]
             {
                 if cols.len() == 1 && join.is_none() {
@@ -100,8 +101,12 @@ impl PreparedStatement {
                         napi::Error::from_reason(format!("Table {} not found", table_name))
                     })?;
                     let table_ref = table_lock.read();
-                    let col_idx = *table_ref.column_map.get(cols[0].as_str()).ok_or_else(|| {
-                        napi::Error::from_reason(format!("Column {} not found", cols[0]))
+                    let col_name = match &cols[0].expr {
+                        dbobj_sql::local_parser::Expr::Column(c) => c.as_str(),
+                        _ => return Err(napi::Error::from_reason("allI64 requires a simple column reference".to_string())),
+                    };
+                    let col_idx = *table_ref.column_map.get(col_name).ok_or_else(|| {
+                        napi::Error::from_reason(format!("Column {} not found", col_name))
                     })?;
 
                     let num_rows = table_ref.ids.len();

@@ -2,7 +2,8 @@ pub mod ast;
 pub mod tokenizer;
 
 pub use ast::{
-    AlterOperation, Assignment, ColumnDef, Expr, Join, ParseError, SelectColumns, Statement, Token,
+    AggFunc, AlterOperation, Assignment, ColumnDef, Expr, Join, OrderBy, ParseError,
+    SelectColumn, SelectColumns, Statement, Token,
 };
 pub use tokenizer::Tokenizer;
 
@@ -76,6 +77,7 @@ impl<'a> Parser<'a> {
     fn parse_statement(&mut self) -> Result<Statement, ParseError> {
         match &self.current {
             Token::KwCreate => self.parse_create_table(),
+            Token::KwDrop => self.parse_drop_table(),
             Token::KwAlter => self.parse_alter_table(),
             Token::KwInsert => self.parse_insert(),
             Token::KwUpdate => self.parse_update(),
@@ -99,17 +101,36 @@ impl<'a> Parser<'a> {
             let col_name = self.current_ident_owned()?;
             self.advance()?;
             let data_type = self.parse_data_type()?;
-            columns.push(ColumnDef {
-                name: col_name,
-                data_type,
-            });
-            if self.current == Token::RightParen {
-                break;
+            let mut nullable: Option<bool> = None;
+            let mut default_value: Option<Expr> = None;
+            loop {
+                match &self.current {
+                    Token::KwNot => {
+                        self.advance()?;
+                        self.expect(Token::KwNull)?;
+                        nullable = Some(false);
+                    }
+                    Token::KwDefault => {
+                        self.advance()?;
+                        default_value = Some(self.parse_expr()?);
+                    }
+                    _ => break,
+                }
             }
+            columns.push(ColumnDef { name: col_name, data_type, nullable, default_value });
+            if self.current == Token::RightParen { break; }
             self.expect(Token::Comma)?;
         }
         self.expect(Token::RightParen)?;
         Ok(Statement::CreateTable { name, columns })
+    }
+
+    fn parse_drop_table(&mut self) -> Result<Statement, ParseError> {
+        self.expect(Token::KwDrop)?;
+        self.expect(Token::KwTable)?;
+        let name = self.current_ident_owned()?;
+        self.advance()?;
+        Ok(Statement::DropTable { name })
     }
 
     fn parse_alter_table(&mut self) -> Result<Statement, ParseError> {
@@ -129,6 +150,8 @@ impl<'a> Parser<'a> {
             operation: AlterOperation::AddColumn(ColumnDef {
                 name: col_name,
                 data_type,
+                nullable: None,
+                default_value: None,
             }),
         })
     }
@@ -256,11 +279,13 @@ impl<'a> Parser<'a> {
         } else {
             let mut cols = Vec::new();
             loop {
-                cols.push(self.current_ident_owned()?);
-                self.advance()?;
-                if self.current != Token::Comma {
-                    break;
-                }
+                let expr = self.parse_expr()?;
+                let alias = if self.current == Token::KwAs {
+                    self.advance()?;
+                    Some(self.current_ident_owned()?)
+                } else { None };
+                cols.push(SelectColumn { expr, alias });
+                if self.current != Token::Comma { break; }
                 self.advance()?;
             }
             SelectColumns::List(cols)
@@ -279,12 +304,38 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        Ok(Statement::Select {
-            columns,
-            table,
-            selection,
-            join,
-        })
+        let order_by = if self.current == Token::KwOrder {
+            self.advance()?;
+            self.expect(Token::KwBy)?;
+            let col = self.current_ident_owned()?;
+            self.advance()?;
+            let descending = if self.current == Token::KwDesc {
+                self.advance()?; true
+            } else if self.current == Token::KwAsc { self.advance()?; false }
+            else { false };
+            Some(OrderBy { column: col, descending })
+        } else { None };
+        let limit = if self.current == Token::KwLimit {
+            self.advance()?;
+            Some(self.parse_u64()?)
+        } else { None };
+        let offset = if self.current == Token::KwOffset {
+            self.advance()?;
+            Some(self.parse_u64()?)
+        } else { None };
+        Ok(Statement::Select { columns, table, selection, join, order_by, limit, offset })
+    }
+
+    fn parse_u64(&mut self) -> Result<u64, ParseError> {
+        if let Token::Number(s) = &self.current {
+            let n = s.parse::<u64>().map_err(|_| ParseError {
+                message: format!("Invalid number: {}", s), position: self.tokenizer.pos,
+            })?;
+            self.advance()?;
+            Ok(n)
+        } else {
+            Err(ParseError { message: format!("Expected number, got {:?}", self.current), position: self.tokenizer.pos })
+        }
     }
 
     fn parse_join(&mut self, left_table: &CompactString) -> Result<Join, ParseError> {
@@ -368,8 +419,25 @@ impl<'a> Parser<'a> {
         Ok(Expr::Binary(Box::new(left), op, Box::new(right)))
     }
 
+    fn parse_agg_func(&mut self, func: AggFunc) -> Result<Expr, ParseError> {
+        self.advance()?;
+        self.expect(Token::LeftParen)?;
+        let arg = if func == AggFunc::Count && self.current == Token::Star {
+            self.advance()?;
+            Expr::Literal(Value::Integer(1))
+        } else {
+            self.parse_expr()?
+        };
+        self.expect(Token::RightParen)?;
+        Ok(Expr::Agg(func, Box::new(arg)))
+    }
+
     fn parse_atom(&mut self) -> Result<Expr, ParseError> {
         match &self.current {
+            Token::KwCount => self.parse_agg_func(AggFunc::Count),
+            Token::KwSum => self.parse_agg_func(AggFunc::Sum),
+            Token::KwMin => self.parse_agg_func(AggFunc::Min),
+            Token::KwMax => self.parse_agg_func(AggFunc::Max),
             Token::LeftParen => {
                 self.advance()?;
                 let expr = self.parse_expr()?;

@@ -45,6 +45,19 @@ pub enum Token {
     KwAnd,
     KwOr,
     KwLike,
+    KwNot,
+    KwOrder,
+    KwBy,
+    KwAsc,
+    KwDesc,
+    KwLimit,
+    KwOffset,
+    KwDrop,
+    KwDefault,
+    KwCount,
+    KwSum,
+    KwMin,
+    KwMax,
     KwTrue,
     KwFalse,
     KwNull,
@@ -114,6 +127,12 @@ pub enum Statement {
         table: CompactString,
         selection: Option<Expr>,
         join: Option<Join>,
+        order_by: Option<OrderBy>,
+        limit: Option<u64>,
+        offset: Option<u64>,
+    },
+    DropTable {
+        name: CompactString,
     },
 }
 
@@ -121,12 +140,34 @@ pub enum Statement {
 pub struct ColumnDef {
     pub name: CompactString,
     pub data_type: DataType,
+    pub nullable: Option<bool>,
+    pub default_value: Option<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SelectColumns {
     Star,
-    List(Vec<CompactString>),
+    List(Vec<SelectColumn>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SelectColumn {
+    pub expr: Expr,
+    pub alias: Option<CompactString>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OrderBy {
+    pub column: CompactString,
+    pub descending: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum AggFunc {
+    Count,
+    Sum,
+    Min,
+    Max,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -157,4 +198,5 @@ pub enum Expr {
     Placeholder,
     Binary(Box<Expr>, Operator, Box<Expr>),
     Nested(Box<Expr>),
+    Agg(AggFunc, Box<Expr>),
 }

@@ -158,6 +158,16 @@ impl Database {
             .insert(name, Arc::new(RwLock::new(table)));
     }
 
+    pub fn drop_table(&self, name: &str) -> Result<(), crate::core::table::TableError> {
+        let mut tables = self.tables.write();
+        if tables.remove(name).is_none() {
+            return Err(crate::core::table::TableError::SchemaViolation(
+                format!("Table '{}' not found", name),
+            ));
+        }
+        Ok(())
+    }
+
     pub fn get_table(&self, name: &str) -> Option<Arc<RwLock<Table>>> {
         self.tables.read().get(name).cloned()
     }
