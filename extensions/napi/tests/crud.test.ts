@@ -69,3 +69,61 @@ test("Generic insertBatch with mixed types", () => {
   expect(rows[0].name).toBe("a");
   expect(rows[2].name).toBe("c");
 });
+
+// ── GET ROW BY ID / COLUMN ──────────────────────────────────────────
+
+test("getRowById returns correct row", () => {
+  const db = new Database("Test_RowById");
+  db.createTable("t", [
+    { name: "id", dataType: DataType.Integer },
+    { name: "name", dataType: DataType.String },
+  ]);
+  db.insertRow("t", [1, "Alice"]);
+  db.insertRow("t", [2, "Bob"]);
+  const row = db.getRowById("t", 0);
+  expect(row).not.toBeNull();
+  expect(row.id).toBe(1);
+  expect(row.name).toBe("Alice");
+  expect(db.getRowById("t", 99)).toBeNull();
+});
+
+test("getRowByColumnI64", () => {
+  const db = new Database("Test_RowColI64");
+  db.createTable("t", [
+    { name: "id", dataType: DataType.Integer },
+    { name: "name", dataType: DataType.String },
+  ]);
+  db.insertRow("t", [1, "Alice"]);
+  db.insertRow("t", [2, "Bob"]);
+  const row = db.getRowByColumnI64("t", "id", 1);
+  expect(row).not.toBeNull();
+  expect(row.name).toBe("Alice");
+  expect(db.getRowByColumnI64("t", "id", 99)).toBeNull();
+});
+
+test("getRowByColumnString", () => {
+  const db = new Database("Test_RowColStr");
+  db.createTable("t", [
+    { name: "id", dataType: DataType.Integer },
+    { name: "email", dataType: DataType.String },
+  ]);
+  db.insertRow("t", [1, "a@x.com"]);
+  db.insertRow("t", [2, "b@x.com"]);
+  const row = db.getRowByColumnString("t", "email", "b@x.com");
+  expect(row).not.toBeNull();
+  expect(row.id).toBe(2);
+  expect(db.getRowByColumnString("t", "email", "nope")).toBeNull();
+});
+
+test("getRowByColumnBool", () => {
+  const db = new Database("Test_RowColBool");
+  db.createTable("t", [
+    { name: "id", dataType: DataType.Integer },
+    { name: "active", dataType: DataType.Boolean },
+  ]);
+  db.insertRow("t", [1, true]);
+  db.insertRow("t", [2, false]);
+  const row = db.getRowByColumnBool("t", "active", true);
+  expect(row).not.toBeNull();
+  expect(row.id).toBe(1);
+});
