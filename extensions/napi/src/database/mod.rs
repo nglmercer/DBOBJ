@@ -12,6 +12,44 @@ use napi_derive::napi;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+pub(crate) fn jv_helper(v: &Unknown) -> Result<serde_json::Value> {
+    match v.get_type()? {
+        napi::ValueType::Null | napi::ValueType::Undefined => Ok(serde_json::Value::Null),
+        napi::ValueType::Boolean => Ok(serde_json::Value::Bool(unsafe { v.cast::<bool>()? })),
+        napi::ValueType::Number => {
+            let f = unsafe { v.cast::<f64>()? };
+            if f.is_finite() {
+                Ok(serde_json::Value::Number(
+                    serde_json::Number::from_f64(f).unwrap_or(serde_json::Number::from(0)),
+                ))
+            } else {
+                Ok(serde_json::Value::Null)
+            }
+        }
+        napi::ValueType::String => Ok(serde_json::Value::String(unsafe { v.cast::<String>()? })),
+        napi::ValueType::Object => {
+            let obj = unsafe { v.cast::<Object>()? };
+            if obj.is_array()? {
+                let mut out = Vec::new();
+                let len = obj.get_array_length()?;
+                for i in 0..len {
+                    out.push(jv_helper(&obj.get_element(i)?)?);
+                }
+                Ok(serde_json::Value::Array(out))
+            } else {
+                let mut map = serde_json::Map::new();
+                let keys = Object::keys(&obj)?;
+                for key in keys {
+                    let val: Unknown = obj.get_named_property(&key)?;
+                    map.insert(key, jv_helper(&val)?);
+                }
+                Ok(serde_json::Value::Object(map))
+            }
+        }
+        _ => Ok(serde_json::Value::Null),
+    }
+}
+
 pub(crate) fn json_to_db_value(val: Option<serde_json::Value>) -> dbobj::Value {
     match val {
         None => dbobj::Value::Null,
@@ -28,9 +66,59 @@ pub(crate) fn json_to_db_value(val: Option<serde_json::Value>) -> dbobj::Value {
                 }
             }
             serde_json::Value::String(s) => dbobj::Value::String(s.into()),
-            _ => dbobj::Value::Null,
+            serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+                // In dbobj, complex types can be stored as String (compact_str) if we want easy retrieval
+                dbobj::Value::String(serde_json::to_string(&v).unwrap_or_default().into())
+            }
         },
     }
+}
+
+pub(crate) fn object_to_db_row(
+    obj: &Object,
+    schema: &crate::dynamic_schema::CompiledSchema,
+) -> Result<Vec<dbobj::Value>> {
+    let mut row = Vec::with_capacity(schema.fields.len());
+    for field in &schema.fields {
+        let has = obj.has_named_property(&field.name)?;
+        if !has || obj.get_named_property::<Unknown>(&field.name)?.get_type()? == napi::ValueType::Null || obj.get_named_property::<Unknown>(&field.name)?.get_type()? == napi::ValueType::Undefined {
+            if field.optional {
+                row.push(dbobj::Value::Null);
+                continue;
+            } else {
+                return Err(napi::Error::from_reason(format!(
+                    "Missing required field: {}",
+                    field.name
+                )));
+            }
+        }
+
+        match &field.type_ {
+            crate::dynamic_schema::FieldType::String => {
+                let s: String = obj.get_named_property(&field.name)?;
+                row.push(dbobj::Value::String(s.into()));
+            }
+            crate::dynamic_schema::FieldType::I64 => {
+                let i: i64 = obj.get_named_property(&field.name)?;
+                row.push(dbobj::Value::Integer(i));
+            }
+            crate::dynamic_schema::FieldType::F64 => {
+                let f: f64 = obj.get_named_property(&field.name)?;
+                row.push(dbobj::Value::Float(f));
+            }
+            crate::dynamic_schema::FieldType::Bool => {
+                let b: bool = obj.get_named_property(&field.name)?;
+                row.push(dbobj::Value::Boolean(b));
+            }
+            _ => {
+                // For JSON and arrays
+                let val: Unknown = obj.get_named_property(&field.name)?;
+                let json_val = jv_helper(&val)?;
+                row.push(json_to_db_value(Some(json_val)));
+            }
+        }
+    }
+    Ok(row)
 }
 
 #[napi]
@@ -259,6 +347,53 @@ impl Database {
     // ── DDL ──────────────────────────────────────────────────────────
 
     #[napi]
+    pub fn create_table_from_schema(
+        &self,
+        table_name: String,
+        dynamic_schema: &crate::DynamicSchema,
+        schema_name: String,
+    ) -> Result<bool> {
+        let schema = dynamic_schema
+            .get_schema(&schema_name)
+            .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
+
+        let mut has_id = false;
+        let schema_columns: Vec<dbobj::ColumnDefinition> = schema
+            .fields
+            .iter()
+            .map(|f| {
+                if f.name == "id" {
+                    has_id = true;
+                }
+                let data_type = match f.type_ {
+                    crate::dynamic_schema::FieldType::String => dbobj::DataType::String,
+                    crate::dynamic_schema::FieldType::I64 => dbobj::DataType::Integer,
+                    crate::dynamic_schema::FieldType::F64 => dbobj::DataType::Float,
+                    crate::dynamic_schema::FieldType::Bool => dbobj::DataType::Boolean,
+                    _ => dbobj::DataType::Blob, // Fallback for JSON/Arrays
+                };
+                dbobj::ColumnDefinition {
+                    name: f.name.clone().into(),
+                    data_type,
+                    nullable: f.optional,
+                }
+            })
+            .collect();
+
+        self.inner.create_table(
+            table_name.clone(),
+            dbobj::Schema {
+                columns: schema_columns,
+            },
+        );
+        if has_id {
+            let _ = self.inner.create_unique_index(&table_name, "id");
+        }
+        self.save_if_needed();
+        Ok(true)
+    }
+
+    #[napi]
     pub fn create_table(&self, name: String, columns: Vec<ColumnDefinition>) -> Result<bool> {
         use dbobj::Schema;
         let mut has_id = false;
@@ -328,6 +463,25 @@ impl Database {
     }
 
     #[napi]
+    pub fn insert_object(
+        &self,
+        table_name: String,
+        obj: Object,
+        dynamic_schema: &crate::DynamicSchema,
+        schema_name: String,
+    ) -> Result<bool> {
+        let schema = dynamic_schema
+            .get_schema(&schema_name)
+            .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
+        let row_values = object_to_db_row(&obj, schema)?;
+        self.inner
+            .insert_values(&table_name, row_values)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(true)
+    }
+
+    #[napi]
     pub fn insert_row(
         &self,
         table_name: String,
@@ -377,6 +531,28 @@ impl Database {
     }
 
     #[napi]
+    pub fn insert_batch_objects(
+        &self,
+        table_name: String,
+        objects: Vec<Object>,
+        dynamic_schema: &crate::DynamicSchema,
+        schema_name: String,
+    ) -> Result<bool> {
+        let schema = dynamic_schema
+            .get_schema(&schema_name)
+            .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
+        let mut batch = Vec::with_capacity(objects.len());
+        for obj in objects {
+            batch.push(object_to_db_row(&obj, schema)?);
+        }
+        self.inner
+            .insert_batch_values(&table_name, batch)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(true)
+    }
+
+    #[napi]
     pub fn insert_batch(
         &self,
         table_name: String,
@@ -411,6 +587,26 @@ impl Database {
     #[napi]
     pub fn update_row_float(&self, table_name: String, id: u32, values: Vec<f64>) -> Result<bool> {
         update::update_row_float(self, table_name, id, values)
+    }
+
+    #[napi]
+    pub fn update_object(
+        &self,
+        table_name: String,
+        id: u32,
+        obj: Object,
+        dynamic_schema: &crate::DynamicSchema,
+        schema_name: String,
+    ) -> Result<bool> {
+        let schema = dynamic_schema
+            .get_schema(&schema_name)
+            .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
+        let row_values = object_to_db_row(&obj, schema)?;
+        self.inner
+            .update_values(&table_name, &dbobj::Id::Integer(id as u64), row_values)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.save_if_needed();
+        Ok(true)
     }
 
     #[napi]
@@ -634,6 +830,7 @@ impl Database {
         query::get_row_by_column_bool(self, table_name, column_name, value)
     }
 
+
     #[napi]
     pub async fn get_rows_async(
         &self,
@@ -670,26 +867,7 @@ impl Database {
                 let base = row_idx * table.num_columns;
                 for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
                     let val = &table.data[base + col_idx];
-                    let json_val = match val {
-                        dbobj::Value::Null => serde_json::Value::Null,
-                        dbobj::Value::Integer(i) => serde_json::Value::Number((*i).into()),
-                        dbobj::Value::Float(f) => serde_json::Number::from_f64(*f)
-                            .map(serde_json::Value::Number)
-                            .unwrap_or(serde_json::Value::Null),
-                        dbobj::Value::String(s) => serde_json::Value::String(s.to_string()),
-                        dbobj::Value::Boolean(b) => serde_json::Value::Bool(*b),
-                        dbobj::Value::Blob(b) => serde_json::Value::Array(
-                            b.iter()
-                                .map(|&x| serde_json::Value::Number(x.into()))
-                                .collect(),
-                        ),
-                        dbobj::Value::InternedString(id) => {
-                            table.string_pool.resolve(*id).map_or_else(
-                                || serde_json::Value::String(format!("<interned:{}>", id)),
-                                |s| serde_json::Value::String(s.to_string()),
-                            )
-                        }
-                    };
+                    let json_val = query::db_value_to_json(val, &table);
                     map.insert(col_def.name.to_string(), json_val);
                 }
                 results.push(serde_json::Value::Object(map));
@@ -766,7 +944,12 @@ impl Database {
                 for row in rows {
                     let mut map = serde_json::Map::new();
                     for (k, v) in row {
+                        // SQL executor doesn't provide Table reference easily here,
+                        // but we can try to use a dummy table or implement a simpler version
                         let json_val = match v {
+                            dbobj::Value::String(s) if s.starts_with('{') || s.starts_with('[') => {
+                                serde_json::from_str(s.as_str()).unwrap_or(serde_json::Value::String(s.to_string()))
+                            }
                             dbobj::Value::Null => serde_json::Value::Null,
                             dbobj::Value::Integer(i) => serde_json::Value::Number(i.into()),
                             dbobj::Value::Float(f) => serde_json::Number::from_f64(f)

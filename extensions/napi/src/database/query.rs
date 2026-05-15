@@ -321,27 +321,50 @@ fn row_to_json(table: &dbobj::core::table::Table, row_idx: usize) -> serde_json:
     let base = row_idx * num_cols;
     for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
         let val = &table.data[base + col_idx];
-        let json_val = match val {
-            dbobj::Value::Null => serde_json::Value::Null,
-            dbobj::Value::Integer(i) => serde_json::Value::Number((*i).into()),
-            dbobj::Value::Float(f) => serde_json::Number::from_f64(*f)
-                .map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null),
-            dbobj::Value::String(s) => serde_json::Value::String(s.to_string()),
-            dbobj::Value::Boolean(b) => serde_json::Value::Bool(*b),
-            dbobj::Value::Blob(b) => serde_json::Value::Array(
-                b.iter()
-                    .map(|&x| serde_json::Value::Number(x.into()))
-                    .collect(),
-            ),
-            dbobj::Value::InternedString(id) => table.string_pool.resolve(*id).map_or_else(
-                || serde_json::Value::String(format!("<interned:{}>", id)),
-                |s| serde_json::Value::String(s.to_string()),
-            ),
-        };
+        let json_val = db_value_to_json(val, table);
         map.insert(col_def.name.to_string(), json_val);
     }
     serde_json::Value::Object(map)
+}
+
+pub(crate) fn db_value_to_json(
+    val: &dbobj::Value,
+    table: &dbobj::core::table::Table,
+) -> serde_json::Value {
+    match val {
+        dbobj::Value::Null => serde_json::Value::Null,
+        dbobj::Value::Integer(i) => serde_json::Value::Number((*i).into()),
+        dbobj::Value::Float(f) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        dbobj::Value::String(s) => {
+            if s.starts_with('{') || s.starts_with('[') {
+                if let Ok(v) = serde_json::from_str(s.as_str()) {
+                    return v;
+                }
+            }
+            serde_json::Value::String(s.to_string())
+        }
+        dbobj::Value::Boolean(b) => serde_json::Value::Bool(*b),
+        dbobj::Value::Blob(b) => serde_json::Value::Array(
+            b.iter()
+                .map(|&x| serde_json::Value::Number(x.into()))
+                .collect(),
+        ),
+        dbobj::Value::InternedString(id) => {
+            table.string_pool.resolve(*id).map_or_else(
+                || serde_json::Value::String(format!("<interned:{}>", id)),
+                |s| {
+                    if s.starts_with('{') || s.starts_with('[') {
+                        if let Ok(v) = serde_json::from_str(s.as_str()) {
+                            return v;
+                        }
+                    }
+                    serde_json::Value::String(s.to_string())
+                },
+            )
+        }
+    }
 }
 
 pub(crate) fn get_row_by_id(
