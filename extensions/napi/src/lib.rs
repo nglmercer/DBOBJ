@@ -5,4 +5,4 @@ mod types;
 
 pub use database::Database;
 pub use dynamic_schema::DynamicSchema;
-pub use types::{ColumnDefinition, TableMetadata};
+pub use types::{ColumnDefinition, DataType, TableMetadata};

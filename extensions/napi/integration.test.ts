@@ -1,5 +1,5 @@
 import { expect, test, describe, beforeAll } from "bun:test";
-import { Database, DynamicSchema, FieldType } from "./index";
+import { Database, DynamicSchema, DataType } from "./index";
 import { unlinkSync, existsSync } from "node:fs";
 
 describe("Database DynamicSchema Integration", () => {
@@ -17,9 +17,9 @@ describe("Database DynamicSchema Integration", () => {
     const db = new Database(dbName);
     const ds = new DynamicSchema();
     ds.register(schemaName, [
-      { name: "id", type: FieldType.I64 },
-      { name: "name", type: FieldType.String },
-      { name: "age", type: FieldType.I64, optional: true },
+      { name: "id", type: DataType.Integer },
+      { name: "name", type: DataType.String },
+      { name: "age", type: DataType.Integer, optional: true },
     ]);
 
     db.createTableFromSchema(tableName, ds, schemaName);
@@ -46,9 +46,9 @@ describe("Database DynamicSchema Integration", () => {
     const db = new Database(":memory:");
     const ds = new DynamicSchema();
     ds.register("complex", [
-      { name: "id", type: FieldType.I64 },
-      { name: "data", type: FieldType.Json },
-      { name: "val", type: FieldType.F64 },
+      { name: "id", type: DataType.Integer },
+      { name: "data", type: DataType.Json },
+      { name: "val", type: DataType.Float },
     ]);
     db.createTableFromSchema("complex_table", ds, "complex");
 
@@ -64,8 +64,8 @@ describe("Database DynamicSchema Integration", () => {
     const db = new Database(":memory:");
     const ds = new DynamicSchema();
     ds.register(schemaName, [
-      { name: "id", type: FieldType.I64 },
-      { name: "name", type: FieldType.String },
+      { name: "id", type: DataType.Integer },
+      { name: "name", type: DataType.String },
     ]);
     db.createTableFromSchema(tableName, ds, schemaName);
 

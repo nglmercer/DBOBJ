@@ -1,70 +1,76 @@
-import { expect, test, describe } from "bun:test";
-import { DynamicSchema, FieldType } from "../index";
+import { expect, test } from "bun:test";
+const { DynamicSchema, DataType } = require("../index.js") as typeof import("../index.d.ts");
 
-describe("DynamicSchema", () => {
-  test("register and validate", () => {
-    const ds = new DynamicSchema();
-    ds.register("user", [
-      { name: "id", type: FieldType.I64 },
-      { name: "name", type: FieldType.String },
-      { name: "optional_field", type: FieldType.String, optional: true },
-    ]);
+const fields = [
+  { name: "id", type: DataType.Integer },
+  { name: "name", type: DataType.String },
+  { name: "optional_field", type: DataType.String, optional: true },
+];
 
-    const valid = { id: 1, name: "Alice" };
-    expect(ds.validate("user", valid)).toEqual({ id: 1, name: "Alice", optional_field: null });
+test("register and validate", () => {
+  const ds = new DynamicSchema();
+  ds.register("test_schema", fields);
 
-    const invalid = { id: "1", name: "Alice" };
-    expect(() => ds.validate("user", invalid)).toThrow();
+  const valid = ds.validate("test_schema", [
+    { id: 1, name: "alice", optional_field: "hello" },
+    { id: 2, name: "bob" },
+  ]);
+  expect(valid).toEqual([
+    { id: 1, name: "alice", optional_field: "hello" },
+    { id: 2, name: "bob", optional_field: null },
+  ]);
 
-    const missing = { id: 1 };
-    expect(() => ds.validate("user", missing)).toThrow();
-  });
+  expect(() =>
+    ds.validate("test_schema", [{ id: "wrong" }]),
+  ).toThrow();
 
-  test("validateObject", () => {
-    const ds = new DynamicSchema();
-    ds.register("user", [
-      { name: "id", type: FieldType.I64 },
-      { name: "name", type: FieldType.String },
-    ]);
+  expect(() =>
+    ds.validate("test_schema", [{ name: "no_id" }]),
+  ).toThrow();
+});
 
-    const obj = { id: 1, name: "Alice" };
-    expect(ds.validateObject("user", obj)).toBe(obj);
+test("validateObject", () => {
+  const ds = new DynamicSchema();
+  ds.register("test", [
+    { name: "id", type: DataType.Integer },
+    { name: "name", type: DataType.String },
+  ]);
+  expect(() => ds.validateObject("test", { id: 1, name: "x" })).not.toThrow();
+  expect(() => ds.validateObject("test", { id: 1 })).toThrow();
+  expect(() => ds.validateObject("test", { id: "foo", name: "x" })).toThrow();
+});
 
-    expect(() => ds.validateObject("user", { id: "1", name: "Alice" })).toThrow();
-  });
+test("parse and parseString", () => {
+  const ds = new DynamicSchema();
+  ds.register("test", [
+    { name: "id", type: DataType.Integer },
+    { name: "name", type: DataType.String },
+  ]);
+  const input = JSON.stringify([{ id: 1, name: "x" }, { id: 2, name: "y" }]);
+  const parsed = ds.parseString("test", input);
+  expect(parsed).toEqual([{ id: 1, name: "x" }, { id: 2, name: "y" }]);
 
-  test("parse and parseString", () => {
-    const ds = new DynamicSchema();
-    ds.register("user", [
-      { name: "id", type: FieldType.I64 },
-      { name: "name", type: FieldType.String },
-    ]);
+  const buf = Buffer.from(input);
+  expect(ds.parse("test", buf)).toEqual(parsed);
+});
 
-    const json = JSON.stringify([{ id: 1, name: "Alice" }, { id: 2, name: "Bob" }]);
-    const result = ds.parseString("user", json);
-    expect(result).toEqual([{ id: 1, name: "Alice" }, { id: 2, name: "Bob" }]);
+test("toRowValues", () => {
+  const ds = new DynamicSchema();
+  ds.register("test", [
+    { name: "id", type: DataType.Integer },
+    { name: "name", type: DataType.String },
+    { name: "opt", type: DataType.Integer, optional: true },
+  ]);
+  const row = ds.toRowValues("test", { id: 42, name: "hello" });
+  expect(row).toEqual([42, "hello", null]);
+});
 
-    const buffer = Buffer.from(json);
-    expect(ds.parse("user", buffer)).toEqual(result);
-  });
-
-  test("toRowValues", () => {
-      const ds = new DynamicSchema();
-      ds.register("user", [
-        { name: "id", type: FieldType.I64 },
-        { name: "name", type: FieldType.String },
-      ]);
-      const obj = { id: 1, name: "Alice" };
-      expect(ds.toRowValues("user", obj)).toEqual([1, "Alice"]);
-  });
-
-  test("validateObject with arrays", () => {
-    const ds = new DynamicSchema();
-    ds.register("test", [
-      { name: "tags", type: FieldType.ArrayString },
-    ]);
-
-    expect(ds.validateObject("test", { tags: ["a", "b"] })).toBeDefined();
-    expect(() => ds.validateObject("test", { tags: [1, 2] })).toThrow();
-  });
+test("validateObject with arrays", () => {
+  const ds = new DynamicSchema();
+  ds.register("test", [
+    { name: "tags", type: DataType.ArrayString },
+  ]);
+  expect(() => ds.validateObject("test", { tags: ["a", "b"] })).not.toThrow();
+  expect(() => ds.validateObject("test", { tags: "not-array" })).toThrow();
+  expect(() => ds.validateObject("test", { tags: [1, 2] })).toThrow();
 });

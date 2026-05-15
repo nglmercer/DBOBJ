@@ -1096,9 +1096,17 @@ impl Table {
         // Fallback to linear scan — uses reference comparison to avoid Value clones
         if let Some(col_idx) = self.get_column_index(column_name) {
             let mut results = Vec::new();
+            // Convert string values to InternedString for proper comparison
+            let lookup_val = if let super::Value::String(s) = value {
+                self.string_pool
+                    .get_id(s.as_str())
+                    .map_or(value.clone(), |id| super::Value::InternedString(id))
+            } else {
+                value.clone()
+            };
             if col_idx == -1 {
                 for i in 0..self.ids.len() {
-                    if &self.ids[i].to_value() == value {
+                    if &self.ids[i].to_value() == &lookup_val {
                         results.push(self.get_row_by_index(i));
                     }
                 }
@@ -1106,9 +1114,8 @@ impl Table {
                 let ucol = col_idx as usize;
                 let num_cols = self.num_columns;
                 let data = &self.data;
-                // Local ref avoids re-reading self.data for each iteration
                 for i in 0..self.ids.len() {
-                    if &data[i * num_cols + ucol] == value {
+                    if &data[i * num_cols + ucol] == &lookup_val {
                         results.push(self.get_row_by_index(i));
                     }
                 }

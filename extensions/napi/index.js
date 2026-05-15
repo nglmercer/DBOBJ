@@ -579,6 +579,7 @@ module.exports = nativeBinding
 module.exports.Cursor = nativeBinding.Cursor
 module.exports.Database = nativeBinding.Database
 module.exports.DbError = nativeBinding.DbError
+module.exports.DynamicSchema = nativeBinding.DynamicSchema
 module.exports.PreparedStatement = nativeBinding.PreparedStatement
 module.exports.Schema = nativeBinding.Schema
 module.exports.Transaction = nativeBinding.Transaction

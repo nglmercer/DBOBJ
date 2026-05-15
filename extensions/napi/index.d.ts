@@ -137,23 +137,16 @@ export declare const enum DataType {
   Float = 1,
   String = 2,
   Boolean = 3,
-  Blob = 4
-}
-
-export declare const enum FieldType {
-  String = 'string',
-  I64 = 'i64',
-  F64 = 'f64',
-  Bool = 'bool',
-  Json = 'json',
-  ArrayString = 'array:string',
-  ArrayI64 = 'array:i64',
-  ArrayF64 = 'array:f64'
+  Blob = 4,
+  Json = 5,
+  ArrayString = 6,
+  ArrayI64 = 7,
+  ArrayF64 = 8
 }
 
 export interface SchemaField {
   name: string
-  type: FieldType
+  type: DataType
   optional?: boolean
 }
 
