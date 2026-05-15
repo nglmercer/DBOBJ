@@ -222,6 +222,10 @@ impl Table {
     }
 
     fn intern_row(&mut self, values: &mut [Value]) {
+        if values.len() > 100 {
+             // For large batches, a local cache could be useful, but for single rows, direct is best.
+             // Given the current architecture, we'll keep it simple but direct.
+        }
         for val in values {
             if let Value::String(s) = val {
                 let id = self.string_pool.intern(s.as_str());

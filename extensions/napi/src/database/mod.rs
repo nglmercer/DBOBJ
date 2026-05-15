@@ -708,7 +708,10 @@ impl Database {
 
                 match &field.type_ {
                     crate::types::DataType::Integer => {
-                        let i: i64 = unsafe { val.cast::<i64>()? };
+                        let mut i = 0i64;
+                        unsafe {
+                            napi::sys::napi_get_value_int64(env.raw(), val_ptr, &mut i);
+                        }
                         flat_values.push(dbobj::Value::Integer(i));
                     }
                     crate::types::DataType::String => {
@@ -716,11 +719,17 @@ impl Database {
                         flat_values.push(dbobj::Value::String(s.into()));
                     }
                     crate::types::DataType::Float => {
-                        let f: f64 = unsafe { val.cast::<f64>()? };
+                        let mut f = 0.0f64;
+                        unsafe {
+                            napi::sys::napi_get_value_double(env.raw(), val_ptr, &mut f);
+                        }
                         flat_values.push(dbobj::Value::Float(f));
                     }
                     crate::types::DataType::Boolean => {
-                        let b: bool = unsafe { val.cast::<bool>()? };
+                        let mut b = false;
+                        unsafe {
+                            napi::sys::napi_get_value_bool(env.raw(), val_ptr, &mut b);
+                        }
                         flat_values.push(dbobj::Value::Boolean(b));
                     }
                     _ => {
@@ -761,30 +770,61 @@ impl Database {
         }
 
         let num_columns = keys.len();
-        let mut col_data = Vec::with_capacity(num_columns as usize);
         let mut row_count = 0;
+
+        enum ColSource<'a> {
+            TypedI64(BigInt64Array),
+            TypedF64(Float64Array),
+            Generic(Array<'a>),
+        }
+
+        let mut sources = Vec::with_capacity(num_columns as usize);
 
         for key in &keys {
             let val: Unknown = columns.get_named_property(key)?;
-            if val.is_array()? {
-                let arr: Array = unsafe { val.cast()? };
-                let len = arr.len();
-                if row_count == 0 {
-                    row_count = len;
-                } else if len != row_count {
-                    return Err(napi::Error::from_reason("Column lengths mismatch"));
+            let len = if val.is_typedarray()? {
+                if let Ok(arr) = unsafe { val.cast::<BigInt64Array>() } {
+                    let l = arr.len() as u32;
+                    sources.push(ColSource::TypedI64(arr));
+                    l
+                } else if let Ok(arr) = unsafe { val.cast::<Float64Array>() } {
+                    let l = arr.len() as u32;
+                    sources.push(ColSource::TypedF64(arr));
+                    l
+                } else {
+                    return Err(napi::Error::from_reason("Unsupported TypedArray type"));
                 }
-                col_data.push(arr);
+            } else if val.is_array()? {
+                let arr: Array = unsafe { val.cast()? };
+                let l = arr.len();
+                sources.push(ColSource::Generic(arr));
+                l
             } else {
-                return Err(napi::Error::from_reason("Column must be an array"));
+                return Err(napi::Error::from_reason("Column must be an array or TypedArray"));
+            };
+
+            if row_count == 0 {
+                row_count = len;
+            } else if len != row_count {
+                return Err(napi::Error::from_reason("Column lengths mismatch"));
             }
         }
 
         let mut flat_values = Vec::with_capacity(row_count as usize * num_columns as usize);
         for i in 0..row_count {
-            for col in &col_data {
-                let val: Unknown = Array::get_element(col, i)?;
-                flat_values.push(json_to_db_value(Some(jv_helper(&val)?)));
+            for source in &sources {
+                match source {
+                    ColSource::TypedI64(arr) => {
+                        flat_values.push(dbobj::Value::Integer(arr[i as usize]));
+                    }
+                    ColSource::TypedF64(arr) => {
+                        flat_values.push(dbobj::Value::Float(arr[i as usize]));
+                    }
+                    ColSource::Generic(arr) => {
+                        let val: Unknown = Array::get_element(arr, i)?;
+                        flat_values.push(json_to_db_value(Some(jv_helper(&val)?)));
+                    }
+                }
             }
         }
 
