@@ -779,6 +779,82 @@ impl Table {
             .map(|mut ids| ids.remove(0))
     }
 
+    /// Ultra-fast batch insert from flat Value vector — avoids per-row Vec allocations.
+    pub fn insert_batch_flat_values(
+        &mut self,
+        mut values: Vec<Value>,
+        num_columns: usize,
+    ) -> Result<Vec<Id>, TableError> {
+        if num_columns != self.num_columns {
+            return Err(TableError::SchemaViolation(format!(
+                "insert_batch_flat_values: {} columns passed, expected {}\n{}",
+                num_columns,
+                self.num_columns,
+                self.col_info()
+            )));
+        }
+        let batch_size = values.len() / num_columns;
+        if values.len() % num_columns != 0 {
+            return Err(TableError::SchemaViolation(
+                "values length not divisible by num_columns".into(),
+            ));
+        }
+
+        self.data.reserve(batch_size * num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
+        if !self.is_sequential_ids {
+            self.id_map.reserve(batch_size);
+        }
+
+        let starting_idx = self.ids.len();
+        let start_id = self.next_int_id;
+        self.next_int_id += batch_size as u64;
+
+        self.intern_row(&mut values);
+        self.data.extend(values);
+
+        for i in 0..batch_size {
+            let id = Id::Integer(start_id + i as u64);
+            self.ids.push(id.clone());
+            self.versions.push(1);
+            if !self.is_sequential_ids {
+                self.id_map.insert(id, starting_idx + i);
+            }
+        }
+
+        let ids: Vec<Id> = (0..batch_size)
+            .map(|i| Id::Integer(start_id + i as u64))
+            .collect();
+
+        // Update indexes
+        for index_obj in self.indexes.values_mut() {
+            if index_obj.is_unique {
+                index_obj.unique_map.reserve(batch_size);
+            } else {
+                index_obj.map.reserve(batch_size);
+            }
+        }
+
+        for index_obj in self.indexes.values_mut() {
+            for row_offset in 0..batch_size {
+                let actual_idx = starting_idx + row_offset;
+                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+                if index_obj.is_unique {
+                    index_obj.unique_map.insert(val.clone(), actual_idx);
+                } else {
+                    index_obj
+                        .map
+                        .entry(val.clone())
+                        .or_insert_with(|| Vec::with_capacity(1))
+                        .push(self.ids[actual_idx].clone());
+                }
+            }
+        }
+
+        Ok(ids)
+    }
+
     /// Update a row from positional values — no RowData/HashMap overhead.
     /// Skips the `validate_and_convert` HashMap lookup for known column positions.
     pub fn update_values(&mut self, id: &Id, mut values: Vec<Value>) -> Result<(), TableError> {

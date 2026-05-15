@@ -444,6 +444,28 @@ impl Database {
         Ok(ids)
     }
 
+    pub fn insert_batch_flat_values(
+        &self,
+        table_name: &str,
+        values: Vec<Value>,
+        num_columns: usize,
+    ) -> Result<Vec<Id>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let table_lock = tables.get(table_name).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
+        })?;
+        let mut table = table_lock.write();
+
+        let ids = table.insert_batch_flat_values(values, num_columns)?;
+
+        self.log_insert(table_name, &mut *table, &ids);
+
+        Ok(ids)
+    }
+
     pub fn insert_batch_flat_f64(
         &self,
         table_name: &str,
