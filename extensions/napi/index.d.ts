@@ -6,22 +6,26 @@ export declare class Cursor {
 
 export declare class Database {
   constructor(name: string)
+  createTableFromSchema(tableName: string, dynamicSchema: DynamicSchema, schemaName: string): boolean
   createTable(name: string, columns: Array<ColumnDefinition>): boolean
   insertBatchI64(tableName: string, values: BigInt64Array, numColumns: number): boolean
   insertRowI64(tableName: string, values: Array<number>): boolean
   insertRowString(tableName: string, values: Array<string>): boolean
   insertRowBool(tableName: string, values: Array<boolean>): boolean
   insertRowFloat(tableName: string, values: Array<number>): boolean
+  insertObject(tableName: string, obj: object, dynamicSchema: DynamicSchema, schemaName: string): boolean
   insertRow(tableName: string, values: Array<any | undefined | null>): boolean
   insertOrReplace(tableName: string, values: Array<any | undefined | null>, uniqueColumn: string): boolean
   insertBatchString(tableName: string, values: Array<string>, numColumns: number): boolean
   insertBatchBool(tableName: string, values: Array<boolean>, numColumns: number): boolean
   insertBatchFloat(tableName: string, values: Array<number>, numColumns: number): boolean
+  insertBatchObjects(tableName: string, objects: Array<object>, dynamicSchema: DynamicSchema, schemaName: string): boolean
   insertBatch(tableName: string, values: Array<any | undefined | null>, numColumns: number): boolean
   updateRowI64(tableName: string, id: number, values: Array<number>): boolean
   updateRowString(tableName: string, id: number, values: Array<string>): boolean
   updateRowBool(tableName: string, id: number, values: Array<boolean>): boolean
   updateRowFloat(tableName: string, id: number, values: Array<number>): boolean
+  updateObject(tableName: string, id: number, obj: object, dynamicSchema: DynamicSchema, schemaName: string): boolean
   updateRow(tableName: string, id: number, values: Array<any | undefined | null>): boolean
   updateColumnI64(tableName: string, id: number, columnName: string, value: number): boolean
   updateColumnString(tableName: string, id: number, columnName: string, value: string): boolean
@@ -76,24 +80,23 @@ export declare class DbError {
 export declare class DynamicSchema {
   constructor()
   register(schemaName: string, fields: Array<SchemaField>): void
-  /** Uses streaming parser — validates during JSON tokenization, no intermediate Value tree. */
+  /** Uses streaming parser — validates during JSON tokenization. */
   parse(schemaName: string, buffer: Buffer): Array<any>
-  /** Same as parse() but from JSON string. */
+  /** Same as parse() but from JSON string. Uses streaming parser. */
   parseString(schemaName: string, input: string): Array<any>
-  /** Parse single record using streaming parser. */
+  /** Parse single record and validate against schema. Uses streaming parser. */
   parseOne(schemaName: string, buffer: Buffer): any
   /**
    * Validate a JS Object by accessing properties directly via napi — no Value intermediate.
    * Returns the object (no conversion overhead).
    * Missing optional fields remain absent (not injected as null).
-   * I64 validation uses f64 — values beyond 2^53 may lose precision.
    */
   validateObject(schemaName: string, obj: object): object
   /**
-   * Convert a validated serde_json::Value (must be an object) to a Vec<Option<serde_json::Value>>
+   * Convert a validated Object to a Vec<Option<serde_json::Value>>
    * following the schema field order, suitable for database insertion.
    */
-  toRowValues(schemaName: string, value: any): Array<any | undefined | null>
+  toRowValues(schemaName: string, obj: object): Array<any | undefined | null>
   /** Validate a pre-parsed serde_json::Value. Fast path: returns original Value when valid. */
   validate(schemaName: string, value: any): any
 }

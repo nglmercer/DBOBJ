@@ -3,19 +3,22 @@ use serde::Deserialize;
 use serde_json::{Deserializer, Value};
 
 pub fn stream_parse_array(input: &[u8], schema: &CompiledSchema) -> Result<Vec<Value>, String> {
-    let mut deserializer = Deserializer::from_slice(input);
-    let values: Value = Value::deserialize(&mut deserializer).map_err(|e| e.to_string())?;
+    let deserializer = Deserializer::from_slice(input);
+    let iter = deserializer.into_iter::<Value>();
+    let mut results = Vec::new();
 
-    match values {
-        Value::Array(arr) => {
-            let mut validated = Vec::with_capacity(arr.len());
-            for v in arr {
-                validated.push(validate_and_rebuild(v, schema)?);
+    for value in iter {
+        let v = value.map_err(|e| e.to_string())?;
+        match v {
+            Value::Array(arr) => {
+                for item in arr {
+                    results.push(validate_and_rebuild(item, schema)?);
+                }
             }
-            Ok(validated)
+            _ => results.push(validate_and_rebuild(v, schema)?),
         }
-        _ => Err("Expected array of objects".to_string()),
     }
+    Ok(results)
 }
 
 pub fn stream_parse_one(input: &[u8], schema: &CompiledSchema) -> Result<Value, String> {

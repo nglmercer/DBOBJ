@@ -32,15 +32,15 @@ pub struct SchemaField {
   pub optional: Option<bool>,
 }
 
-pub(crate) struct CompiledField {
-  pub(crate) name: String,
-  pub(crate) type_: FieldType,
-  pub(crate) optional: bool,
+pub struct CompiledField {
+  pub name: String,
+  pub type_: FieldType,
+  pub optional: bool,
 }
 
-pub(crate) struct CompiledSchema {
-  pub(crate) fields: Vec<CompiledField>,
-  pub(crate) indices: FxHashMap<String, usize>,
+pub struct CompiledSchema {
+  pub fields: Vec<CompiledField>,
+  pub indices: FxHashMap<String, usize>,
 }
 
 fn type_label(t: &FieldType) -> &'static str {
@@ -129,7 +129,7 @@ fn validate_record(data: Value, schema: &CompiledSchema) -> Result<Value> {
 
 #[napi]
 pub struct DynamicSchema {
-  schemas: FxHashMap<String, CompiledSchema>,
+  pub(crate) schemas: FxHashMap<String, CompiledSchema>,
 }
 
 #[napi]
@@ -169,7 +169,7 @@ impl DynamicSchema {
     Ok(())
   }
 
-  /// Parse JSON array and validate against schema.
+  /// Uses streaming parser — validates during JSON tokenization.
   #[napi]
   pub fn parse(&self, schema_name: String, buffer: Buffer) -> Result<Vec<Value>> {
     let schema = self
@@ -180,7 +180,7 @@ impl DynamicSchema {
       .map_err(|e| Error::from_reason(e))
   }
 
-  /// Same as parse() but from JSON string.
+  /// Same as parse() but from JSON string. Uses streaming parser.
   #[napi]
   pub fn parse_string(&self, schema_name: String, input: String) -> Result<Vec<Value>> {
     let schema = self
@@ -191,7 +191,7 @@ impl DynamicSchema {
       .map_err(|e| Error::from_reason(e))
   }
 
-  /// Parse single record and validate against schema.
+  /// Parse single record and validate against schema. Uses streaming parser.
   #[napi]
   pub fn parse_one(&self, schema_name: String, buffer: Buffer) -> Result<Value> {
     let schema = self
@@ -232,10 +232,34 @@ impl DynamicSchema {
         FieldType::Bool => {
           obj.get_named_property::<bool>(&field.name)?;
         }
-        FieldType::ArrayString | FieldType::ArrayI64 | FieldType::ArrayF64 => {
+        FieldType::ArrayString => {
           let arr = obj.get_named_property::<Object>(&field.name)?;
           if !arr.is_array()? {
             return Err(Error::from_reason(format!("field '{}' expected array", field.name)));
+          }
+          let len = arr.get_array_length()?;
+          for i in 0..len {
+            arr.get_element::<String>(i)?;
+          }
+        }
+        FieldType::ArrayI64 => {
+          let arr = obj.get_named_property::<Object>(&field.name)?;
+          if !arr.is_array()? {
+            return Err(Error::from_reason(format!("field '{}' expected array", field.name)));
+          }
+          let len = arr.get_array_length()?;
+          for i in 0..len {
+            arr.get_element::<i64>(i)?;
+          }
+        }
+        FieldType::ArrayF64 => {
+          let arr = obj.get_named_property::<Object>(&field.name)?;
+          if !arr.is_array()? {
+            return Err(Error::from_reason(format!("field '{}' expected array", field.name)));
+          }
+          let len = arr.get_array_length()?;
+          for i in 0..len {
+            arr.get_element::<f64>(i)?;
           }
         }
         _ => {
@@ -246,25 +270,37 @@ impl DynamicSchema {
     Ok(obj)
   }
 
-  /// Convert a validated serde_json::Value (must be an object) to a Vec<Option<serde_json::Value>>
+  /// Convert a validated Object to a Vec<Option<serde_json::Value>>
   /// following the schema field order, suitable for database insertion.
   #[napi]
-  pub fn to_row_values(&self, schema_name: String, value: Value) -> Result<Vec<Option<Value>>> {
+  pub fn to_row_values(&self, schema_name: String, obj: Object) -> Result<Vec<Option<Value>>> {
     let schema = self
       .schemas
       .get(&schema_name)
       .ok_or_else(|| Error::from_reason(format!("schema '{schema_name}' not found")))?;
 
-    match value {
-      Value::Object(map) => {
-        let mut row = Vec::with_capacity(schema.fields.len());
-        for field in &schema.fields {
-          row.push(map.get(&field.name).cloned());
-        }
-        Ok(row)
+    let mut row = Vec::with_capacity(schema.fields.len());
+    for field in &schema.fields {
+      let has = obj.has_named_property(&field.name)?;
+      if !has {
+        row.push(None);
+        continue;
       }
-      _ => Err(Error::from_reason("Expected object")),
+      let val: Unknown = obj.get_named_property(&field.name)?;
+      match val.get_type()? {
+        napi::ValueType::Null | napi::ValueType::Undefined => row.push(None),
+        _ => {
+          let json_val = crate::database::jv_helper(&val)?;
+          row.push(Some(json_val));
+        }
+      }
     }
+    Ok(row)
+  }
+
+  /// Get schema for internal use
+  pub fn get_schema(&self, schema_name: &str) -> Option<&CompiledSchema> {
+    self.schemas.get(schema_name)
   }
 
   /// Validate a pre-parsed serde_json::Value. Fast path: returns original Value when valid.

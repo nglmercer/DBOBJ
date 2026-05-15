@@ -57,4 +57,14 @@ describe("DynamicSchema", () => {
       const obj = { id: 1, name: "Alice" };
       expect(ds.toRowValues("user", obj)).toEqual([1, "Alice"]);
   });
+
+  test("validateObject with arrays", () => {
+    const ds = new DynamicSchema();
+    ds.register("test", [
+      { name: "tags", type: FieldType.ArrayString },
+    ]);
+
+    expect(ds.validateObject("test", { tags: ["a", "b"] })).toBeDefined();
+    expect(() => ds.validateObject("test", { tags: [1, 2] })).toThrow();
+  });
 });
