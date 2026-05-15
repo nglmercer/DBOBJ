@@ -277,7 +277,7 @@ impl Table {
                 index_obj
                     .map
                     .entry(val.clone())
-                    .or_default()
+                    .or_insert_with(|| Vec::with_capacity(1))
                     .push(id.clone());
             }
         }
@@ -318,7 +318,7 @@ impl Table {
                 index_obj
                     .map
                     .entry(val.clone())
-                    .or_default()
+                    .or_insert_with(|| Vec::with_capacity(1))
                     .push(id.clone());
             }
             ids.push(id);
@@ -393,7 +393,7 @@ impl Table {
                 index_obj
                     .map
                     .entry(val.clone())
-                    .or_default()
+                    .or_insert_with(|| Vec::with_capacity(1))
                     .push(id.clone());
             }
             ids.push(id);
@@ -462,7 +462,7 @@ impl Table {
                     index_obj
                         .map
                         .entry(val.clone())
-                        .or_default()
+                        .or_insert_with(|| Vec::with_capacity(1))
                         .push(id.clone());
                 }
             }
@@ -542,7 +542,7 @@ impl Table {
                     index_obj
                         .map
                         .entry(val.clone())
-                        .or_default()
+                        .or_insert_with(|| Vec::with_capacity(1))
                         .push(self.ids[actual_idx].clone());
                 }
             }
@@ -560,12 +560,16 @@ impl Table {
         if num_columns != self.num_columns {
             return Err(TableError::SchemaViolation(format!(
                 "insert_batch_flat_string: {} columns passed, expected {}\n{}",
-                num_columns, self.num_columns, self.col_info()
+                num_columns,
+                self.num_columns,
+                self.col_info()
             )));
         }
         let batch_size = values.len() / num_columns;
         if !values.len().is_multiple_of(num_columns) {
-            return Err(TableError::SchemaViolation("values length not divisible by num_columns".into()));
+            return Err(TableError::SchemaViolation(
+                "values length not divisible by num_columns".into(),
+            ));
         }
         self.data.reserve(batch_size * num_columns);
         self.ids.reserve(batch_size);
@@ -577,7 +581,13 @@ impl Table {
         self.next_int_id += batch_size as u64;
 
         // Batch intern all strings, then push as InternedString
-        let interned: Vec<u32> = values.iter().map(|s| self.string_pool.intern(compact_str::CompactString::from(s.as_str()))).collect();
+        let interned: Vec<u32> = values
+            .iter()
+            .map(|s| {
+                self.string_pool
+                    .intern(compact_str::CompactString::from(s.as_str()))
+            })
+            .collect();
         for &id in &interned {
             self.data.push(Value::InternedString(id));
         }
@@ -586,23 +596,36 @@ impl Table {
             self.ids.push(Id::Integer(start_id + i as u64));
             self.versions.push(1);
         }
-        let ids: Vec<Id> = (0..batch_size).map(|i| Id::Integer(start_id + i as u64)).collect();
+        let ids: Vec<Id> = (0..batch_size)
+            .map(|i| Id::Integer(start_id + i as u64))
+            .collect();
 
         if !self.is_sequential_ids {
             for i in 0..batch_size {
-                self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i);
+                self.id_map
+                    .insert(Id::Integer(start_id + i as u64), starting_idx + i);
             }
         }
         for index_obj in self.indexes.values_mut() {
-            if index_obj.is_unique { index_obj.unique_map.reserve(batch_size); }
-            else { index_obj.map.reserve(batch_size); }
+            if index_obj.is_unique {
+                index_obj.unique_map.reserve(batch_size);
+            } else {
+                index_obj.map.reserve(batch_size);
+            }
         }
         for index_obj in self.indexes.values_mut() {
             for row_offset in 0..batch_size {
                 let actual_idx = starting_idx + row_offset;
                 let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
-                if index_obj.is_unique { index_obj.unique_map.insert(val.clone(), actual_idx); }
-                else { index_obj.map.entry(val.clone()).or_default().push(self.ids[actual_idx].clone()); }
+                if index_obj.is_unique {
+                    index_obj.unique_map.insert(val.clone(), actual_idx);
+                } else {
+                    index_obj
+                        .map
+                        .entry(val.clone())
+                        .or_insert_with(|| Vec::with_capacity(1))
+                        .push(self.ids[actual_idx].clone());
+                }
             }
         }
         Ok(ids)
@@ -617,12 +640,16 @@ impl Table {
         if num_columns != self.num_columns {
             return Err(TableError::SchemaViolation(format!(
                 "insert_batch_flat_bool: {} columns passed, expected {}\n{}",
-                num_columns, self.num_columns, self.col_info()
+                num_columns,
+                self.num_columns,
+                self.col_info()
             )));
         }
         let batch_size = values.len() / num_columns;
         if !values.len().is_multiple_of(num_columns) {
-            return Err(TableError::SchemaViolation("values length not divisible by num_columns".into()));
+            return Err(TableError::SchemaViolation(
+                "values length not divisible by num_columns".into(),
+            ));
         }
         self.data.reserve(batch_size * num_columns);
         self.ids.reserve(batch_size);
@@ -632,23 +659,43 @@ impl Table {
         let start_id = self.next_int_id;
         self.next_int_id += batch_size as u64;
 
-        for &v in values { self.data.push(Value::Boolean(v)); }
-        for i in 0..batch_size { self.ids.push(Id::Integer(start_id + i as u64)); self.versions.push(1); }
-        let ids: Vec<Id> = (0..batch_size).map(|i| Id::Integer(start_id + i as u64)).collect();
+        for &v in values {
+            self.data.push(Value::Boolean(v));
+        }
+        for i in 0..batch_size {
+            self.ids.push(Id::Integer(start_id + i as u64));
+            self.versions.push(1);
+        }
+        let ids: Vec<Id> = (0..batch_size)
+            .map(|i| Id::Integer(start_id + i as u64))
+            .collect();
 
         if !self.is_sequential_ids {
-            for i in 0..batch_size { self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i); }
+            for i in 0..batch_size {
+                self.id_map
+                    .insert(Id::Integer(start_id + i as u64), starting_idx + i);
+            }
         }
         for index_obj in self.indexes.values_mut() {
-            if index_obj.is_unique { index_obj.unique_map.reserve(batch_size); }
-            else { index_obj.map.reserve(batch_size); }
+            if index_obj.is_unique {
+                index_obj.unique_map.reserve(batch_size);
+            } else {
+                index_obj.map.reserve(batch_size);
+            }
         }
         for index_obj in self.indexes.values_mut() {
             for row_offset in 0..batch_size {
                 let actual_idx = starting_idx + row_offset;
                 let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
-                if index_obj.is_unique { index_obj.unique_map.insert(val.clone(), actual_idx); }
-                else { index_obj.map.entry(val.clone()).or_default().push(self.ids[actual_idx].clone()); }
+                if index_obj.is_unique {
+                    index_obj.unique_map.insert(val.clone(), actual_idx);
+                } else {
+                    index_obj
+                        .map
+                        .entry(val.clone())
+                        .or_insert_with(|| Vec::with_capacity(1))
+                        .push(self.ids[actual_idx].clone());
+                }
             }
         }
         Ok(ids)
@@ -663,12 +710,16 @@ impl Table {
         if num_columns != self.num_columns {
             return Err(TableError::SchemaViolation(format!(
                 "insert_batch_flat_f64: {} columns passed, expected {}\n{}",
-                num_columns, self.num_columns, self.col_info()
+                num_columns,
+                self.num_columns,
+                self.col_info()
             )));
         }
         let batch_size = values.len() / num_columns;
         if !values.len().is_multiple_of(num_columns) {
-            return Err(TableError::SchemaViolation("values length not divisible by num_columns".into()));
+            return Err(TableError::SchemaViolation(
+                "values length not divisible by num_columns".into(),
+            ));
         }
         self.data.reserve(batch_size * num_columns);
         self.ids.reserve(batch_size);
@@ -678,23 +729,43 @@ impl Table {
         let start_id = self.next_int_id;
         self.next_int_id += batch_size as u64;
 
-        for &v in values { self.data.push(Value::Float(v)); }
-        for i in 0..batch_size { self.ids.push(Id::Integer(start_id + i as u64)); self.versions.push(1); }
-        let ids: Vec<Id> = (0..batch_size).map(|i| Id::Integer(start_id + i as u64)).collect();
+        for &v in values {
+            self.data.push(Value::Float(v));
+        }
+        for i in 0..batch_size {
+            self.ids.push(Id::Integer(start_id + i as u64));
+            self.versions.push(1);
+        }
+        let ids: Vec<Id> = (0..batch_size)
+            .map(|i| Id::Integer(start_id + i as u64))
+            .collect();
 
         if !self.is_sequential_ids {
-            for i in 0..batch_size { self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i); }
+            for i in 0..batch_size {
+                self.id_map
+                    .insert(Id::Integer(start_id + i as u64), starting_idx + i);
+            }
         }
         for index_obj in self.indexes.values_mut() {
-            if index_obj.is_unique { index_obj.unique_map.reserve(batch_size); }
-            else { index_obj.map.reserve(batch_size); }
+            if index_obj.is_unique {
+                index_obj.unique_map.reserve(batch_size);
+            } else {
+                index_obj.map.reserve(batch_size);
+            }
         }
         for index_obj in self.indexes.values_mut() {
             for row_offset in 0..batch_size {
                 let actual_idx = starting_idx + row_offset;
                 let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
-                if index_obj.is_unique { index_obj.unique_map.insert(val.clone(), actual_idx); }
-                else { index_obj.map.entry(val.clone()).or_default().push(self.ids[actual_idx].clone()); }
+                if index_obj.is_unique {
+                    index_obj.unique_map.insert(val.clone(), actual_idx);
+                } else {
+                    index_obj
+                        .map
+                        .entry(val.clone())
+                        .or_insert_with(|| Vec::with_capacity(1))
+                        .push(self.ids[actual_idx].clone());
+                }
             }
         }
         Ok(ids)
@@ -738,7 +809,7 @@ impl Table {
                 index_obj
                     .map
                     .entry(new_val.clone())
-                    .or_default()
+                    .or_insert_with(|| Vec::with_capacity(1))
                     .push(id.clone());
             }
         }
@@ -752,38 +823,42 @@ impl Table {
     }
 
     /// Single-pass: validates schema and converts RowData to positional Vec<Value> simultaneously.
-    /// Eliminates the double HashMap iteration of separate validate_schema + row_to_values.
+    /// Iterates over RowData entries and moves values directly, avoiding per-column HashMap lookups.
     fn validate_and_convert(&self, data: RowData) -> Result<Vec<Value>, TableError> {
-        let mut values = Vec::with_capacity(self.schema.columns.len());
-        for col_def in &self.schema.columns {
-            match data.get(&col_def.name) {
-                Some(val) => {
-                    let type_ok = match (&col_def.data_type, val) {
-                        (super::DataType::Integer, Value::Integer(_)) => true,
-                        (super::DataType::Float, Value::Float(_)) => true,
-                        (super::DataType::String, Value::String(_)) => true,
-                        (super::DataType::Boolean, Value::Boolean(_)) => true,
-                        (super::DataType::Blob, Value::Blob(_)) => true,
-                        (_, Value::Null) if col_def.nullable => true,
-                        _ => false,
-                    };
-                    if !type_ok {
-                        return Err(TableError::SchemaViolation(format!(
-                            "Type mismatch for column {}: expected {:?}, got {:?}",
-                            col_def.name, col_def.data_type, val
-                        )));
-                    }
-                    values.push(val.clone());
+        let num_cols = self.schema.columns.len();
+        let mut values = vec![Value::Null; num_cols];
+        for (col_name, val) in data {
+            let idx = match self.column_map.get(col_name.as_str()) {
+                Some(&idx) => idx,
+                None => continue,
+            };
+            if !val.is_null() {
+                let col_def = &self.schema.columns[idx];
+                let type_ok = match (&col_def.data_type, &val) {
+                    (super::DataType::Integer, Value::Integer(_)) => true,
+                    (super::DataType::Float, Value::Float(_)) => true,
+                    (super::DataType::String, Value::String(_)) => true,
+                    (super::DataType::Boolean, Value::Boolean(_)) => true,
+                    (super::DataType::Blob, Value::Blob(_)) => true,
+                    (_, Value::Null) if col_def.nullable => true,
+                    _ => false,
+                };
+                if !type_ok {
+                    return Err(TableError::SchemaViolation(format!(
+                        "Type mismatch for column {}: expected {:?}, got {:?}",
+                        col_def.name, col_def.data_type, val
+                    )));
                 }
-                None => {
-                    if !col_def.nullable {
-                        return Err(TableError::SchemaViolation(format!(
-                            "Column {} is not nullable but is missing",
-                            col_def.name
-                        )));
-                    }
-                    values.push(Value::Null);
-                }
+            }
+            values[idx] = val;
+        }
+        // Check for missing non-nullable columns
+        for (i, col_def) in self.schema.columns.iter().enumerate() {
+            if matches!(values[i], Value::Null) && !col_def.nullable {
+                return Err(TableError::SchemaViolation(format!(
+                    "Column {} is not nullable but is missing",
+                    col_def.name
+                )));
             }
         }
         Ok(values)
@@ -871,7 +946,7 @@ impl Table {
                 index_obj
                     .map
                     .entry(new_val.clone())
-                    .or_default()
+                    .or_insert_with(|| Vec::with_capacity(1))
                     .push(id.clone());
             }
         }
@@ -999,16 +1074,6 @@ impl Table {
     }
 
     pub fn find_by_column(&self, column_name: &str, value: &super::Value) -> Vec<Row> {
-        // Fast path: sequential integer IDs for tables WITHOUT an explicit "id" column
-        if column_name == "id" && self.is_sequential_ids && !self.column_map.contains_key("id") {
-            if let super::Value::Integer(id_val) = value {
-                let idx = *id_val as usize;
-                if idx < self.ids.len() && self.ids[idx] == super::Id::Integer(*id_val as u64) {
-                    return vec![self.get_row_by_index(idx)];
-                }
-                return Vec::new();
-            }
-        }
         // Use index if available
         if let Some(index) = self.indexes.get(column_name) {
             let mut lookup_val = value.clone();
@@ -1028,19 +1093,24 @@ impl Table {
             return Vec::new();
         }
 
-        // Fallback to linear scan
+        // Fallback to linear scan — uses reference comparison to avoid Value clones
         if let Some(col_idx) = self.get_column_index(column_name) {
-            let lookup_val = if let super::Value::String(s) = value {
-                self.string_pool
-                    .get_id(s.as_str())
-                    .map_or(value.clone(), |id| super::Value::InternedString(id))
-            } else {
-                value.clone()
-            };
             let mut results = Vec::new();
-            for i in 0..self.ids.len() {
-                if self.get_value_by_index(i, col_idx) == lookup_val {
-                    results.push(self.get_row_by_index(i));
+            if col_idx == -1 {
+                for i in 0..self.ids.len() {
+                    if &self.ids[i].to_value() == value {
+                        results.push(self.get_row_by_index(i));
+                    }
+                }
+            } else {
+                let ucol = col_idx as usize;
+                let num_cols = self.num_columns;
+                let data = &self.data;
+                // Local ref avoids re-reading self.data for each iteration
+                for i in 0..self.ids.len() {
+                    if &data[i * num_cols + ucol] == value {
+                        results.push(self.get_row_by_index(i));
+                    }
                 }
             }
             return results;
@@ -1086,7 +1156,11 @@ impl Table {
             if is_unique {
                 index.unique_map.insert(val.clone(), i);
             } else {
-                index.map.entry(val.clone()).or_default().push(id.clone());
+                index
+                    .map
+                    .entry(val.clone())
+                    .or_insert_with(|| Vec::with_capacity(1))
+                    .push(id.clone());
             }
         }
 
