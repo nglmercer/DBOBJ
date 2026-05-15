@@ -27,21 +27,35 @@ export class DBOBJSQLPreparedSuite implements TestSuite {
 
     const t0 = performance.now();
     intStmt.runBatchI64(intBatch, 2);
-    strStmt.runBatchValues(strBatch, 1);
-    boolStmt.runBatchValues(boolBatch, 1);
-    return performance.now() - t0;
+    strStmt.runBatchString(strBatch, 1);
+    boolStmt.runBatchBool(boolBatch, 1);
+    const elapsed = performance.now() - t0;
+
+    const usersCount = this.db.countRows("users");
+    const namesCount = this.db.countRows("names");
+    const activesCount = this.db.countRows("actives");
+    if (usersCount !== count) throw new Error(`users count ${usersCount} !== ${count}`);
+    if (namesCount !== count) throw new Error(`names count ${namesCount} !== ${count}`);
+    if (activesCount !== count) throw new Error(`actives count ${activesCount} !== ${count}`);
+
+    return elapsed;
   }
 
   readColumn(tableName: string, colName: string) {
     const t0 = performance.now();
-    this.db.prepare(`SELECT ${colName} FROM ${tableName}`).allI64([]);
-    return performance.now() - t0;
+    const col = this.db.prepare(`SELECT ${colName} FROM ${tableName}`).allI64([]);
+    const elapsed = performance.now() - t0;
+    if (col.length === 0) throw new Error(`column ${colName} is empty`);
+    return elapsed;
   }
 
   find(tableName: string, colName: string, value: any) {
     const t0 = performance.now();
-    this.db.executeSql(`SELECT * FROM ${tableName} WHERE ${colName} = ${value}`);
-    return performance.now() - t0;
+    const res = this.db.executeSql(`SELECT * FROM ${tableName} WHERE ${colName} = ${value}`) as Array<Record<string, any>>;
+    const elapsed = performance.now() - t0;
+    if (res.length === 0) throw new Error(`find ${colName}=${value} returned empty`);
+    if (Number(res[0].id) !== value) throw new Error(`find id mismatch: ${res[0].id} !== ${value}`);
+    return elapsed;
   }
 
   update(tableName: string, count: number) {
@@ -53,7 +67,11 @@ export class DBOBJSQLPreparedSuite implements TestSuite {
       batch[i * 2 + 1] = BigInt(i);
     }
     stmt.runBatchI64(batch, 2);
-    return performance.now() - t0;
+    const elapsed = performance.now() - t0;
+
+    const res = this.db.executeSql("SELECT val FROM users WHERE id = 50") as Array<Record<string, any>>;
+    if (Number(res[0].val) !== 1000) throw new Error(`update val mismatch: ${res[0].val} !== 1000`);
+    return elapsed;
   }
 
   join(t1: string, c1: string, t2: string, c2: string) {
@@ -67,7 +85,10 @@ export class DBOBJSQLPreparedSuite implements TestSuite {
     stmt.runBatchI64(batch, 2);
 
     const t0 = performance.now();
-    this.db.queryJoinI64(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
-    return performance.now() - t0;
+    const result = this.db.queryJoinI64(`SELECT * FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`);
+    const elapsed = performance.now() - t0;
+
+    if (result.length !== JOIN_COUNT * 4) throw new Error(`join result length ${result.length} !== ${JOIN_COUNT * 4}`);
+    return elapsed;
   }
 }

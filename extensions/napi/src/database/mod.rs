@@ -297,6 +297,62 @@ impl PreparedStatement {
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(true)
     }
+
+    #[napi]
+    pub fn run_batch_string(&self, flat_params: Vec<String>, params_per_row: u32) -> Result<bool> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.db);
+        let pprow = params_per_row as usize;
+        let total = flat_params.len();
+        let mut iter = flat_params.into_iter();
+        let mut batch = Vec::with_capacity(total / pprow);
+        'outer: while let Some(v0) = iter.next() {
+            let mut row = Vec::with_capacity(pprow);
+            row.push(dbobj::Value::String(v0.into()));
+            for _ in 1..pprow {
+                match iter.next() {
+                    Some(v) => row.push(dbobj::Value::String(v.into())),
+                    None => {
+                        batch.push(row);
+                        break 'outer;
+                    }
+                }
+            }
+            batch.push(row);
+        }
+        executor
+            .execute_prepared_batch(&self.inner, &batch)
+            .map_err(napi::Error::from_reason)?;
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(true)
+    }
+
+    #[napi]
+    pub fn run_batch_bool(&self, flat_params: Vec<bool>, params_per_row: u32) -> Result<bool> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.db);
+        let pprow = params_per_row as usize;
+        let total = flat_params.len();
+        let mut iter = flat_params.into_iter();
+        let mut batch = Vec::with_capacity(total / pprow);
+        'outer: while let Some(v0) = iter.next() {
+            let mut row = Vec::with_capacity(pprow);
+            row.push(dbobj::Value::Boolean(v0));
+            for _ in 1..pprow {
+                match iter.next() {
+                    Some(v) => row.push(dbobj::Value::Boolean(v)),
+                    None => {
+                        batch.push(row);
+                        break 'outer;
+                    }
+                }
+            }
+            batch.push(row);
+        }
+        executor
+            .execute_prepared_batch(&self.inner, &batch)
+            .map_err(napi::Error::from_reason)?;
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(true)
+    }
 }
 
 #[napi]
