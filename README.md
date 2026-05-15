@@ -31,23 +31,25 @@ The high-performance bridge for the JavaScript ecosystem.
 ## 🛠 Usage (Bun / Node.js)
 
 ```typescript
-import { Database } from "dbobj-napi";
+import { Database, DataType } from "dbobj-napi";
 
-const db = new Database("my_db");
+const db = new Database(":memory:");
 
-// 1. Direct API (Maximum Performance)
+// Create a table
 db.createTable("users", [
-  { name: "id", dataType: "integer", nullable: false },
-  { name: "val", dataType: "integer" },
+  { name: "id", dataType: DataType.Integer },
+  { name: "name", dataType: DataType.String },
+  { name: "active", dataType: DataType.Boolean },
 ]);
-db.createIndex("users", "id");
 
-// 2. SQL API (Ease of Use)
-db.executeSql("INSERT INTO users (id, val) VALUES (1, 100)");
-const results = db.executeSql("SELECT * FROM users WHERE id = 1");
+// Insert rows
+db.insertRow("users", [1, "Alice", true]);
+db.insertRow("users", [2, "Bob", false]);
 
+// Read as JSON
+const rows = db.getRows("users");
+console.log(rows);
 ```
-
 ---
 
 ## 📚 Documentation
