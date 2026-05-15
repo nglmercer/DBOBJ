@@ -28,31 +28,76 @@ The high-performance bridge for the JavaScript ecosystem.
 
 ---
 
+## Features
+
+### Storage
+- **Columnar in-memory layout** — each row is stored contiguously for cache locality (`O(1)` access).
+- **mmap + rkyv persistence** — zero-copy serialisation; load a 10 GB database in microseconds.
+- **WAL** (optional) — write-ahead log for crash recovery.
+
+### Indexing
+- **Sequential IDs** — rows are addressed by auto-incrementing integer IDs.
+- **Hash indexes** — `FastHashMap<Value, Vec<Id>>` for non-unique, `FastHashMap<Value, usize>` for unique.
+- **Composite indexes** — index multiple columns with one call.
+- **Find by column value** — `findByI64/`findByString`/`findByBool` return matching row IDs.
+
+### Query Engine
+- **Hand-written recursive-descent SQL parser** with precedence climbing.
+- **Equality hash join** — `hashJoinI64` returns matched row ID pairs in O(N+M).
+- **Filter, sort and paginate** entirely through the SQL engine.
+- **`?` parameter binding** — prevent SQL injection without string interpolation.
+
+### Ingestion
+- **Typed batch inserts** — `insertBatchI64`, `insertBatchString`, `insertBatchFloat`, `insertBatchBool` flat arrays avoid any type-dispatch overhead.
+- **Mixed-type batch** — `insertBatch` packs `any[]` values into one FFI call.
+- **Columnar batch** — `insertBatchColumnar` takes `{ columnName: values[] }`.
+- **DynamicSchema** — validate and convert JSON objects before writing to a known-schema table.
+
+### API
+- **`getColumnI64`** — zero-copy column reads as `BigInt64Array` (pointer overhead only).
+- **`cursor`** — batch-iterate over multi-million-row tables without materialising the entire result set.
+- **`beginTransaction`** — snapshot-based commit/rollback.
+- **Async API** — `getRowsAsync` and `cursor.next()` return Promises for seamless integration with `async`/`await`.
+
+---
+
 ## 🛠 Usage (Bun / Node.js)
 
 ```typescript
 import { Database, DataType } from "dbobj-napi";
 
-const db = new Database(":memory:");
+// Open or create a database
+const db = new Database("my_db");
 
-// Create a table
+// Define a table schema
 db.createTable("users", [
-  { name: "id", dataType: DataType.Integer },
-  { name: "name", dataType: DataType.String },
-  { name: "active", dataType: DataType.Boolean },
+  { name: "id",       dataType: DataType.Integer  },
+  { name: "name",     dataType: DataType.String   },
+  { name: "age",      dataType: DataType.Integer  },
+  { name: "active",   dataType: DataType.Boolean  },
+  { name: "score",    dataType: DataType.Float    },
 ]);
 
 // Insert rows
-db.insertRow("users", [1, "Alice", true]);
-db.insertRow("users", [2, "Bob", false]);
+db.insertRow("users", [1, "Alice",    30, true,  99.5]);
+db.insertRow("users", [2, "Bob",      25, true,  87.3]);
+db.insertRow("users", [3, "Carol",    28, false, null]);
 
-// Read as JSON
+// Read
 const rows = db.getRows("users");
-console.log(rows);
-//search list
-const result = db.findByI64(table, "id", id);
-return Array.isArray(result) && result.length > 0 ? result[0] : null;
+
+// Or use SQL for complex queries
+const adults = db.executeSql(
+  "SELECT * FROM users WHERE age > ? AND active = ? ORDER BY score DESC",
+  18, true
+);
+
+// Or use a prepared statement for repeated execution
+const stmt = db.prepare("INSERT INTO users (name, age) VALUES (?, ?)");
+stmt.run(["Dave",    40]);
+stmt.run(["Eve",     22]);
 ```
+
 ---
 
 ## 📚 Documentation
