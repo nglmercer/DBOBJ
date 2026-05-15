@@ -12,18 +12,29 @@ export class BunSQLiteSuite implements TestSuite {
     this.db.run("CREATE TABLE actives (active INTEGER)");
     this.db.run("CREATE INDEX idx_id ON users (id)");
 
-    const intStmt = this.db.prepare("INSERT INTO users (id, val) VALUES (?, ?)");
-    const strStmt = this.db.prepare("INSERT INTO names (name) VALUES (?)");
-    const boolStmt = this.db.prepare("INSERT INTO actives (active) VALUES (?)");
-
     const t0 = performance.now();
-    this.db.transaction(() => {
-      for (let i = 0; i < count; i++) {
-        intStmt.run(i, i * 10);
-        strStmt.run(`user_${i}`);
-        boolStmt.run(i % 2 === 0 ? 1 : 0);
+    const batchSize = 5000;
+    const batches = Math.ceil(count / batchSize);
+    this.db.run("BEGIN TRANSACTION");
+    for (let b = 0; b < batches; b++) {
+      const start = b * batchSize;
+      const end = Math.min(start + batchSize, count);
+      const rows = end - start;
+
+      const intSql = new Array<string>(rows);
+      const strSql = new Array<string>(rows);
+      const boolSql = new Array<string>(rows);
+      for (let i = start; i < end; i++) {
+        const j = i - start;
+        intSql[j] = `(${i},${i * 10})`;
+        strSql[j] = `('user_${i}')`;
+        boolSql[j] = `(${i % 2 === 0 ? 1 : 0})`;
       }
-    })();
+      this.db.run(`INSERT INTO users (id,val) VALUES ${intSql.join(",")}`);
+      this.db.run(`INSERT INTO names (name) VALUES ${strSql.join(",")}`);
+      this.db.run(`INSERT INTO actives (active) VALUES ${boolSql.join(",")}`);
+    }
+    this.db.run("COMMIT");
     const elapsed = performance.now() - t0;
 
     const usersCount = (this.db.prepare("SELECT COUNT(*) as c FROM users").get() as any).c;

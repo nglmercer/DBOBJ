@@ -107,6 +107,8 @@ export declare class PreparedStatement {
   runBatch(batchParams: Array<Array<number>>): boolean
   runBatchValues(flatParams: Array<any | undefined | null>, paramsPerRow: number): boolean
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): boolean
+  runBatchString(flatParams: Array<string>, paramsPerRow: number): boolean
+  runBatchBool(flatParams: Array<boolean>, paramsPerRow: number): boolean
 }
 
 export declare class Schema {
