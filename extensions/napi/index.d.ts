@@ -73,6 +73,31 @@ export declare class DbError {
   get message(): string
 }
 
+export declare class DynamicSchema {
+  constructor()
+  register(schemaName: string, fields: Array<SchemaField>): void
+  /** Uses streaming parser — validates during JSON tokenization, no intermediate Value tree. */
+  parse(schemaName: string, buffer: Buffer): Array<any>
+  /** Same as parse() but from JSON string. */
+  parseString(schemaName: string, input: string): Array<any>
+  /** Parse single record using streaming parser. */
+  parseOne(schemaName: string, buffer: Buffer): any
+  /**
+   * Validate a JS Object by accessing properties directly via napi — no Value intermediate.
+   * Returns the object (no conversion overhead).
+   * Missing optional fields remain absent (not injected as null).
+   * I64 validation uses f64 — values beyond 2^53 may lose precision.
+   */
+  validateObject(schemaName: string, obj: object): object
+  /**
+   * Convert a validated serde_json::Value (must be an object) to a Vec<Option<serde_json::Value>>
+   * following the schema field order, suitable for database insertion.
+   */
+  toRowValues(schemaName: string, value: any): Array<any | undefined | null>
+  /** Validate a pre-parsed serde_json::Value. Fast path: returns original Value when valid. */
+  validate(schemaName: string, value: any): any
+}
+
 export declare class PreparedStatement {
   run(params: Array<number>): boolean
   allI64(params: Array<number>): BigInt64Array
@@ -110,6 +135,23 @@ export declare const enum DataType {
   String = 2,
   Boolean = 3,
   Blob = 4
+}
+
+export declare const enum FieldType {
+  String = 'string',
+  I64 = 'i64',
+  F64 = 'f64',
+  Bool = 'bool',
+  Json = 'json',
+  ArrayString = 'array:string',
+  ArrayI64 = 'array:i64',
+  ArrayF64 = 'array:f64'
+}
+
+export interface SchemaField {
+  name: string
+  type: FieldType
+  optional?: boolean
 }
 
 export interface TableMetadata {
