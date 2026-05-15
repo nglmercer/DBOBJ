@@ -224,7 +224,7 @@ impl Table {
     fn intern_row(&mut self, values: &mut [Value]) {
         for val in values {
             if let Value::String(s) = val {
-                let id = self.string_pool.intern(s.clone());
+                let id = self.string_pool.intern(s.as_str());
                 *val = Value::InternedString(id);
             }
         }
@@ -532,23 +532,63 @@ impl Table {
             }
         }
 
-        for index_obj in self.indexes.values_mut() {
-            for row_offset in 0..batch_size {
-                let actual_idx = starting_idx + row_offset;
-                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+        self.update_indexes_parallel(starting_idx, batch_size);
+
+        Ok(ids)
+    }
+
+    fn update_indexes_parallel(&mut self, starting_idx: usize, batch_size: usize) {
+        if batch_size > 1000 && self.indexes.len() > 1 {
+            let data = &self.data;
+            let ids = &self.ids;
+            let num_columns = self.num_columns;
+
+            std::thread::scope(|s| {
+                for index_obj in self.indexes.values_mut() {
+                    s.spawn(move || {
+                        if index_obj.is_unique {
+                            index_obj.unique_map.reserve(batch_size);
+                        } else {
+                            index_obj.map.reserve(batch_size);
+                        }
+                        for row_offset in 0..batch_size {
+                            let actual_idx = starting_idx + row_offset;
+                            let val = &data[actual_idx * num_columns + index_obj.col_idx];
+                            if index_obj.is_unique {
+                                index_obj.unique_map.insert(val.clone(), actual_idx);
+                            } else {
+                                index_obj
+                                    .map
+                                    .entry(val.clone())
+                                    .or_insert_with(|| Vec::with_capacity(1))
+                                    .push(ids[actual_idx].clone());
+                            }
+                        }
+                    });
+                }
+            });
+        } else {
+            for index_obj in self.indexes.values_mut() {
                 if index_obj.is_unique {
-                    index_obj.unique_map.insert(val.clone(), actual_idx);
+                    index_obj.unique_map.reserve(batch_size);
                 } else {
-                    index_obj
-                        .map
-                        .entry(val.clone())
-                        .or_insert_with(|| Vec::with_capacity(1))
-                        .push(self.ids[actual_idx].clone());
+                    index_obj.map.reserve(batch_size);
+                }
+                for row_offset in 0..batch_size {
+                    let actual_idx = starting_idx + row_offset;
+                    let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+                    if index_obj.is_unique {
+                        index_obj.unique_map.insert(val.clone(), actual_idx);
+                    } else {
+                        index_obj
+                            .map
+                            .entry(val.clone())
+                            .or_insert_with(|| Vec::with_capacity(1))
+                            .push(self.ids[actual_idx].clone());
+                    }
                 }
             }
         }
-
-        Ok(ids)
     }
 
     /// Ultra-fast batch insert from flat string slice — zero per-row allocations.
@@ -584,8 +624,7 @@ impl Table {
         let interned: Vec<u32> = values
             .iter()
             .map(|s| {
-                self.string_pool
-                    .intern(compact_str::CompactString::from(s.as_str()))
+                self.string_pool.intern(s.as_str())
             })
             .collect();
         for &id in &interned {
@@ -613,21 +652,7 @@ impl Table {
                 index_obj.map.reserve(batch_size);
             }
         }
-        for index_obj in self.indexes.values_mut() {
-            for row_offset in 0..batch_size {
-                let actual_idx = starting_idx + row_offset;
-                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
-                if index_obj.is_unique {
-                    index_obj.unique_map.insert(val.clone(), actual_idx);
-                } else {
-                    index_obj
-                        .map
-                        .entry(val.clone())
-                        .or_insert_with(|| Vec::with_capacity(1))
-                        .push(self.ids[actual_idx].clone());
-                }
-            }
-        }
+        self.update_indexes_parallel(starting_idx, batch_size);
         Ok(ids)
     }
 
@@ -683,21 +708,7 @@ impl Table {
                 index_obj.map.reserve(batch_size);
             }
         }
-        for index_obj in self.indexes.values_mut() {
-            for row_offset in 0..batch_size {
-                let actual_idx = starting_idx + row_offset;
-                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
-                if index_obj.is_unique {
-                    index_obj.unique_map.insert(val.clone(), actual_idx);
-                } else {
-                    index_obj
-                        .map
-                        .entry(val.clone())
-                        .or_insert_with(|| Vec::with_capacity(1))
-                        .push(self.ids[actual_idx].clone());
-                }
-            }
-        }
+        self.update_indexes_parallel(starting_idx, batch_size);
         Ok(ids)
     }
 
@@ -753,21 +764,7 @@ impl Table {
                 index_obj.map.reserve(batch_size);
             }
         }
-        for index_obj in self.indexes.values_mut() {
-            for row_offset in 0..batch_size {
-                let actual_idx = starting_idx + row_offset;
-                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
-                if index_obj.is_unique {
-                    index_obj.unique_map.insert(val.clone(), actual_idx);
-                } else {
-                    index_obj
-                        .map
-                        .entry(val.clone())
-                        .or_insert_with(|| Vec::with_capacity(1))
-                        .push(self.ids[actual_idx].clone());
-                }
-            }
-        }
+        self.update_indexes_parallel(starting_idx, batch_size);
         Ok(ids)
     }
 
@@ -777,6 +774,59 @@ impl Table {
     pub fn insert_values(&mut self, values: Vec<Value>) -> Result<Id, TableError> {
         self.insert_batch_values(vec![values])
             .map(|mut ids| ids.remove(0))
+    }
+
+    /// Ultra-fast batch insert from flat Value vector — avoids per-row Vec allocations.
+    pub fn insert_batch_flat_values(
+        &mut self,
+        mut values: Vec<Value>,
+        num_columns: usize,
+    ) -> Result<Vec<Id>, TableError> {
+        if num_columns != self.num_columns {
+            return Err(TableError::SchemaViolation(format!(
+                "insert_batch_flat_values: {} columns passed, expected {}\n{}",
+                num_columns,
+                self.num_columns,
+                self.col_info()
+            )));
+        }
+        let batch_size = values.len() / num_columns;
+        if values.len() % num_columns != 0 {
+            return Err(TableError::SchemaViolation(
+                "values length not divisible by num_columns".into(),
+            ));
+        }
+
+        self.data.reserve(batch_size * num_columns);
+        self.ids.reserve(batch_size);
+        self.versions.reserve(batch_size);
+        if !self.is_sequential_ids {
+            self.id_map.reserve(batch_size);
+        }
+
+        let starting_idx = self.ids.len();
+        let start_id = self.next_int_id;
+        self.next_int_id += batch_size as u64;
+
+        self.intern_row(&mut values);
+        self.data.extend(values);
+
+        self.ids.extend((0..batch_size).map(|i| Id::Integer(start_id + i as u64)));
+        self.versions.resize(self.ids.len(), 1);
+
+        if !self.is_sequential_ids {
+            for i in 0..batch_size {
+                self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i);
+            }
+        }
+
+        let ids: Vec<Id> = (0..batch_size)
+            .map(|i| Id::Integer(start_id + i as u64))
+            .collect();
+
+        self.update_indexes_parallel(starting_idx, batch_size);
+
+        Ok(ids)
     }
 
     /// Update a row from positional values — no RowData/HashMap overhead.

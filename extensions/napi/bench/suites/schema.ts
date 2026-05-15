@@ -48,6 +48,25 @@ export class DBOBJSchemaSuite implements TestSuite {
     return elapsed;
   }
 
+  insertColumnar(count: number) {
+    this.db.createTable("users_col", [
+      { name: "id", dataType: DataType.Integer, nullable: false },
+      { name: "val", dataType: DataType.Integer },
+    ]);
+
+    const ids = new BigInt64Array(count);
+    const vals = new BigInt64Array(count);
+    for (let i = 0; i < count; i++) {
+      ids[i] = BigInt(i);
+      vals[i] = BigInt(i * 10);
+    }
+
+    const t0 = performance.now();
+    this.db.insertBatchColumnar("users_col", { id: ids, val: vals });
+    const elapsed = performance.now() - t0;
+    return elapsed;
+  }
+
   readColumn(tableName: string, colName: string) {
     const t0 = performance.now();
     const col = this.db.getColumnI64(tableName, colName);

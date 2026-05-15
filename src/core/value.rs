@@ -43,9 +43,9 @@ impl StringPool {
         }
     }
 
-    pub fn intern(&mut self, s: CompactString) -> u32 {
+    pub fn intern(&mut self, s: &str) -> u32 {
         use string_interner::Symbol;
-        self.interner.get_or_intern(s.as_str()).to_usize() as u32
+        self.interner.get_or_intern(s).to_usize() as u32
     }
 
     pub fn get_id(&self, s: &str) -> Option<u32> {

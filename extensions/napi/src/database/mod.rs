@@ -653,19 +653,124 @@ impl Database {
         let schema = dynamic_schema
             .get_schema(&schema_name)
             .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
-        let keys: Vec<napi::JsString> = schema
+
+        let num_fields = schema.fields.len();
+        let len = objects.len();
+        let mut flat_values = Vec::with_capacity(len as usize * num_fields);
+        let mut string_buf = Vec::with_capacity(1024);
+
+        // Pre-create JsString keys
+        let keys: Vec<napi::sys::napi_value> = schema
             .fields
             .iter()
-            .map(|f| env.create_string(&f.name))
+            .map(|f| {
+                let mut js_string = std::ptr::null_mut();
+                let status = unsafe {
+                    napi::sys::napi_create_string_utf8(
+                        env.raw(),
+                        f.name.as_ptr() as *const i8,
+                        f.name.len() as isize,
+                        &mut js_string,
+                    )
+                };
+                if status != napi::sys::Status::napi_ok {
+                    return Err(napi::Error::from_reason("Failed to create N-API string"));
+                }
+                Ok(js_string)
+            })
             .collect::<Result<Vec<_>>>()?;
-        let len = objects.len();
-        let mut batch = Vec::with_capacity(len as usize);
+
         for i in 0..len {
-            let obj: Object = objects.get_element(i)?;
-            batch.push(object_to_db_row(&obj, schema, &keys)?);
+            let mut obj_ptr = std::ptr::null_mut();
+            unsafe {
+                napi::sys::napi_get_element(env.raw(), objects.raw(), i, &mut obj_ptr);
+            }
+
+            for (j, field) in schema.fields.iter().enumerate() {
+                let mut val_ptr = std::ptr::null_mut();
+                unsafe {
+                    napi::sys::napi_get_property(env.raw(), obj_ptr, keys[j], &mut val_ptr);
+                }
+
+                let val = unsafe { Unknown::from_raw_unchecked(env.raw(), val_ptr) };
+                let vtype = val.get_type()?;
+
+                if vtype == napi::ValueType::Null || vtype == napi::ValueType::Undefined {
+                    if field.optional {
+                        flat_values.push(dbobj::Value::Null);
+                    } else {
+                        return Err(napi::Error::from_reason(format!(
+                            "Missing required field: {}",
+                            field.name
+                        )));
+                    }
+                    continue;
+                }
+
+                match &field.type_ {
+                    crate::types::DataType::Integer => {
+                        let mut i = 0i64;
+                        unsafe {
+                            napi::sys::napi_get_value_int64(env.raw(), val_ptr, &mut i);
+                        }
+                        flat_values.push(dbobj::Value::Integer(i));
+                    }
+                    crate::types::DataType::String => {
+                        let mut written = 0;
+                        unsafe {
+                            napi::sys::napi_get_value_string_utf8(
+                                env.raw(),
+                                val_ptr,
+                                std::ptr::null_mut(),
+                                0,
+                                &mut written,
+                            );
+                        }
+                        if written > 0 {
+                            if string_buf.capacity() < written + 1 {
+                                string_buf.reserve(written + 1 - string_buf.capacity());
+                            }
+                            unsafe {
+                                string_buf.set_len(written + 1);
+                                napi::sys::napi_get_value_string_utf8(
+                                    env.raw(),
+                                    val_ptr,
+                                    string_buf.as_mut_ptr() as *mut i8,
+                                    written + 1,
+                                    &mut written,
+                                );
+                                string_buf.set_len(written);
+                            }
+                            let s = unsafe { std::str::from_utf8_unchecked(&string_buf) };
+                            flat_values.push(dbobj::Value::String(s.into()));
+                        } else {
+                            flat_values.push(dbobj::Value::String("".into()));
+                        }
+                    }
+                    crate::types::DataType::Float => {
+                        let mut f = 0.0f64;
+                        unsafe {
+                            napi::sys::napi_get_value_double(env.raw(), val_ptr, &mut f);
+                        }
+                        flat_values.push(dbobj::Value::Float(f));
+                    }
+                    crate::types::DataType::Boolean => {
+                        let mut b = false;
+                        unsafe {
+                            napi::sys::napi_get_value_bool(env.raw(), val_ptr, &mut b);
+                        }
+                        flat_values.push(dbobj::Value::Boolean(b));
+                    }
+                    _ => {
+                        let json_val = jv_helper(&val)?;
+                        flat_values.push(json_to_db_value(Some(json_val)));
+                    }
+                }
+            }
         }
+
         self.inner
-            .insert_batch_values(&table_name, batch)
+            .insert_batch_flat_values(&table_name, flat_values, num_fields)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.save_if_needed();
         Ok(true)
@@ -679,6 +784,93 @@ impl Database {
         num_columns: u32,
     ) -> Result<bool> {
         insert::insert_batch(self, table_name, values, num_columns)
+    }
+
+    #[napi]
+    pub fn insert_batch_columnar(
+        &self,
+        _env: Env,
+        table_name: String,
+        columns: Object,
+    ) -> Result<bool> {
+        let keys = Object::keys(&columns)?;
+        if keys.is_empty() {
+            return Ok(true);
+        }
+
+        let num_columns = keys.len();
+        let mut row_count = 0;
+
+        enum ColSource<'a> {
+            TypedI64(BigInt64Array),
+            TypedF64(Float64Array),
+            Generic(Array<'a>),
+        }
+
+        let mut sources = Vec::with_capacity(num_columns as usize);
+
+        for key in &keys {
+            let val: Unknown = columns.get_named_property(key)?;
+            let len = if val.is_typedarray()? {
+                if let Ok(arr) = unsafe { val.cast::<BigInt64Array>() } {
+                    let l = arr.len() as u32;
+                    sources.push(ColSource::TypedI64(arr));
+                    l
+                } else if let Ok(arr) = unsafe { val.cast::<Float64Array>() } {
+                    let l = arr.len() as u32;
+                    sources.push(ColSource::TypedF64(arr));
+                    l
+                } else {
+                    return Err(napi::Error::from_reason("Unsupported TypedArray type"));
+                }
+            } else if val.is_array()? {
+                let arr: Array = unsafe { val.cast()? };
+                let l = arr.len();
+                sources.push(ColSource::Generic(arr));
+                l
+            } else {
+                return Err(napi::Error::from_reason("Column must be an array or TypedArray"));
+            };
+
+            if row_count == 0 {
+                row_count = len;
+            } else if len != row_count {
+                return Err(napi::Error::from_reason("Column lengths mismatch"));
+            }
+        }
+
+        let total_cells = row_count as usize * num_columns as usize;
+        let mut flat_values = vec![dbobj::Value::Null; total_cells];
+        for (j, source) in sources.iter().enumerate() {
+            match source {
+                ColSource::TypedI64(arr) => {
+                    for i in 0..row_count {
+                        flat_values[i as usize * num_columns as usize + j] =
+                            dbobj::Value::Integer(arr[i as usize]);
+                    }
+                }
+                ColSource::TypedF64(arr) => {
+                    for i in 0..row_count {
+                        flat_values[i as usize * num_columns as usize + j] =
+                            dbobj::Value::Float(arr[i as usize]);
+                    }
+                }
+                ColSource::Generic(arr) => {
+                    for i in 0..row_count {
+                        let val: Unknown = Array::get_element(arr, i)?;
+                        flat_values[i as usize * num_columns as usize + j] =
+                            json_to_db_value(Some(jv_helper(&val)?));
+                    }
+                }
+            }
+        }
+
+        self.inner
+            .insert_batch_flat_values(&table_name, flat_values, num_columns as usize)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+        self.save_if_needed();
+        Ok(true)
     }
 
     // ── UPDATE ───────────────────────────────────────────────────────
@@ -721,12 +913,76 @@ impl Database {
         let schema = dynamic_schema
             .get_schema(&schema_name)
             .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
-        let keys: Vec<napi::JsString> = schema
+
+        let num_fields = schema.fields.len();
+        let mut row_values = Vec::with_capacity(num_fields);
+
+        // Pre-create JsString keys
+        let keys: Vec<napi::sys::napi_value> = schema
             .fields
             .iter()
-            .map(|f| env.create_string(&f.name))
-            .collect::<Result<Vec<_>>>()?;
-        let row_values = object_to_db_row(&obj, schema, &keys)?;
+            .map(|f| {
+                let mut js_string = std::ptr::null_mut();
+                unsafe {
+                    napi::sys::napi_create_string_utf8(
+                        env.raw(),
+                        f.name.as_ptr() as *const i8,
+                        f.name.len() as isize,
+                        &mut js_string,
+                    );
+                }
+                js_string
+            })
+            .collect();
+
+        for (j, field) in schema.fields.iter().enumerate() {
+            let mut val_ptr = std::ptr::null_mut();
+            let status = unsafe {
+                napi::sys::napi_get_property(env.raw(), obj.raw(), keys[j], &mut val_ptr)
+            };
+            if status != napi::sys::Status::napi_ok {
+                return Err(napi::Error::from_reason("Failed to get property from object"));
+            }
+
+            let val = unsafe { Unknown::from_raw_unchecked(env.raw(), val_ptr) };
+            let vtype = val.get_type()?;
+
+            if vtype == napi::ValueType::Null || vtype == napi::ValueType::Undefined {
+                if field.optional {
+                    row_values.push(dbobj::Value::Null);
+                } else {
+                    return Err(napi::Error::from_reason(format!(
+                        "Missing required field: {}",
+                        field.name
+                    )));
+                }
+                continue;
+            }
+
+            match &field.type_ {
+                crate::types::DataType::Integer => {
+                    let i: i64 = unsafe { val.cast::<i64>()? };
+                    row_values.push(dbobj::Value::Integer(i));
+                }
+                crate::types::DataType::String => {
+                    let s: String = unsafe { val.cast::<String>()? };
+                    row_values.push(dbobj::Value::String(s.into()));
+                }
+                crate::types::DataType::Float => {
+                    let f: f64 = unsafe { val.cast::<f64>()? };
+                    row_values.push(dbobj::Value::Float(f));
+                }
+                crate::types::DataType::Boolean => {
+                    let b: bool = unsafe { val.cast::<bool>()? };
+                    row_values.push(dbobj::Value::Boolean(b));
+                }
+                _ => {
+                    let json_val = jv_helper(&val)?;
+                    row_values.push(json_to_db_value(Some(json_val)));
+                }
+            }
+        }
+
         self.inner
             .update_values(&table_name, &dbobj::Id::Integer(id as u64), row_values)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
