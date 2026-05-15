@@ -9,6 +9,7 @@ use crate::types::{ColumnDefinition, TableMetadata};
 use dbobj::Database as CoreDatabase;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -723,7 +724,7 @@ impl Database {
                 let status = unsafe {
                     napi::sys::napi_create_string_utf8(
                         env.raw(),
-                        f.name.as_ptr() as *const i8,
+                        f.name.as_ptr() as *const c_char,
                         f.name.len() as isize,
                         &mut js_string,
                     )
@@ -790,7 +791,7 @@ impl Database {
                                 napi::sys::napi_get_value_string_utf8(
                                     env.raw(),
                                     val_ptr,
-                                    string_buf.as_mut_ptr() as *mut i8,
+                                    string_buf.as_mut_ptr() as *mut c_char,
                                     written + 1,
                                     &mut written,
                                 );
@@ -981,7 +982,7 @@ impl Database {
                 unsafe {
                     napi::sys::napi_create_string_utf8(
                         env.raw(),
-                        f.name.as_ptr() as *const i8,
+                        f.name.as_ptr() as *const c_char,
                         f.name.len() as isize,
                         &mut js_string,
                     );
