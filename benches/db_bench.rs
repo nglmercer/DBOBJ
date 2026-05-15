@@ -4,6 +4,99 @@ use dbobj::storage::MmapStorage;
 use rusqlite::{params as sqlite_params, Connection};
 use std::time::Duration;
 
+fn bench_schema(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Schema");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(3));
+
+    // 1. Create Table
+    group.bench_function("DBOBJ Create Table (2 cols)", |b| {
+        b.iter_batched(
+            || {
+                let db = Database::new("bench_db".to_string());
+                (
+                    db,
+                    Schema {
+                        columns: vec![
+                            ColumnDefinition {
+                                name: "username".into(),
+                                data_type: DataType::String,
+                                nullable: false,
+                            },
+                            ColumnDefinition {
+                                name: "age".into(),
+                                data_type: DataType::Integer,
+                                nullable: false,
+                            },
+                        ],
+                    },
+                )
+            },
+            |(db, schema)| {
+                db.create_table("users".to_string(), schema);
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    // 2. Get Table Info (metadata retrieval)
+    {
+        let db = Database::new("bench_db".to_string());
+        let schema = Schema {
+            columns: vec![
+                ColumnDefinition {
+                    name: "id".into(),
+                    data_type: DataType::Integer,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "username".into(),
+                    data_type: DataType::String,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "age".into(),
+                    data_type: DataType::Integer,
+                    nullable: false,
+                },
+                ColumnDefinition {
+                    name: "email".into(),
+                    data_type: DataType::String,
+                    nullable: true,
+                },
+            ],
+        };
+        db.create_table("users".to_string(), schema);
+
+        group.bench_function("DBOBJ Table Info", |b| {
+            b.iter(|| {
+                let _ = db.table_info("users");
+            })
+        });
+
+        // 3. Get Column Index
+        group.bench_function("DBOBJ Get Column Index (name lookup)", |b| {
+            b.iter(|| {
+                let table = db.get_table("users").unwrap();
+                let table_ref = table.read();
+                let _ = table_ref.get_column_index("age");
+            })
+        });
+
+        // 4. Get Value by Index (zero-copy)
+        group.bench_function("DBOBJ Get Value Ref (zero-copy)", |b| {
+            let table = db.get_table("users").unwrap();
+            let table_ref = table.read();
+            b.iter(|| {
+                // Access first row's first column via reference
+                let _ = table_ref.get_value_ref(0, 0);
+            })
+        });
+    }
+
+    group.finish();
+}
+
 fn bench_inserts(c: &mut Criterion) {
     let mut group = c.benchmark_group("Inserts");
     group.sample_size(10);
@@ -650,6 +743,6 @@ fn bench_mmap(c: &mut Criterion) {
 criterion_group!(
     name = benches;
     config = Criterion::default().warm_up_time(Duration::from_secs(1));
-    targets = bench_inserts, bench_reads, bench_search, bench_joins, bench_large_joins, bench_serialization, bench_mmap
+    targets = bench_schema, bench_inserts, bench_reads, bench_search, bench_joins, bench_large_joins, bench_serialization, bench_mmap
 );
 criterion_main!(benches);

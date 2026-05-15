@@ -1,6 +1,6 @@
 use napi_derive::napi;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[napi]
 pub enum DataType {
     Integer,
