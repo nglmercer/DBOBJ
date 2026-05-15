@@ -77,44 +77,92 @@ pub(crate) fn json_to_db_value(val: Option<serde_json::Value>) -> dbobj::Value {
 pub(crate) fn object_to_db_row(
     obj: &Object,
     schema: &crate::dynamic_schema::CompiledSchema,
+    keys: &[napi::JsString],
 ) -> Result<Vec<dbobj::Value>> {
     let mut row = Vec::with_capacity(schema.fields.len());
-    for field in &schema.fields {
-        let has = obj.has_named_property(&field.name)?;
-        if !has || obj.get_named_property::<Unknown>(&field.name)?.get_type()? == napi::ValueType::Null || obj.get_named_property::<Unknown>(&field.name)?.get_type()? == napi::ValueType::Undefined {
-            if field.optional {
-                row.push(dbobj::Value::Null);
-                continue;
-            } else {
-                return Err(napi::Error::from_reason(format!(
-                    "Missing required field: {}",
-                    field.name
-                )));
-            }
-        }
-
+    for (i, field) in schema.fields.iter().enumerate() {
+        let key = keys[i];
         match &field.type_ {
             crate::types::DataType::String => {
-                let s: String = obj.get_named_property(&field.name)?;
-                row.push(dbobj::Value::String(s.into()));
+                let val: Option<String> = obj.get_property(key)?;
+                match val {
+                    Some(s) => row.push(dbobj::Value::String(s.into())),
+                    None => {
+                        if field.optional {
+                            row.push(dbobj::Value::Null);
+                        } else {
+                            return Err(napi::Error::from_reason(format!(
+                                "Missing required field: {}",
+                                field.name
+                            )));
+                        }
+                    }
+                }
             }
             crate::types::DataType::Integer => {
-                let i: i64 = obj.get_named_property(&field.name)?;
-                row.push(dbobj::Value::Integer(i));
+                let val: Option<i64> = obj.get_property(key)?;
+                match val {
+                    Some(i) => row.push(dbobj::Value::Integer(i)),
+                    None => {
+                        if field.optional {
+                            row.push(dbobj::Value::Null);
+                        } else {
+                            return Err(napi::Error::from_reason(format!(
+                                "Missing required field: {}",
+                                field.name
+                            )));
+                        }
+                    }
+                }
             }
             crate::types::DataType::Float => {
-                let f: f64 = obj.get_named_property(&field.name)?;
-                row.push(dbobj::Value::Float(f));
+                let val: Option<f64> = obj.get_property(key)?;
+                match val {
+                    Some(f) => row.push(dbobj::Value::Float(f)),
+                    None => {
+                        if field.optional {
+                            row.push(dbobj::Value::Null);
+                        } else {
+                            return Err(napi::Error::from_reason(format!(
+                                "Missing required field: {}",
+                                field.name
+                            )));
+                        }
+                    }
+                }
             }
             crate::types::DataType::Boolean => {
-                let b: bool = obj.get_named_property(&field.name)?;
-                row.push(dbobj::Value::Boolean(b));
+                let val: Option<bool> = obj.get_property(key)?;
+                match val {
+                    Some(b) => row.push(dbobj::Value::Boolean(b)),
+                    None => {
+                        if field.optional {
+                            row.push(dbobj::Value::Null);
+                        } else {
+                            return Err(napi::Error::from_reason(format!(
+                                "Missing required field: {}",
+                                field.name
+                            )));
+                        }
+                    }
+                }
             }
             _ => {
-                // For JSON and arrays
-                let val: Unknown = obj.get_named_property(&field.name)?;
-                let json_val = jv_helper(&val)?;
-                row.push(json_to_db_value(Some(json_val)));
+                let val: Unknown = obj.get_property(key)?;
+                let vtype = val.get_type()?;
+                if vtype == napi::ValueType::Null || vtype == napi::ValueType::Undefined {
+                    if field.optional {
+                        row.push(dbobj::Value::Null);
+                    } else {
+                        return Err(napi::Error::from_reason(format!(
+                            "Missing required field: {}",
+                            field.name
+                        )));
+                    }
+                } else {
+                    let json_val = jv_helper(&val)?;
+                    row.push(json_to_db_value(Some(json_val)));
+                }
             }
         }
     }
@@ -522,6 +570,7 @@ impl Database {
     #[napi]
     pub fn insert_object(
         &self,
+        env: Env,
         table_name: String,
         obj: Object,
         dynamic_schema: &crate::DynamicSchema,
@@ -530,7 +579,12 @@ impl Database {
         let schema = dynamic_schema
             .get_schema(&schema_name)
             .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
-        let row_values = object_to_db_row(&obj, schema)?;
+        let keys: Vec<napi::JsString> = schema
+            .fields
+            .iter()
+            .map(|f| env.create_string(&f.name))
+            .collect::<Result<Vec<_>>>()?;
+        let row_values = object_to_db_row(&obj, schema, &keys)?;
         self.inner
             .insert_values(&table_name, row_values)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
@@ -590,17 +644,25 @@ impl Database {
     #[napi]
     pub fn insert_batch_objects(
         &self,
+        env: Env,
         table_name: String,
-        objects: Vec<Object>,
+        objects: Array,
         dynamic_schema: &crate::DynamicSchema,
         schema_name: String,
     ) -> Result<bool> {
         let schema = dynamic_schema
             .get_schema(&schema_name)
             .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
-        let mut batch = Vec::with_capacity(objects.len());
-        for obj in objects {
-            batch.push(object_to_db_row(&obj, schema)?);
+        let keys: Vec<napi::JsString> = schema
+            .fields
+            .iter()
+            .map(|f| env.create_string(&f.name))
+            .collect::<Result<Vec<_>>>()?;
+        let len = objects.len();
+        let mut batch = Vec::with_capacity(len as usize);
+        for i in 0..len {
+            let obj: Object = objects.get_element(i)?;
+            batch.push(object_to_db_row(&obj, schema, &keys)?);
         }
         self.inner
             .insert_batch_values(&table_name, batch)
@@ -649,6 +711,7 @@ impl Database {
     #[napi]
     pub fn update_object(
         &self,
+        env: Env,
         table_name: String,
         id: u32,
         obj: Object,
@@ -658,7 +721,12 @@ impl Database {
         let schema = dynamic_schema
             .get_schema(&schema_name)
             .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
-        let row_values = object_to_db_row(&obj, schema)?;
+        let keys: Vec<napi::JsString> = schema
+            .fields
+            .iter()
+            .map(|f| env.create_string(&f.name))
+            .collect::<Result<Vec<_>>>()?;
+        let row_values = object_to_db_row(&obj, schema, &keys)?;
         self.inner
             .update_values(&table_name, &dbobj::Id::Integer(id as u64), row_values)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
