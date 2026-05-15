@@ -1,4 +1,5 @@
-use crate::dynamic_schema::{CompiledSchema, FieldType};
+use crate::dynamic_schema::CompiledSchema;
+use crate::types::DataType;
 use serde::Deserialize;
 use serde_json::{Deserializer, Value};
 
@@ -54,14 +55,15 @@ fn validate_and_rebuild(v: Value, schema: &CompiledSchema) -> Result<Value, Stri
 
 fn validate_type(val: &Value, field: &crate::dynamic_schema::CompiledField) -> Result<(), String> {
     let ok = match (&field.type_, val) {
-        (FieldType::String, Value::String(_)) => true,
-        (FieldType::I64, Value::Number(n)) => n.is_i64(),
-        (FieldType::F64, Value::Number(_)) => true,
-        (FieldType::Bool, Value::Bool(_)) => true,
-        (FieldType::Json, _) => true,
-        (FieldType::ArrayString, Value::Array(arr)) => arr.iter().all(|v| v.is_string()),
-        (FieldType::ArrayI64, Value::Array(arr)) => arr.iter().all(|v| v.is_i64()),
-        (FieldType::ArrayF64, Value::Array(arr)) => arr.iter().all(|v| v.is_number()),
+        (DataType::String, Value::String(_)) => true,
+        (DataType::Integer, Value::Number(n)) => n.is_i64(),
+        (DataType::Float, Value::Number(_)) => true,
+        (DataType::Boolean, Value::Bool(_)) => true,
+        (DataType::Json, _) => true,
+        (DataType::Blob, _) => true,
+        (DataType::ArrayString, Value::Array(arr)) => arr.iter().all(|v| v.is_string()),
+        (DataType::ArrayI64, Value::Array(arr)) => arr.iter().all(|v| v.is_i64()),
+        (DataType::ArrayF64, Value::Array(arr)) => arr.iter().all(|v| v.is_number()),
         _ => false,
     };
 

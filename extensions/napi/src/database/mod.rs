@@ -94,19 +94,19 @@ pub(crate) fn object_to_db_row(
         }
 
         match &field.type_ {
-            crate::dynamic_schema::FieldType::String => {
+            crate::types::DataType::String => {
                 let s: String = obj.get_named_property(&field.name)?;
                 row.push(dbobj::Value::String(s.into()));
             }
-            crate::dynamic_schema::FieldType::I64 => {
+            crate::types::DataType::Integer => {
                 let i: i64 = obj.get_named_property(&field.name)?;
                 row.push(dbobj::Value::Integer(i));
             }
-            crate::dynamic_schema::FieldType::F64 => {
+            crate::types::DataType::Float => {
                 let f: f64 = obj.get_named_property(&field.name)?;
                 row.push(dbobj::Value::Float(f));
             }
-            crate::dynamic_schema::FieldType::Bool => {
+            crate::types::DataType::Boolean => {
                 let b: bool = obj.get_named_property(&field.name)?;
                 row.push(dbobj::Value::Boolean(b));
             }
@@ -366,11 +366,11 @@ impl Database {
                     has_id = true;
                 }
                 let data_type = match f.type_ {
-                    crate::dynamic_schema::FieldType::String => dbobj::DataType::String,
-                    crate::dynamic_schema::FieldType::I64 => dbobj::DataType::Integer,
-                    crate::dynamic_schema::FieldType::F64 => dbobj::DataType::Float,
-                    crate::dynamic_schema::FieldType::Bool => dbobj::DataType::Boolean,
-                    _ => dbobj::DataType::Blob, // Fallback for JSON/Arrays
+                    crate::types::DataType::String => dbobj::DataType::String,
+                    crate::types::DataType::Integer => dbobj::DataType::Integer,
+                    crate::types::DataType::Float => dbobj::DataType::Float,
+                    crate::types::DataType::Boolean => dbobj::DataType::Boolean,
+                    _ => dbobj::DataType::Blob, // Fallback for Json, Arrays, Blob
                 };
                 dbobj::ColumnDefinition {
                     name: f.name.clone().into(),
@@ -409,6 +409,7 @@ impl Database {
                     crate::types::DataType::String => dbobj::DataType::String,
                     crate::types::DataType::Boolean => dbobj::DataType::Boolean,
                     crate::types::DataType::Blob => dbobj::DataType::Blob,
+                    _ => dbobj::DataType::Blob,
                 };
                 Ok(dbobj::ColumnDefinition {
                     name: col.name.into(),

@@ -1,5 +1,6 @@
 use napi_derive::napi;
 
+#[derive(Clone)]
 #[napi]
 pub enum DataType {
     Integer,
@@ -7,6 +8,10 @@ pub enum DataType {
     String,
     Boolean,
     Blob,
+    Json,
+    ArrayString,
+    ArrayI64,
+    ArrayF64,
 }
 
 #[napi(object)]
