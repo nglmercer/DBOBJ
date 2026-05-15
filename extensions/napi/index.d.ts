@@ -61,7 +61,8 @@ export declare class Database {
   get schema(): Schema
   beginTransaction(): Transaction
   executeSql(sql: string): any
-  prepare(sql: string): PreparedStatement
+  query(sql: string, params?: Array<any | undefined | null> | undefined | null): PreparedStatement
+  prepare(sql: string, params?: Array<any | undefined | null> | undefined | null): PreparedStatement
   queryI64(sql: string): BigInt64Array
   queryJoinI64(sql: string): BigInt64Array
   static load(path: string): Database
@@ -103,13 +104,15 @@ export declare class DynamicSchema {
 }
 
 export declare class PreparedStatement {
-  run(params: Array<number>): boolean
-  allI64(params: Array<number>): BigInt64Array
+  run(params?: Array<number> | undefined | null): boolean
+  allI64(params?: Array<number> | undefined | null): BigInt64Array
   runBatch(batchParams: Array<Array<number>>): boolean
   runBatchValues(flatParams: Array<any | undefined | null>, paramsPerRow: number): boolean
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): boolean
   runBatchString(flatParams: Array<string>, paramsPerRow: number): boolean
   runBatchBool(flatParams: Array<boolean>, paramsPerRow: number): boolean
+  all(params?: Array<any | undefined | null> | undefined | null): any
+  get(params?: Array<any | undefined | null> | undefined | null): any | null
 }
 
 export declare class Schema {

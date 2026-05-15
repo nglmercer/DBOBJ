@@ -94,9 +94,10 @@
 | Method | Description |
 |--------|-------------|
 | `executeSql(sql)` | Execute SQL, returns rows or `"OK"` |
+| `query(sql, params?)` | Prepare statement with optional params |
 | `queryI64(sql)` | SELECT first column as `BigInt64Array` |
 | `queryJoinI64(sql)` | JOIN query as flat array |
-| `prepare(sql)` | Compile statement for reuse |
+| `prepare(sql, params?)` | Compile statement for reuse |
 
 ## Database — Transactions
 
@@ -117,8 +118,10 @@
 
 | Method | Description |
 |--------|-------------|
-| `run(params)` | Execute with `number[]` |
-| `allI64(params)` | SELECT as `BigInt64Array` |
+| `run(params?)` | Execute with `number[]` |
+| `all(params?)` | SELECT as `Record<string,any>[]` |
+| `get(params?)` | SELECT first row as `Record<string,any>` |
+| `allI64(params?)` | SELECT as `BigInt64Array` |
 | `runBatch(params)` | 2D `number[][]` batch |
 | `runBatchI64(values, paramsPerRow)` | Flat `BigInt64Array` batch |
 | `runBatchValues(values, paramsPerRow)` | Flat `any[]` batch |

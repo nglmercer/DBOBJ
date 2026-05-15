@@ -2,6 +2,8 @@ const { Database, DataType, DynamicSchema } = require("../../index.node") as typ
 import { TestSuite } from "../interface";
 import { JOIN_COUNT } from "../constants";
 
+export { Database, DataType, DynamicSchema };
+
 export class DBOBJSchemaSuite implements TestSuite {
   name = "DBOBJ Schema (Direct)";
   db = new Database("schema");
@@ -101,6 +103,41 @@ export class DBOBJSchemaSuite implements TestSuite {
     }
     this.db.insertBatchObjects(t2, stats, this.ds, "statsSchema");
 
+    const t0 = performance.now();
+    const result = this.db.hashJoinI64(t1, c1, t2, c2);
+    const elapsed = performance.now() - t0;
+    return elapsed;
+  }
+
+  readColumnar(tableName: string, colName: string) {
+    const t0 = performance.now();
+    const col = this.db.getColumnI64(tableName, colName);
+    const elapsed = performance.now() - t0;
+    if (col.length === 0) throw new Error(`column ${colName} is empty`);
+    return elapsed;
+  }
+
+  findColumnar(tableName: string, colName: string, value: any) {
+    const t0 = performance.now();
+    const result = this.db.findByI64(tableName, colName, value);
+    const elapsed = performance.now() - t0;
+    if (result.length === 0) throw new Error(`find ${colName}=${value} returned empty`);
+    return elapsed;
+  }
+
+  updateColumnar(tableName: string, count: number) {
+    const values = new BigInt64Array(count * 2);
+    for (let i = 0; i < count; i++) {
+      values[i * 2] = BigInt(i * 20); // new val
+      values[i * 2 + 1] = BigInt(i);   // id
+    }
+    const t0 = performance.now();
+    this.db.updateBatchI64(tableName, "val", values);
+    const elapsed = performance.now() - t0;
+    return elapsed;
+  }
+
+  joinColumnar(t1: string, c1: string, t2: string, c2: string) {
     const t0 = performance.now();
     const result = this.db.hashJoinI64(t1, c1, t2, c2);
     const elapsed = performance.now() - t0;

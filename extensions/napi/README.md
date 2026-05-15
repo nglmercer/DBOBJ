@@ -29,7 +29,21 @@ npm install dbobj-napi
 ```typescript
 import { Database, DataType } from "dbobj-napi";
 const db = new Database("my_db");
+
+// High-performance SQL with bound parameters
+const stmt = db.query("SELECT * FROM users WHERE id = ?", [1]);
+const user = stmt.get();
 ```
+
+## Performance
+
+DBOBJ provides multiple ingestion and query strategies. Below are results for 100K rows (see [Full Benchmarks](./docs/benchmarks.md) for details).
+
+| Operation | Columnar (Fastest) | SQL Prepared | Bun SQLite |
+|-----------|--------------------|--------------|------------|
+| **INSERT**| **~25ms**          | ~150ms       | ~200ms     |
+| **UPDATE**| **~2ms**           | ~4ms         | ~17ms      |
+| **READ**  | **~0.8ms**         | ~0.9ms       | ~25ms      |
 
 ## License
 

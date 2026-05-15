@@ -207,14 +207,21 @@ pub struct PreparedStatement {
     pub(crate) inner: dbobj_sql::PreparedStatement,
     pub(crate) db: Arc<CoreDatabase>,
     pub(crate) is_dirty: Arc<AtomicBool>,
+    pub(crate) params: Option<Vec<dbobj::Value>>,
 }
 
 #[napi]
 impl PreparedStatement {
     #[napi]
-    pub fn run(&self, params: Vec<i64>) -> Result<bool> {
+    pub fn run(&self, params: Option<Vec<i64>>) -> Result<bool> {
         let executor = dbobj_sql::SqlExecutor::new(&self.db);
-        let vals: Vec<_> = params.into_iter().map(dbobj::Value::Integer).collect();
+        let vals = if let Some(p) = params {
+            p.into_iter().map(dbobj::Value::Integer).collect()
+        } else if let Some(p) = &self.params {
+            p.clone()
+        } else {
+            vec![]
+        };
         executor
             .execute_prepared(&self.inner, &vals)
             .map_err(napi::Error::from_reason)?;
@@ -223,7 +230,7 @@ impl PreparedStatement {
     }
 
     #[napi]
-    pub fn all_i64(&self, _params: Vec<i64>) -> Result<BigInt64Array> {
+    pub fn all_i64(&self, _params: Option<Vec<i64>>) -> Result<BigInt64Array> {
         let stmt = &self.inner;
         if stmt.statements.len() == 1 {
             if let dbobj_sql::local_parser::Statement::Select {
@@ -400,6 +407,54 @@ impl PreparedStatement {
             .map_err(napi::Error::from_reason)?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(true)
+    }
+
+    #[napi]
+    pub fn all(&self, params: Option<Vec<Option<serde_json::Value>>>) -> Result<serde_json::Value> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.db);
+        let vals = if let Some(p) = params {
+            p.into_iter().map(json_to_db_value).collect()
+        } else if let Some(p) = &self.params {
+            p.clone()
+        } else {
+            vec![]
+        };
+        let result = executor
+            .execute_prepared(&self.inner, &vals)
+            .map_err(napi::Error::from_reason)?;
+
+        match result {
+            dbobj_sql::SqlResult::Rows(rows) => {
+                let mut results = Vec::with_capacity(rows.len());
+                for row in rows {
+                    let mut map = serde_json::Map::with_capacity(row.len());
+                    for (k, v) in row {
+                        map.insert(k.to_string(), query::db_value_to_json_no_table(&v));
+                    }
+                    results.push(serde_json::Value::Object(map));
+                }
+                Ok(serde_json::Value::Array(results))
+            }
+            dbobj_sql::SqlResult::Ok => Ok(serde_json::Value::Array(vec![])),
+            dbobj_sql::SqlResult::I64(vals) => {
+                let results = vals
+                    .into_iter()
+                    .map(|i| serde_json::Value::Number(i.into()))
+                    .collect();
+                Ok(serde_json::Value::Array(results))
+            }
+        }
+    }
+
+    #[napi]
+    pub fn get(&self, params: Option<Vec<Option<serde_json::Value>>>) -> Result<Option<serde_json::Value>> {
+        let rows = self.all(params)?;
+        if let serde_json::Value::Array(mut arr) = rows {
+            if !arr.is_empty() {
+                return Ok(Some(arr.remove(0)));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -1366,13 +1421,24 @@ impl Database {
     }
 
     #[napi]
-    pub fn prepare(&self, sql: String) -> Result<PreparedStatement> {
+    pub fn query(&self, sql: String, params: Option<Vec<Option<serde_json::Value>>>) -> Result<PreparedStatement> {
+        self.prepare_internal(sql, params)
+    }
+
+    #[napi]
+    pub fn prepare(&self, sql: String, params: Option<Vec<Option<serde_json::Value>>>) -> Result<PreparedStatement> {
+        self.prepare_internal(sql, params)
+    }
+
+    fn prepare_internal(&self, sql: String, params: Option<Vec<Option<serde_json::Value>>>) -> Result<PreparedStatement> {
         let executor = dbobj_sql::SqlExecutor::new(&self.inner);
         let stmt = executor.prepare(&sql).map_err(napi::Error::from_reason)?;
+        let bound_params = params.map(|p| p.into_iter().map(json_to_db_value).collect());
         Ok(PreparedStatement {
             inner: stmt,
             db: self.inner.clone(),
             is_dirty: self.is_dirty.clone(),
+            params: bound_params,
         })
     }
 
