@@ -30,13 +30,13 @@ Results from `cargo bench` (sample size: 10, measurement time: 3s).
 
 ## End-to-End (100K rows, mixed types)
 
-| Operation | Direct (API) | SQL Bulk | SQL Prep | Bun SQLite |
-|-----------|-------------|----------|----------|------------|
-| INSERT    | **~69ms**   | ~340ms   | ~144ms   | ~526ms     |
-| READ      | **~0.6ms**  | ~19ms    | ~0.7ms   | ~26ms      |
-| FIND      | **~0.02ms**  | ~0.08ms  | ~0.07ms  | ~0.21ms    |
-| UPDATE    | **~8ms**    | ~66ms    | ~4ms     | ~18ms      |
-| JOIN      | **~4ms**    | ~34ms    | ~5ms     | ~16ms      |
+| Operation | Direct (API) | Schema | Columnar | SQL Bulk | SQL Prep | Bun SQLite |
+|-----------|-------------|--------|----------|----------|----------|------------|
+| INSERT    | **~80ms**   | ~90ms  | **~25ms**| ~400ms   | ~150ms   | ~200ms     |
+| READ      | **~0.9ms**  | ~0.8ms | **~0.8ms**| ~20ms    | ~0.9ms   | ~25ms      |
+| FIND      | **~0.02ms** | ~0.02ms| **~0.02ms**| ~0.1ms   | ~0.06ms  | ~0.4ms     |
+| UPDATE    | ~9ms        | ~12ms  | **~2ms** | ~70ms    | ~4ms     | ~17ms      |
+| JOIN      | ~4.6ms      | ~5ms   | **~4.5ms**| ~36ms    | ~4.3ms   | ~14ms      |
 
 Run locally:
 
