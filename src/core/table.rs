@@ -224,7 +224,7 @@ impl Table {
     fn intern_row(&mut self, values: &mut [Value]) {
         for val in values {
             if let Value::String(s) = val {
-                let id = self.string_pool.intern(s.clone());
+                let id = self.string_pool.intern(s.as_str());
                 *val = Value::InternedString(id);
             }
         }
@@ -584,8 +584,7 @@ impl Table {
         let interned: Vec<u32> = values
             .iter()
             .map(|s| {
-                self.string_pool
-                    .intern(compact_str::CompactString::from(s.as_str()))
+                self.string_pool.intern(s.as_str())
             })
             .collect();
         for &id in &interned {
@@ -827,27 +826,55 @@ impl Table {
             .map(|i| Id::Integer(start_id + i as u64))
             .collect();
 
-        // Update indexes
-        for index_obj in self.indexes.values_mut() {
-            if index_obj.is_unique {
-                index_obj.unique_map.reserve(batch_size);
-            } else {
-                index_obj.map.reserve(batch_size);
-            }
-        }
+        // Update indexes in parallel if there are many rows and multiple indexes
+        if batch_size > 1000 && self.indexes.len() > 1 {
+            let data = &self.data;
+            let ids = &self.ids;
+            let num_columns = self.num_columns;
 
-        for index_obj in self.indexes.values_mut() {
-            for row_offset in 0..batch_size {
-                let actual_idx = starting_idx + row_offset;
-                let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+            std::thread::scope(|s| {
+                for index_obj in self.indexes.values_mut() {
+                    s.spawn(move || {
+                        if index_obj.is_unique {
+                            index_obj.unique_map.reserve(batch_size);
+                        } else {
+                            index_obj.map.reserve(batch_size);
+                        }
+                        for row_offset in 0..batch_size {
+                            let actual_idx = starting_idx + row_offset;
+                            let val = &data[actual_idx * num_columns + index_obj.col_idx];
+                            if index_obj.is_unique {
+                                index_obj.unique_map.insert(val.clone(), actual_idx);
+                            } else {
+                                index_obj
+                                    .map
+                                    .entry(val.clone())
+                                    .or_insert_with(|| Vec::with_capacity(1))
+                                    .push(ids[actual_idx].clone());
+                            }
+                        }
+                    });
+                }
+            });
+        } else {
+            for index_obj in self.indexes.values_mut() {
                 if index_obj.is_unique {
-                    index_obj.unique_map.insert(val.clone(), actual_idx);
+                    index_obj.unique_map.reserve(batch_size);
                 } else {
-                    index_obj
-                        .map
-                        .entry(val.clone())
-                        .or_insert_with(|| Vec::with_capacity(1))
-                        .push(self.ids[actual_idx].clone());
+                    index_obj.map.reserve(batch_size);
+                }
+                for row_offset in 0..batch_size {
+                    let actual_idx = starting_idx + row_offset;
+                    let val = &self.data[actual_idx * self.num_columns + index_obj.col_idx];
+                    if index_obj.is_unique {
+                        index_obj.unique_map.insert(val.clone(), actual_idx);
+                    } else {
+                        index_obj
+                            .map
+                            .entry(val.clone())
+                            .or_insert_with(|| Vec::with_capacity(1))
+                            .push(self.ids[actual_idx].clone());
+                    }
                 }
             }
         }

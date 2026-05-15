@@ -748,6 +748,54 @@ impl Database {
         insert::insert_batch(self, table_name, values, num_columns)
     }
 
+    #[napi]
+    pub fn insert_batch_columnar(
+        &self,
+        _env: Env,
+        table_name: String,
+        columns: Object,
+    ) -> Result<bool> {
+        let keys = Object::keys(&columns)?;
+        if keys.is_empty() {
+            return Ok(true);
+        }
+
+        let num_columns = keys.len();
+        let mut col_data = Vec::with_capacity(num_columns as usize);
+        let mut row_count = 0;
+
+        for key in &keys {
+            let val: Unknown = columns.get_named_property(key)?;
+            if val.is_array()? {
+                let arr: Array = unsafe { val.cast()? };
+                let len = arr.len();
+                if row_count == 0 {
+                    row_count = len;
+                } else if len != row_count {
+                    return Err(napi::Error::from_reason("Column lengths mismatch"));
+                }
+                col_data.push(arr);
+            } else {
+                return Err(napi::Error::from_reason("Column must be an array"));
+            }
+        }
+
+        let mut flat_values = Vec::with_capacity(row_count as usize * num_columns as usize);
+        for i in 0..row_count {
+            for col in &col_data {
+                let val: Unknown = Array::get_element(col, i)?;
+                flat_values.push(json_to_db_value(Some(jv_helper(&val)?)));
+            }
+        }
+
+        self.inner
+            .insert_batch_flat_values(&table_name, flat_values, num_columns as usize)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+        self.save_if_needed();
+        Ok(true)
+    }
+
     // ── UPDATE ───────────────────────────────────────────────────────
 
     #[napi]
@@ -792,20 +840,31 @@ impl Database {
         let num_fields = schema.fields.len();
         let mut row_values = Vec::with_capacity(num_fields);
 
-        for field in &schema.fields {
-            let mut js_string = std::ptr::null_mut();
-            unsafe {
-                napi::sys::napi_create_string_utf8(
-                    env.raw(),
-                    field.name.as_ptr() as *const i8,
-                    field.name.len() as isize,
-                    &mut js_string,
-                );
-            }
+        // Pre-create JsString keys
+        let keys: Vec<napi::sys::napi_value> = schema
+            .fields
+            .iter()
+            .map(|f| {
+                let mut js_string = std::ptr::null_mut();
+                unsafe {
+                    napi::sys::napi_create_string_utf8(
+                        env.raw(),
+                        f.name.as_ptr() as *const i8,
+                        f.name.len() as isize,
+                        &mut js_string,
+                    );
+                }
+                js_string
+            })
+            .collect();
 
+        for (j, field) in schema.fields.iter().enumerate() {
             let mut val_ptr = std::ptr::null_mut();
-            unsafe {
-                napi::sys::napi_get_property(env.raw(), obj.raw(), js_string, &mut val_ptr);
+            let status = unsafe {
+                napi::sys::napi_get_property(env.raw(), obj.raw(), keys[j], &mut val_ptr)
+            };
+            if status != napi::sys::Status::napi_ok {
+                return Err(napi::Error::from_reason("Failed to get property from object"));
             }
 
             let val = unsafe { Unknown::from_raw_unchecked(env.raw(), val_ptr) };

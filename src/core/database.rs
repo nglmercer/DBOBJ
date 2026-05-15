@@ -695,7 +695,7 @@ impl Database {
                     let start = idx * table.num_columns;
                     let mut final_val = val.clone();
                     if let Value::String(s) = val {
-                        let id = table.string_pool.intern(s.clone());
+                        let id = table.string_pool.intern(s.as_str());
                         final_val = Value::InternedString(id);
                     }
                     table.data[start + col_idx] = final_val;
