@@ -8,25 +8,25 @@ Results from `cargo bench` (sample size: 10, measurement time: 3s).
 
 | Operation | DBOBJ (Ops/sec) | SQLite (Ops/sec) | Speedup |
 | :--- | :--- | :--- | :--- |
-| **Insert (Single)** | **~2,046,000** | ~356,000 | **5.7x** |
-| **Insert (Batch 100)** | **~3,985,000** | ~1,980,000 | **2.0x** |
-| **Insert (Batch Raw 100)** | **~7,163,000** | - | - |
-| **Read (ID)** | **~6,815,000** | ~335,000 | **20.3x** |
-| **Search (Scan)** | **~108,000** | ~11,000 | **9.8x** |
-| **Search (Indexed)** | **~4,898,000** | ~304,000 | **16.1x** |
-| **Hash Join (1k rows)** | **~4,034** | ~1,737 | **2.3x** |
-| **Large Hash Join (100k rows)** | **~39.7** | ~14.0 | **2.8x** |
+| **Insert (Single)** | **~1,327,000** | ~265,000 | **5.0x** |
+| **Insert (Batch 100)** | **~2,873,000** | ~1,618,000 | **1.8x** |
+| **Insert (Batch Raw 100)** | **~5,511,000** | - | - |
+| **Read (ID)** | **~5,669,000** | ~275,000 | **20.6x** |
+| **Search (Scan)** | **~100,000** | ~7,600 | **13.2x** |
+| **Search (Indexed)** | **~4,021,000** | ~226,000 | **17.8x** |
+| **Hash Join (1k rows)** | **~3,155** | ~1,277 | **2.5x** |
+| **Large Hash Join (100k rows)** | **~30.6** | ~10.1 | **3.0x** |
 
 ### Serialization (10,000 rows)
 
 | Operation | Time | Ops/sec |
 | :--- | :--- | :--- |
-| **Bitcode Serialize** | ~390 µs | ~2,562 |
-| **Bitcode Deserialize** | ~613 µs | ~1,631 |
-| **Mmap Save (rkyv)** | ~5.91 ms | ~169 |
-| **Mmap Load** | ~196 µs | ~5,097 |
-| **Mmap Access (zero-copy)** | **~1.95 ns** | **~512,000,000** |
-| **Mmap Deserialize** | ~1.27 ms | ~790 |
+| **Bitcode Serialize** | ~472 µs | ~2,118 |
+| **Bitcode Deserialize** | ~722 µs | ~1,384 |
+| **Mmap Save (rkyv)** | ~5.78 ms | ~173 |
+| **Mmap Load** | ~284 µs | ~3,524 |
+| **Mmap Access (zero-copy)** | **~2.44 ns** | **~409,000,000** |
+| **Mmap Deserialize** | ~1.62 ms | ~616 |
 
 ## End-to-End (100K rows, mixed types)
 
