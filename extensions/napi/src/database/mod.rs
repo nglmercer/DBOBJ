@@ -657,6 +657,7 @@ impl Database {
         let num_fields = schema.fields.len();
         let len = objects.len();
         let mut flat_values = Vec::with_capacity(len as usize * num_fields);
+        let mut string_buf = Vec::with_capacity(1024);
 
         // Pre-create JsString keys
         let keys: Vec<napi::sys::napi_value> = schema
@@ -715,8 +716,36 @@ impl Database {
                         flat_values.push(dbobj::Value::Integer(i));
                     }
                     crate::types::DataType::String => {
-                        let s: String = unsafe { val.cast::<String>()? };
-                        flat_values.push(dbobj::Value::String(s.into()));
+                        let mut written = 0;
+                        unsafe {
+                            napi::sys::napi_get_value_string_utf8(
+                                env.raw(),
+                                val_ptr,
+                                std::ptr::null_mut(),
+                                0,
+                                &mut written,
+                            );
+                        }
+                        if written > 0 {
+                            if string_buf.capacity() < written + 1 {
+                                string_buf.reserve(written + 1 - string_buf.capacity());
+                            }
+                            unsafe {
+                                string_buf.set_len(written + 1);
+                                napi::sys::napi_get_value_string_utf8(
+                                    env.raw(),
+                                    val_ptr,
+                                    string_buf.as_mut_ptr() as *mut i8,
+                                    written + 1,
+                                    &mut written,
+                                );
+                                string_buf.set_len(written);
+                            }
+                            let s = unsafe { std::str::from_utf8_unchecked(&string_buf) };
+                            flat_values.push(dbobj::Value::String(s.into()));
+                        } else {
+                            flat_values.push(dbobj::Value::String("".into()));
+                        }
                     }
                     crate::types::DataType::Float => {
                         let mut f = 0.0f64;
@@ -810,19 +839,27 @@ impl Database {
             }
         }
 
-        let mut flat_values = Vec::with_capacity(row_count as usize * num_columns as usize);
-        for i in 0..row_count {
-            for source in &sources {
-                match source {
-                    ColSource::TypedI64(arr) => {
-                        flat_values.push(dbobj::Value::Integer(arr[i as usize]));
+        let total_cells = row_count as usize * num_columns as usize;
+        let mut flat_values = vec![dbobj::Value::Null; total_cells];
+        for (j, source) in sources.iter().enumerate() {
+            match source {
+                ColSource::TypedI64(arr) => {
+                    for i in 0..row_count {
+                        flat_values[i as usize * num_columns as usize + j] =
+                            dbobj::Value::Integer(arr[i as usize]);
                     }
-                    ColSource::TypedF64(arr) => {
-                        flat_values.push(dbobj::Value::Float(arr[i as usize]));
+                }
+                ColSource::TypedF64(arr) => {
+                    for i in 0..row_count {
+                        flat_values[i as usize * num_columns as usize + j] =
+                            dbobj::Value::Float(arr[i as usize]);
                     }
-                    ColSource::Generic(arr) => {
+                }
+                ColSource::Generic(arr) => {
+                    for i in 0..row_count {
                         let val: Unknown = Array::get_element(arr, i)?;
-                        flat_values.push(json_to_db_value(Some(jv_helper(&val)?)));
+                        flat_values[i as usize * num_columns as usize + j] =
+                            json_to_db_value(Some(jv_helper(&val)?));
                     }
                 }
             }
