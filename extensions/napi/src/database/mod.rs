@@ -401,6 +401,52 @@ impl PreparedStatement {
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(true)
     }
+
+    #[napi]
+    pub fn all(&self, params: Option<Vec<Option<serde_json::Value>>>) -> Result<serde_json::Value> {
+        let executor = dbobj_sql::SqlExecutor::new(&self.db);
+        let vals: Vec<_> = params
+            .unwrap_or_default()
+            .into_iter()
+            .map(json_to_db_value)
+            .collect();
+        let result = executor
+            .execute_prepared(&self.inner, &vals)
+            .map_err(napi::Error::from_reason)?;
+
+        match result {
+            dbobj_sql::SqlResult::Rows(rows) => {
+                let mut results = Vec::with_capacity(rows.len());
+                for row in rows {
+                    let mut map = serde_json::Map::with_capacity(row.len());
+                    for (k, v) in row {
+                        map.insert(k.to_string(), query::db_value_to_json_no_table(&v));
+                    }
+                    results.push(serde_json::Value::Object(map));
+                }
+                Ok(serde_json::Value::Array(results))
+            }
+            dbobj_sql::SqlResult::Ok => Ok(serde_json::Value::Array(vec![])),
+            dbobj_sql::SqlResult::I64(vals) => {
+                let results = vals
+                    .into_iter()
+                    .map(|i| serde_json::Value::Number(i.into()))
+                    .collect();
+                Ok(serde_json::Value::Array(results))
+            }
+        }
+    }
+
+    #[napi]
+    pub fn get(&self, params: Option<Vec<Option<serde_json::Value>>>) -> Result<Option<serde_json::Value>> {
+        let rows = self.all(params)?;
+        if let serde_json::Value::Array(mut arr) = rows {
+            if !arr.is_empty() {
+                return Ok(Some(arr.remove(0)));
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[napi]
@@ -1363,6 +1409,11 @@ impl Database {
         };
         self.save_if_needed();
         out
+    }
+
+    #[napi]
+    pub fn query(&self, sql: String, _params: Option<Vec<Option<serde_json::Value>>>) -> Result<PreparedStatement> {
+        self.prepare(sql)
     }
 
     #[napi]

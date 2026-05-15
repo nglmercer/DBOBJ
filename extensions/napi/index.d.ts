@@ -61,6 +61,7 @@ export declare class Database {
   get schema(): Schema
   beginTransaction(): Transaction
   executeSql(sql: string): any
+  query(sql: string, params?: Array<any | undefined | null> | undefined | null): PreparedStatement
   prepare(sql: string): PreparedStatement
   queryI64(sql: string): BigInt64Array
   queryJoinI64(sql: string): BigInt64Array
@@ -110,6 +111,8 @@ export declare class PreparedStatement {
   runBatchI64(flatParams: BigInt64Array, paramsPerRow: number): boolean
   runBatchString(flatParams: Array<string>, paramsPerRow: number): boolean
   runBatchBool(flatParams: Array<boolean>, paramsPerRow: number): boolean
+  all(params?: Array<any | undefined | null> | undefined | null): any
+  get(params?: Array<any | undefined | null> | undefined | null): any | null
 }
 
 export declare class Schema {

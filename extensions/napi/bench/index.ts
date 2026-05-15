@@ -28,8 +28,12 @@ async function runBenchmark() {
       update: suite.update("users", UPDATE_COUNT),
       join: suite.join("users", "id", "stats", "id")
     };
-    if (suite.name === "DBOBJ Schema (Direct)") {
-      results[suite.name].columnar = suite.insert(ROW_COUNT);
+    if (suite instanceof DBOBJSchemaSuite) {
+      results[suite.name].columnar_insert = suite.insertColumnar(ROW_COUNT);
+      results[suite.name].columnar_read = suite.readColumnar("users", "val");
+      results[suite.name].columnar_find = suite.findColumnar("users", "id", ROW_COUNT / 2);
+      results[suite.name].columnar_update = suite.updateColumnar("users", UPDATE_COUNT);
+      results[suite.name].columnar_join = suite.joinColumnar("users", "id", "stats", "id");
     }
   }
 
@@ -41,7 +45,7 @@ async function runBenchmark() {
   for (const op of ops) {
     const direct = (results["DBOBJ Direct (API)"][op] || 0).toFixed(2);
     const schema = (results["DBOBJ Schema (Direct)"][op] || 0).toFixed(2);
-    const columnar = op === "insert" ? results["DBOBJ Schema (Direct)"].columnar.toFixed(2) : "n/a";
+    const columnar = (results["DBOBJ Schema (Direct)"][`columnar_${op}`] || 0).toFixed(2);
     const sql = (results["DBOBJ SQL (Engine)"][op] || 0).toFixed(2);
     const prep = (results["DBOBJ SQL (Prepared)"][op] || 0).toFixed(2);
     const sqlite = (results["Bun SQLite (Native)"][op] || 0).toFixed(2);
