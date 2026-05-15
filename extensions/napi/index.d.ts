@@ -19,7 +19,7 @@ export declare class Database {
   insertBatchString(tableName: string, values: Array<string>, numColumns: number): boolean
   insertBatchBool(tableName: string, values: Array<boolean>, numColumns: number): boolean
   insertBatchFloat(tableName: string, values: Array<number>, numColumns: number): boolean
-  insertBatchObjects(tableName: string, objects: Array<object>, dynamicSchema: DynamicSchema, schemaName: string): boolean
+  insertBatchObjects(tableName: string, objects: unknown[], dynamicSchema: DynamicSchema, schemaName: string): boolean
   insertBatch(tableName: string, values: Array<any | undefined | null>, numColumns: number): boolean
   updateRowI64(tableName: string, id: number, values: Array<number>): boolean
   updateRowString(tableName: string, id: number, values: Array<string>): boolean
