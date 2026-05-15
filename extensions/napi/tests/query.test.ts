@@ -20,3 +20,16 @@ test("query() and PreparedStatement all()/get()", () => {
   const none = stmt.get([3]);
   expect(none).toBeNull();
 });
+
+test("bound parameters in query()", () => {
+  const db = new Database("Bound_Params_Test");
+  db.executeSql("CREATE TABLE users (id INTEGER, name STRING)");
+  db.executeSql("INSERT INTO users (id, name) VALUES (1, 'Alice'), (2, 'Bob')");
+
+  const stmt = db.query("SELECT * FROM users WHERE id = ?", [1]);
+  const alice = stmt.get();
+  expect(alice.name).toBe("Alice");
+
+  const bob = stmt.get([2]);
+  expect(bob.name).toBe("Bob");
+});
