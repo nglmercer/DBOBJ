@@ -49,6 +49,9 @@ db.insertRow("users", [2, "Bob", false]);
 // Read as JSON
 const rows = db.getRows("users");
 console.log(rows);
+//search list
+const result = db.findByI64(table, "id", id);
+return Array.isArray(result) && result.length > 0 ? result[0] : null;
 ```
 ---
 
