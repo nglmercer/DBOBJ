@@ -37,16 +37,6 @@ fn arrow_to_db_type_napi(dt: &arrow::datatypes::DataType) -> Option<DataType> {
     }
 }
 
-fn db_to_arrow_type_napi(dt: &DataType) -> arrow::datatypes::DataType {
-    match dt {
-        DataType::Integer => arrow::datatypes::DataType::Int64,
-        DataType::Float => arrow::datatypes::DataType::Float64,
-        DataType::String => arrow::datatypes::DataType::Utf8,
-        DataType::Boolean => arrow::datatypes::DataType::Boolean,
-        DataType::Blob => arrow::datatypes::DataType::Binary,
-    }
-}
-
 pub(crate) fn jv_helper(v: &Unknown) -> Result<serde_json::Value> {
     match v.get_type()? {
         napi::ValueType::Null | napi::ValueType::Undefined => Ok(serde_json::Value::Null),
@@ -1547,7 +1537,7 @@ impl Database {
         let mut arrow_columns: Vec<ArrayRef> = Vec::with_capacity(num_cols);
 
         for col_def in &table.schema.columns {
-            let arrow_type = db_to_arrow_type_napi(&col_def.data_type);
+            let arrow_type = crate::database::query_builder::db_to_arrow_type(&col_def.data_type);
             arrow_fields.push(Field::new(col_def.name.as_str(), arrow_type, col_def.nullable));
 
             match col_def.data_type {

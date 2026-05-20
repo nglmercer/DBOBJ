@@ -1,5 +1,4 @@
-const { Database, DataType } = require("../../index.js") as typeof import("../../index.d.ts");
-import { tableFromArrays, tableToIPC } from "apache-arrow";
+const { Database, DataType, DynamicSchema } = require("../../index.js") as typeof import("../../index.d.ts");
 import { TestSuite } from "../interface";
 import { JOIN_COUNT } from "../constants";
 
@@ -107,15 +106,25 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
       { name: "id", dataType: DataType.Integer },
       { name: "score", dataType: DataType.Integer },
     ]);
+
     const qb = this.db.createQueryBuilder();
     const batchSize = 5000;
     const batches = Math.ceil(JOIN_COUNT / batchSize);
+
+    // insertColumnar avoids serde_json per cell (typed arrays → Values directly)
     for (let b = 0; b < batches; b++) {
       const start = b * batchSize;
       const end = Math.min(start + batchSize, JOIN_COUNT);
-      const vals: number[] = [];
-      for (let i = start; i < end; i++) vals.push(i, i + 5);
-      qb.insertBatch(t2, vals, 2);
+      const batchLen = end - start;
+
+      const ids = new BigInt64Array(batchLen);
+      const scores = new BigInt64Array(batchLen);
+      for (let i = 0; i < batchLen; i++) {
+        const idx = start + i;
+        ids[i] = BigInt(idx);
+        scores[i] = BigInt(idx + 5);
+      }
+      qb.insertColumnar(t2, { id: ids, score: scores });
     }
 
     const t0 = performance.now();

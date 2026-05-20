@@ -1137,7 +1137,7 @@ fn arrow_value_to_db(arr: &arrow::array::ArrayRef, idx: usize) -> Value {
     }
 }
 
-fn db_to_arrow_type(dt: &DataType) -> arrow::datatypes::DataType {
+pub(crate) fn db_to_arrow_type(dt: &DataType) -> arrow::datatypes::DataType {
     use arrow::datatypes::DataType as ArrowDataType;
     match dt {
         DataType::Integer => ArrowDataType::Int64,
