@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::database::query::db_value_to_json_no_table;
+use crate::database::jv_helper;
 
 #[napi]
 pub struct JsQueryBuilder {
@@ -506,6 +507,225 @@ impl JsQueryBuilder {
                     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
                 total_updated += 1;
             }
+        }
+
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(total_updated)
+    }
+
+    /// Insert columnar — takes { colName: TypedArray | Array, ... }.
+    /// Avoids both serde_json (for typed arrays) and Arrow IPC serialization.
+    /// Column names are read from the table schema (order determined by schema).
+    #[napi]
+    pub fn insert_columnar(&mut self, _env: Env, table: String, columns: Object) -> Result<u32> {
+        // Read table schema to get column order
+        let tables_guard = self.db.tables.read();
+        let table_lock = tables_guard.get(&table).ok_or_else(|| {
+            napi::Error::from_reason(format!("Table '{}' not found", table))
+        })?;
+        let table_read = table_lock.read();
+        let num_columns = table_read.num_columns;
+        let col_names: Vec<String> = table_read.schema.columns.iter().map(|c| c.name.to_string()).collect();
+        drop(table_read);
+        drop(tables_guard);
+
+        if num_columns == 0 { return Ok(0); }
+
+        // Read column values
+        enum ColSource {
+            TypedI64(BigInt64Array),
+            TypedF64(Float64Array),
+            Generic(Array<'static>),
+        }
+
+        let mut sources: Vec<ColSource> = Vec::with_capacity(num_columns);
+        let mut row_count = 0u32;
+
+        for key in &col_names {
+            let val: Unknown = columns.get_named_property(key)?;
+            let len = if val.is_typedarray()? {
+                if let Ok(arr) = unsafe { val.cast::<BigInt64Array>() } {
+                    let l = arr.len() as u32;
+                    sources.push(ColSource::TypedI64(arr));
+                    l
+                } else if let Ok(arr) = unsafe { val.cast::<Float64Array>() } {
+                    let l = arr.len() as u32;
+                    sources.push(ColSource::TypedF64(arr));
+                    l
+                } else {
+                    return Err(napi::Error::from_reason("Unsupported TypedArray type"));
+                }
+            } else if val.is_array()? {
+                let arr: Array = unsafe { val.cast()? };
+                let l = arr.len();
+                sources.push(ColSource::Generic(arr));
+                l
+            } else {
+                return Err(napi::Error::from_reason("Column must be an array or TypedArray"));
+            };
+
+            if len == 0 { return Ok(0); }
+            if row_count == 0 {
+                row_count = len;
+            } else if len != row_count {
+                return Err(napi::Error::from_reason("Column lengths mismatch"));
+            }
+        }
+
+        let total_cells = row_count as usize * num_columns;
+        let mut flat_values = vec![dbobj::Value::Null; total_cells];
+        for (j, source) in sources.into_iter().enumerate() {
+            match source {
+                ColSource::TypedI64(arr) => {
+                    for i in 0..row_count as usize {
+                        flat_values[i * num_columns + j] = dbobj::Value::Integer(arr[i]);
+                    }
+                }
+                ColSource::TypedF64(arr) => {
+                    for i in 0..row_count as usize {
+                        flat_values[i * num_columns + j] = dbobj::Value::Float(arr[i]);
+                    }
+                }
+                ColSource::Generic(arr) => {
+                    for i in 0..row_count as usize {
+                        let val: Unknown = Array::get_element(&arr, i as u32)?;
+                        flat_values[i * num_columns + j] = json_to_value(jv_helper(&val)?);
+                    }
+                }
+            }
+        }
+
+        self.db.insert_batch_flat_values(&table, flat_values, num_columns)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(row_count)
+    }
+
+    /// Update columnar — takes { id: TypedArray, colName: TypedArray | Array, ... }.
+    /// Requires an "id" column to identify rows. All other columns are merged
+    /// into the existing row data (column by column).
+    /// Avoids both serde_json (for typed arrays) and Arrow IPC serialization.
+    #[napi]
+    pub fn update_columnar(&mut self, _env: Env, table: String, columns: Object) -> Result<u32> {
+        // Read table schema
+        let tables_guard = self.db.tables.read();
+        let table_lock = tables_guard.get(&table).ok_or_else(|| {
+            napi::Error::from_reason(format!("Table '{}' not found", table))
+        })?;
+        let table_read = table_lock.read();
+        let num_columns = table_read.num_columns;
+        let col_defs: Vec<(String, usize)> = table_read.schema.columns.iter().enumerate()
+            .map(|(i, c)| (c.name.to_string(), i)).collect();
+        drop(table_read);
+        drop(tables_guard);
+
+        if num_columns == 0 { return Ok(0); }
+
+        // Determine which columns are provided and find "id"
+        let keys = Object::keys(&columns)?;
+        let _id_idx_in_input = keys.iter().position(|k| k == "id")
+            .ok_or_else(|| napi::Error::from_reason("Columnar update requires an 'id' column"))?;
+        let _value_keys: Vec<&String> = keys.iter().filter(|k| *k != "id").collect();
+
+        // Read all column data
+        enum ColValue {
+            I64( BigInt64Array),
+            F64(Float64Array),
+            Generic(Vec<dbobj::Value>),
+        }
+
+        let mut id_data: Option<ColValue> = None;
+        let mut value_data: std::collections::HashMap<String, ColValue> = std::collections::HashMap::new();
+        let mut row_count = 0u32;
+
+        for key in &keys {
+            let key_str = key.as_str();
+            let val: Unknown = columns.get_named_property(key)?;
+            let (data, len) = if val.is_typedarray()? {
+                if let Ok(arr) = unsafe { val.cast::<BigInt64Array>() } {
+                    let l = arr.len() as u32;
+                    (ColValue::I64(arr), l)
+                } else if let Ok(arr) = unsafe { val.cast::<Float64Array>() } {
+                    let l = arr.len() as u32;
+                    (ColValue::F64(arr), l)
+                } else {
+                    return Err(napi::Error::from_reason("Unsupported TypedArray type"));
+                }
+            } else if val.is_array()? {
+                let arr: Array = unsafe { val.cast()? };
+                let l = arr.len();
+                let mut vec = Vec::with_capacity(l as usize);
+                for i in 0..l {
+                    let elem: Unknown = Array::get_element(&arr, i)?;
+                    vec.push(json_to_value(jv_helper(&elem)?));
+                }
+                (ColValue::Generic(vec), l)
+            } else {
+                return Err(napi::Error::from_reason("Column must be an array or TypedArray"));
+            };
+
+            if len == 0 { return Ok(0); }
+            if row_count == 0 {
+                row_count = len;
+            } else if len != row_count {
+                return Err(napi::Error::from_reason("Column lengths mismatch"));
+            }
+
+            if key_str == "id" {
+                id_data = Some(data);
+            } else {
+                value_data.insert(key_str.to_string(), data);
+            }
+        }
+
+        let id_data = id_data.unwrap();
+        let mut total_updated = 0u32;
+
+        for row_idx in 0..row_count as usize {
+            // Get id
+            let id_val = match &id_data {
+                ColValue::I64(arr) => dbobj::Id::Integer(arr[row_idx] as u64),
+                ColValue::F64(arr) => dbobj::Id::Integer(arr[row_idx] as u64),
+                ColValue::Generic(v) => match &v[row_idx] {
+                    dbobj::Value::Integer(i) => dbobj::Id::Integer(*i as u64),
+                    dbobj::Value::Float(f) => dbobj::Id::Integer(*f as u64),
+                    dbobj::Value::String(s) => dbobj::Id::String(s.clone()),
+                    _ => continue,
+                },
+            };
+
+            // Read existing row
+            let tables_guard = self.db.tables.read();
+            let table_lock = tables_guard.get(&table).ok_or_else(|| {
+                napi::Error::from_reason(format!("Table '{}' not found", table))
+            })?;
+            let table_read = table_lock.read();
+
+            let row_idx_in_table = match table_read.get_index(&id_val) {
+                Some(idx) => idx,
+                None => { continue; }
+            };
+
+            let mut new_values = Vec::with_capacity(num_columns);
+            for (col_name, col_idx) in &col_defs {
+                let existing = &table_read.data[row_idx_in_table * num_columns + col_idx];
+                match value_data.get(col_name.as_str()) {
+                    Some(val_source) => {
+                        match val_source {
+                            ColValue::I64(arr) => new_values.push(dbobj::Value::Integer(arr[row_idx])),
+                            ColValue::F64(arr) => new_values.push(dbobj::Value::Float(arr[row_idx])),
+                            ColValue::Generic(v) => new_values.push(v[row_idx].clone()),
+                        }
+                    }
+                    None => new_values.push(existing.clone()),
+                }
+            }
+            drop(table_read);
+            drop(tables_guard);
+
+            self.db.update_values(&table, &id_val, new_values)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            total_updated += 1;
         }
 
         self.is_dirty.store(true, Ordering::Relaxed);

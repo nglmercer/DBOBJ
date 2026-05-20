@@ -27,19 +27,23 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
     for (let b = 0; b < batches; b++) {
       const start = b * batchSize;
       const end = Math.min(start + batchSize, count);
+      const batchLen = end - start;
 
-      const intVals: number[] = [];
-      const strVals: string[] = [];
-      const boolVals: boolean[] = [];
-      for (let i = start; i < end; i++) {
-        intVals.push(i, i * 10);
-        strVals.push(`user_${i}`);
-        boolVals.push(i % 2 === 0);
+      const ids = new BigInt64Array(batchLen);
+      const vals = new BigInt64Array(batchLen);
+      const names: string[] = new Array(batchLen);
+      const actives: boolean[] = new Array(batchLen);
+      for (let i = 0; i < batchLen; i++) {
+        const idx = start + i;
+        ids[i] = BigInt(idx);
+        vals[i] = BigInt(idx * 10);
+        names[i] = `user_${idx}`;
+        actives[i] = idx % 2 === 0;
       }
 
-      qb.insertBatch("users", intVals, 2);
-      qb.insertBatch("names", strVals, 1);
-      qb.insertBatch("actives", boolVals, 1);
+      qb.insertColumnar("users", { id: ids, val: vals });
+      qb.insertColumnar("names", { name: names });
+      qb.insertColumnar("actives", { active: actives });
     }
     const elapsed = performance.now() - t0;
 
@@ -87,9 +91,7 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
       const end = Math.min(start + batchSize, count);
       const batchIds = idArr.subarray(start, end);
       const batchVals = valArr.subarray(start, end);
-      const table = tableFromArrays({ id: batchIds, val: batchVals });
-      const buf = tableToIPC(table, "file");
-      qb.updateFromArrow(tableName, buf);
+      qb.updateColumnar(tableName, { id: batchIds, val: batchVals });
     }
 
     const elapsed = performance.now() - t0;
