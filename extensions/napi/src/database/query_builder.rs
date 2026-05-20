@@ -6,7 +6,7 @@ use napi_derive::napi;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::database::query::db_value_to_json_no_table;
+use crate::database::query::{db_value_to_json_no_table, db_value_to_json};
 use crate::database::jv_helper;
 
 #[napi]
@@ -155,16 +155,53 @@ impl JsQueryBuilder {
     }
 
     /// Execute query and return data column-oriented: { colName: [values...] }
-    /// Avoids per-row JSON object overhead.
+    /// Avoids per-row JSON object overhead. Uses a direct table read for simple
+    /// SELECT * (no filters, no joins, no order) — bypasses Row cloning entirely.
     #[napi]
     pub fn execute_columnar(&self) -> Result<serde_json::Value> {
+        self.is_dirty.store(true, Ordering::Relaxed);
+
+        let table_name = self.inner.table_name();
+        if table_name.is_empty() {
+            return Ok(serde_json::Value::Object(serde_json::Map::new()));
+        }
+
+        // Fast path: simple SELECT * — read directly from table.data, skip run()
+        if self.inner.is_simple_select() {
+            let tables_guard = self.db.tables.read();
+            let table_lock = tables_guard.get(table_name)
+                .ok_or_else(|| napi::Error::from_reason("Table not found"))?;
+            let table = table_lock.read();
+
+            let num_rows = table.ids.len();
+            let mut map = serde_json::Map::with_capacity(table.schema.columns.len() + 1);
+
+            // id column
+            let ids: Vec<serde_json::Value> = table.ids.iter().map(|id| match id {
+                Id::Integer(i) => serde_json::Value::Number((*i).into()),
+                Id::String(s) => serde_json::Value::String(s.to_string()),
+            }).collect();
+            map.insert("id".into(), serde_json::Value::Array(ids));
+
+            // data columns — read directly from table.data, skip Row creation
+            // Use db_value_to_json (with table) to resolve InternedString
+            for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
+                let mut col_values = Vec::with_capacity(num_rows);
+                for row_idx in 0..num_rows {
+                    let val = &table.data[row_idx * table.num_columns + col_idx];
+                    col_values.push(db_value_to_json(val, &table));
+                }
+                map.insert(col_def.name.to_string(), serde_json::Value::Array(col_values));
+            }
+
+            return Ok(serde_json::Value::Object(map));
+        }
+
+        // Slow path: complex query with filters/joins — use run()
         let rows = self.inner.run(&self.db)
             .map_err(|e| napi::Error::from_reason(e))?;
 
-        self.is_dirty.store(true, Ordering::Relaxed);
-
         let tables_guard = self.db.tables.read();
-        let table_name = self.inner.table_name();
         if table_name.is_empty() {
             return Ok(serde_json::Value::Object(serde_json::Map::new()));
         }
@@ -174,14 +211,12 @@ impl JsQueryBuilder {
 
         let mut map = serde_json::Map::with_capacity(table.schema.columns.len() + 1);
 
-        // id column
         let ids: Vec<serde_json::Value> = rows.iter().map(|row| match &row.id {
             Id::Integer(i) => serde_json::Value::Number((*i).into()),
             Id::String(s) => serde_json::Value::String(s.to_string()),
         }).collect();
         map.insert("id".into(), serde_json::Value::Array(ids));
 
-        // data columns
         for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
             let mut col_values = Vec::with_capacity(rows.len());
             for row in &rows {
@@ -200,6 +235,7 @@ impl JsQueryBuilder {
 
     /// Execute query and return results as Apache Arrow IPC buffer.
     /// Avoids JSON serialization — the JS side can parse with @apache-arrow.
+    /// Uses a direct table read for simple SELECT * (no filters, no joins).
     #[napi]
     pub fn execute_arrow(&self) -> Result<Buffer> {
         use std::sync::Arc as StdArc;
@@ -208,16 +244,119 @@ impl JsQueryBuilder {
         use arrow::ipc::writer::FileWriter;
         use arrow::record_batch::RecordBatch;
 
-        let rows = self.inner.run(&self.db)
-            .map_err(|e| napi::Error::from_reason(e))?;
-
         self.is_dirty.store(true, Ordering::Relaxed);
 
-        let tables_guard = self.db.tables.read();
         let table_name = self.inner.table_name();
         if table_name.is_empty() {
             return Ok(Buffer::from(Vec::<u8>::new()));
         }
+
+        // Fast path: simple SELECT * — read directly from table.data, skip run()
+        if self.inner.is_simple_select() {
+            let tables_guard = self.db.tables.read();
+            let table_lock = tables_guard.get(table_name)
+                .ok_or_else(|| napi::Error::from_reason("Table not found"))?;
+            let table = table_lock.read();
+
+            let num_rows = table.ids.len();
+            if num_rows == 0 {
+                return Ok(Buffer::from(Vec::<u8>::new()));
+            }
+
+            let num_cols = table.schema.columns.len();
+            let mut arrow_fields = Vec::with_capacity(num_cols);
+            let mut arrow_columns: Vec<ArrayRef> = Vec::with_capacity(num_cols);
+
+            for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
+                let arrow_type = db_to_arrow_type(&col_def.data_type);
+                arrow_fields.push(Field::new(col_def.name.as_str(), arrow_type, col_def.nullable));
+
+                match col_def.data_type {
+                    DataType::Integer => {
+                        let mut builder = Int64Builder::with_capacity(num_rows);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::Integer(v) => builder.append_value(*v),
+                                _ => builder.append_null(),
+                            }
+                        }
+                        arrow_columns.push(Arc::new(builder.finish()));
+                    }
+                    DataType::Float => {
+                        let mut builder = Float64Builder::with_capacity(num_rows);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::Float(v) => builder.append_value(*v),
+                                Value::Integer(v) => builder.append_value(*v as f64),
+                                _ => builder.append_null(),
+                            }
+                        }
+                        arrow_columns.push(Arc::new(builder.finish()));
+                    }
+                    DataType::String => {
+                        let avg_len = 32usize;
+                        let mut builder = StringBuilder::with_capacity(num_rows, num_rows * avg_len);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::String(s) => builder.append_value(s.as_str()),
+                                Value::InternedString(id) => {
+                                    if let Some(s) = table.string_pool.resolve(*id) {
+                                        builder.append_value(s.as_str());
+                                    } else {
+                                        builder.append_null();
+                                    }
+                                }
+                                _ => builder.append_null(),
+                            }
+                        }
+                        arrow_columns.push(Arc::new(builder.finish()));
+                    }
+                    DataType::Boolean => {
+                        let mut builder = BooleanBuilder::with_capacity(num_rows);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::Boolean(v) => builder.append_value(*v),
+                                _ => builder.append_null(),
+                            }
+                        }
+                        arrow_columns.push(Arc::new(builder.finish()));
+                    }
+                    DataType::Blob => {
+                        let avg_len = 64usize;
+                        let mut builder = BinaryBuilder::with_capacity(num_rows, num_rows * avg_len);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::Blob(v) => builder.append_value(v),
+                                _ => builder.append_null(),
+                            }
+                        }
+                        arrow_columns.push(Arc::new(builder.finish()));
+                    }
+                }
+            }
+
+            let schema = StdArc::new(ArrowSchema::new(arrow_fields));
+            let batch = RecordBatch::try_new(schema.clone(), arrow_columns)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+            let mut buffer = Vec::new();
+            {
+                let mut writer = FileWriter::try_new(&mut buffer, &schema)
+                    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+                writer.write(&batch)
+                    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+                writer.finish()
+                    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            }
+
+            return Ok(Buffer::from(buffer));
+        }
+
+        // Slow path: complex query with filters/joins — use run()
+        let rows = self.inner.run(&self.db)
+            .map_err(|e| napi::Error::from_reason(e))?;
+
+        let tables_guard = self.db.tables.read();
         let table_lock = tables_guard.get(table_name)
             .ok_or_else(|| napi::Error::from_reason("Table not found"))?;
         let table = table_lock.read();
@@ -573,23 +712,20 @@ impl JsQueryBuilder {
         }
 
         let total_cells = row_count as usize * num_columns;
-        let mut flat_values = vec![dbobj::Value::Null; total_cells];
-        for (j, source) in sources.into_iter().enumerate() {
-            match source {
-                ColSource::TypedI64(arr) => {
-                    for i in 0..row_count as usize {
-                        flat_values[i * num_columns + j] = dbobj::Value::Integer(arr[i]);
+        let mut flat_values: Vec<dbobj::Value> = Vec::with_capacity(total_cells);
+        // Build row-major: for each row, push all column values
+        for i in 0..row_count as usize {
+            for source in &sources {
+                match source {
+                    ColSource::TypedI64(arr) => {
+                        flat_values.push(dbobj::Value::Integer(arr[i]));
                     }
-                }
-                ColSource::TypedF64(arr) => {
-                    for i in 0..row_count as usize {
-                        flat_values[i * num_columns + j] = dbobj::Value::Float(arr[i]);
+                    ColSource::TypedF64(arr) => {
+                        flat_values.push(dbobj::Value::Float(arr[i]));
                     }
-                }
-                ColSource::Generic(arr) => {
-                    for i in 0..row_count as usize {
-                        let val: Unknown = Array::get_element(&arr, i as u32)?;
-                        flat_values[i * num_columns + j] = json_to_value(jv_helper(&val)?);
+                    ColSource::Generic(arr) => {
+                        let val: Unknown = Array::get_element(arr, i as u32)?;
+                        flat_values.push(json_to_value(jv_helper(&val)?));
                     }
                 }
             }

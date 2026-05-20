@@ -137,12 +137,14 @@ export declare class JsQueryBuilder {
   first(): any | null
   /**
    * Execute query and return data column-oriented: { colName: [values...] }
-   * Avoids per-row JSON object overhead.
+   * Avoids per-row JSON object overhead. Uses a direct table read for simple
+   * SELECT * (no filters, no joins, no order) — bypasses Row cloning entirely.
    */
   executeColumnar(): any
   /**
    * Execute query and return results as Apache Arrow IPC buffer.
    * Avoids JSON serialization — the JS side can parse with @apache-arrow.
+   * Uses a direct table read for simple SELECT * (no filters, no joins).
    */
   executeArrow(): Buffer
   /**

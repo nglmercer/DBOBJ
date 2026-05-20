@@ -1192,6 +1192,204 @@ impl Database {
 
         Ok(results)
     }
+
+    /// Hash Join that returns row indices instead of full Row objects.
+    /// Returns Vec<(build_table_row_idx, probe_table_row_idx)> — avoids Row cloning.
+    pub fn hash_join_indices(
+        &self,
+        table1: &str,
+        col1: &str,
+        table2: &str,
+        col2: &str,
+    ) -> Result<Vec<(usize, usize)>, crate::core::table::TableError> {
+        let tables = self.tables.read();
+        let t1_lock = tables.get(table1).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table1))
+        })?;
+        let t2_lock = tables.get(table2).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table2))
+        })?;
+
+        let t1 = t1_lock.read();
+        let t2 = t2_lock.read();
+
+        let (build_table, build_col, probe_table, probe_col, reversed) =
+            if t1.ids.len() <= t2.ids.len() {
+                (&*t1, col1, &*t2, col2, false)
+            } else {
+                (&*t2, col2, &*t1, col1, true)
+            };
+
+        let build_col_idx = build_table.get_column_index(build_col).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Column {} not found in {}",
+                build_col, build_table.name
+            ))
+        })?;
+        let probe_col_idx = probe_table.get_column_index(probe_col).ok_or_else(|| {
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Column {} not found in {}",
+                probe_col, probe_table.name
+            ))
+        })?;
+
+        let num_build_rows = build_table.ids.len();
+        let num_probe_rows = probe_table.ids.len();
+
+        if num_build_rows == 0 || num_probe_rows == 0 {
+            return Ok(Vec::new());
+        }
+
+        // Fast path: sequential ids + join on "id" column
+        if build_col == "id" && build_table.is_sequential_ids {
+            let build_rows = build_table.ids.len();
+            let probe_rows = probe_table.ids.len();
+            if reversed {
+                return Ok((0..probe_rows.min(build_rows))
+                    .map(|i| (i, i))
+                    .collect());
+            } else {
+                return Ok((0..probe_rows.min(build_rows))
+                    .map(|i| (i, i))
+                    .collect());
+            }
+        }
+
+        let buckets_count = (num_build_rows * 2).next_power_of_two();
+        let bucket_mask = (buckets_count - 1) as u64;
+
+        let mut heads = vec![-1i32; buckets_count];
+        let mut nexts = vec![-1i32; num_build_rows];
+        let mut build_hashes = vec![0u64; num_build_rows];
+
+        let hasher = ahash::RandomState::new();
+        let mut bloom_filter = [0u64; 1024];
+
+        // --- BUILD PHASE ---
+        for i in 0..num_build_rows {
+            let val = build_table.get_value_by_index(i, build_col_idx);
+            if !val.is_null() {
+                let h = hasher.hash_one(&val);
+                build_hashes[i] = h;
+
+                let bit = (h & 0xFFFF) as usize;
+                bloom_filter[bit >> 6] |= 1 << (bit & 0x3F);
+
+                let bucket = (h & bucket_mask) as usize;
+                nexts[i] = heads[bucket];
+                heads[bucket] = i as i32;
+            }
+        }
+
+        let num_threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
+        // PROBE PHASE (Single-threaded fast path)
+        if num_probe_rows < 5000 || num_threads <= 1 {
+            let mut results = Vec::new();
+            for i in 0..num_probe_rows {
+                let val = probe_table.get_value_by_index(i, probe_col_idx);
+                if !val.is_null() {
+                    let h = hasher.hash_one(&val);
+                    let bit = (h & 0xFFFF) as usize;
+
+                    if (bloom_filter[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
+                        let bucket = (h & bucket_mask) as usize;
+                        let mut build_idx_ptr = heads[bucket];
+
+                        while build_idx_ptr != -1 {
+                            let idx = build_idx_ptr as usize;
+                            if build_hashes[idx] == h {
+                                let match_ok = if build_col_idx != -1 && probe_col_idx != -1 {
+                                    build_table.get_value_ref(idx, build_col_idx as usize)
+                                        == probe_table.get_value_ref(i, probe_col_idx as usize)
+                                } else {
+                                    build_table.get_value_by_index(idx, build_col_idx) == val
+                                };
+
+                                if match_ok {
+                                    if reversed {
+                                        results.push((i, idx));
+                                    } else {
+                                        results.push((idx, i));
+                                    }
+                                }
+                            }
+                            build_idx_ptr = nexts[idx];
+                        }
+                    }
+                }
+            }
+            return Ok(results);
+        }
+
+        // PROBE PHASE (Multi-threaded)
+        let chunk_size = num_probe_rows.div_ceil(num_threads);
+        let heads_ref = &heads;
+        let nexts_ref = &nexts;
+        let build_hashes_ref = &build_hashes;
+        let bloom_filter_ref = &bloom_filter;
+        let hasher_ref = &hasher;
+
+        let results = std::thread::scope(|s| {
+            let mut handles = Vec::new();
+            for i in 0..num_threads {
+                let start_idx = i * chunk_size;
+                if start_idx >= num_probe_rows {
+                    break;
+                }
+                let end_idx = (start_idx + chunk_size).min(num_probe_rows);
+
+                handles.push(s.spawn(move || {
+                    let mut local_results = Vec::new();
+                    for j in start_idx..end_idx {
+                        let val = probe_table.get_value_by_index(j, probe_col_idx);
+                        if !val.is_null() {
+                            let h = hasher_ref.hash_one(&val);
+                            let bit = (h & 0xFFFF) as usize;
+
+                            if (bloom_filter_ref[bit >> 6] & (1 << (bit & 0x3F))) != 0 {
+                                let bucket = (h & bucket_mask) as usize;
+                                let mut build_idx_ptr = heads_ref[bucket];
+
+                                while build_idx_ptr != -1 {
+                                    let idx = build_idx_ptr as usize;
+                                    if build_hashes_ref[idx] == h {
+                                        let match_ok = if build_col_idx != -1 && probe_col_idx != -1
+                                        {
+                                            build_table.get_value_ref(idx, build_col_idx as usize)
+                                                == probe_table
+                                                    .get_value_ref(j, probe_col_idx as usize)
+                                        } else {
+                                            build_table.get_value_by_index(idx, build_col_idx)
+                                                == val
+                                        };
+
+                                        if match_ok {
+                                            if reversed {
+                                                local_results.push((j, idx));
+                                            } else {
+                                                local_results.push((idx, j));
+                                            }
+                                        }
+                                    }
+                                    build_idx_ptr = nexts_ref[idx];
+                                }
+                            }
+                        }
+                    }
+                    local_results
+                }));
+            }
+            handles
+                .into_iter()
+                .flat_map(|h| h.join().unwrap())
+                .collect()
+        });
+
+        Ok(results)
+    }
 }
 
 pub struct Transaction<'a> {

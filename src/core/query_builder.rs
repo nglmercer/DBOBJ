@@ -4,6 +4,7 @@ use super::table::Row;
 use super::value::Value;
 use super::Id;
 
+#[derive(PartialEq)]
 pub enum QueryType {
     Select,
     Insert,
@@ -184,6 +185,17 @@ impl QueryBuilder {
         self
     }
 
+    /// Returns true if this is a simple SELECT * with no filters, joins, order, or pagination.
+    pub fn is_simple_select(&self) -> bool {
+        self.query_type == QueryType::Select
+            && self.condition.is_none()
+            && self.order_column.is_none()
+            && self.limit.is_none()
+            && self.offset.is_none()
+            && self.columns.is_none()
+            && self.join_table.is_none()
+    }
+
     pub fn table_name(&self) -> &str {
         &self.table
     }
@@ -247,7 +259,8 @@ impl QueryBuilder {
         let col1 = self.join_col1.as_ref().ok_or("Join column 1 not specified")?;
         let col2 = self.join_col2.as_ref().ok_or("Join column 2 not specified")?;
 
-        let joined = db.hash_join(&self.table, col1, join_table, col2)
+        // Use hash_join_indices to avoid creating right-side Row objects (discarded below)
+        let indices = db.hash_join_indices(&self.table, col1, join_table, col2)
             .map_err(|e| e.to_string())?;
 
         let tables_guard = db.tables.read();
@@ -255,8 +268,9 @@ impl QueryBuilder {
             .ok_or_else(|| format!("Table '{}' not found", self.table))?;
         let table = table_lock.read();
 
-        let mut results: Vec<Row> = Vec::with_capacity(joined.len());
-        for (r1, _r2) in joined {
+        let mut results: Vec<Row> = Vec::with_capacity(indices.len());
+        for (t1_idx, _t2_idx) in indices {
+            let r1 = table.get_row_by_index(t1_idx);
             if let Some(ref expr) = self.condition {
                 if !expr.is_true(&r1, &table.column_map, &table) {
                     continue;
