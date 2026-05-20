@@ -68,6 +68,12 @@ export declare class Database {
   queryI64(sql: string): BigInt64Array
   queryJoinI64(sql: string): BigInt64Array
   exportTableToArrowIpc(tableName: string): Buffer
+  /**
+   * Convert an array of JS objects to Arrow IPC buffer using the table's schema.
+   * Each object's properties are mapped to columns by name, with correct Arrow types.
+   * The returned buffer can be passed directly to insertFromArrow / updateFromArrow.
+   */
+  objectsToArrowIpc(tableName: string, objects: Array<any>): Buffer
   importTableFromArrowIpc(tableName: string, buffer: Buffer): boolean
   /**
    * Create a table from an Arrow IPC buffer's schema (zero-copy schema definition).
@@ -186,6 +192,19 @@ export declare class JsQueryBuilder {
   updateColumnar(table: string, columns: object): number
   /** Batch insert from string arrays. */
   insertBatchString(table: string, values: Array<string>, numColumns: number): number
+  /**
+   * Insert multiple rows from an array of JS objects.
+   * Uses the table schema to determine column order and types.
+   * Avoids manual columnar construction — schema-aware batch insert.
+   */
+  insertFromObjects(table: string, objects: Array<any>): number
+  /**
+   * Update multiple rows from an array of JS objects.
+   * Each object must include an "id" property to identify the row.
+   * Other properties are merged into the existing row data.
+   * Uses the table schema for column name resolution.
+   */
+  updateFromObjects(table: string, objects: Array<any>): number
 }
 
 export declare class PreparedStatement {

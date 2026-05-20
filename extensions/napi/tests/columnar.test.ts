@@ -187,7 +187,7 @@ test("updateFromArrow with Uint8Array (not Buffer)", () => {
   const uint8Buf = tableToIPC(newTable, "file") as Uint8Array;
 
   // Pass Uint8Array (not Buffer) — should still work
-  const n = qb.updateFromArrow("t", uint8Buf);
+  const n = qb.updateFromArrow("t", Buffer.from(uint8Buf));
   expect(n).toBe(2);
 
   const rows = qb.select("t").execute() as Array<any>;

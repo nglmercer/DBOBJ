@@ -20,7 +20,7 @@ test("updateFromArrow updates rows by id", () => {
   });
   const buf = tableToIPC(table, "file");
 
-  const n = qb.updateFromArrow("users", buf);
+  const n = qb.updateFromArrow("users", Buffer.from(buf));
   expect(n).toBe(2);
 
   const rows = qb.select("users").execute() as Array<any>;
@@ -53,7 +53,7 @@ test("updateFromArrow with mixed types", () => {
   });
   const buf = tableToIPC(table, "file");
 
-  const n = qb.updateFromArrow("users", buf);
+  const n = qb.updateFromArrow("users", Buffer.from(buf));
   expect(n).toBe(2);
 
   const rows = qb.select("users").execute() as Array<any>;
@@ -80,7 +80,7 @@ test("updateFromArrow on non-existent id returns 0", () => {
   });
   const buf = tableToIPC(table, "file");
 
-  const n = qb.updateFromArrow("t", buf);
+  const n = qb.updateFromArrow("t", Buffer.from(buf));
   expect(n).toBe(0); // id=99 doesn't exist
 });
 
@@ -94,7 +94,7 @@ test("updateFromArrow requires id column", () => {
   });
   const buf = tableToIPC(table, "file");
 
-  expect(() => qb.updateFromArrow("t", buf)).toThrow();
+  expect(() => qb.updateFromArrow("t", Buffer.from(buf))).toThrow();
 });
 
 test("updateFromArrow empty buffer", () => {
@@ -113,7 +113,7 @@ test("updateFromArrow empty buffer", () => {
   });
   const buf = tableToIPC(table, "file");
 
-  const n = qb.updateFromArrow("t", buf);
+  const n = qb.updateFromArrow("t", Buffer.from(buf));
   expect(n).toBe(0);
 });
 
@@ -140,7 +140,7 @@ test("executeArrow + updateFromArrow roundtrip", () => {
   });
   const updateBuf = tableToIPC(newTable, "file");
 
-  const n = qb.updateFromArrow("t", updateBuf);
+  const n = qb.updateFromArrow("t", Buffer.from(updateBuf));
   expect(n).toBe(3);
 
   const rows = qb.select("t").execute() as Array<any>;

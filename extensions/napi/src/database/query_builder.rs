@@ -885,6 +885,136 @@ impl JsQueryBuilder {
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(count as u32)
     }
+
+    /// Insert multiple rows from an array of JS objects.
+    /// Uses the table schema to determine column order and types.
+    /// Avoids manual columnar construction — schema-aware batch insert.
+    #[napi]
+    pub fn insert_from_objects(&mut self, table: String, objects: Vec<serde_json::Value>) -> Result<u32> {
+        let num_rows = objects.len();
+        if num_rows == 0 { return Ok(0); }
+
+        let tables_guard = self.db.tables.read();
+        let table_lock = tables_guard.get(&table).ok_or_else(|| {
+            napi::Error::from_reason(format!("Table '{}' not found", table))
+        })?;
+        let table_read = table_lock.read();
+        let num_columns = table_read.num_columns;
+        if num_columns == 0 { return Ok(0); }
+        // Pre-collect column names: must collect owned strings before dropping the read lock
+        let col_names: Vec<(String, DataType)> = table_read.schema.columns.iter()
+            .map(|c| (c.name.to_string(), c.data_type.clone()))
+            .collect();
+        drop(table_read);
+        drop(tables_guard);
+
+        let total_cells = num_rows * num_columns as usize;
+        let mut flat: Vec<Value> = Vec::with_capacity(total_cells);
+
+        for obj in &objects {
+            let map = match obj {
+                serde_json::Value::Object(m) => m,
+                _ => return Err(napi::Error::from_reason("Each element must be a JSON object")),
+            };
+            for (col_name, _) in &col_names {
+                match map.get(col_name.as_str()) {
+                    Some(val) => flat.push(json_to_value(val.clone())),
+                    None => flat.push(Value::Null),
+                }
+            }
+        }
+
+        self.db.insert_batch_flat_values(&table, flat, num_columns)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(num_rows as u32)
+    }
+
+    /// Update multiple rows from an array of JS objects.
+    /// Each object must include an "id" property to identify the row.
+    /// Other properties are merged into the existing row data.
+    /// Uses the table schema for column name resolution.
+    #[napi]
+    pub fn update_from_objects(&mut self, table: String, objects: Vec<serde_json::Value>) -> Result<u32> {
+        let num_rows = objects.len();
+        if num_rows == 0 { return Ok(0); }
+
+        let tables_guard = self.db.tables.read();
+        let table_lock = tables_guard.get(&table).ok_or_else(|| {
+            napi::Error::from_reason(format!("Table '{}' not found", table))
+        })?;
+        let table_read = table_lock.read();
+        let num_columns = table_read.num_columns;
+        if num_columns == 0 { return Ok(0); }
+        // Collect owned data before dropping read lock
+        let col_defs: Vec<(String, DataType)> = table_read.schema.columns.iter()
+            .map(|c| (c.name.to_string(), c.data_type.clone()))
+            .collect();
+        drop(table_read);
+        drop(tables_guard);
+
+        let mut total_updated = 0u32;
+
+        for obj in &objects {
+            let map = match obj {
+                serde_json::Value::Object(m) => m,
+                _ => continue,
+            };
+
+            // Extract id
+            let id_val = match map.get("id") {
+                Some(serde_json::Value::Number(n)) => {
+                    if let Some(i) = n.as_i64() {
+                        dbobj::Id::Integer(i as u64)
+                    } else if let Some(f) = n.as_f64() {
+                        dbobj::Id::Integer(f as u64)
+                    } else {
+                        continue;
+                    }
+                }
+                Some(serde_json::Value::String(s)) => dbobj::Id::String(s.clone().into()),
+                _ => continue,
+            };
+
+            // Build set map from remaining properties
+            let mut set_map: std::collections::HashMap<&str, serde_json::Value> = std::collections::HashMap::new();
+            for (key, val) in map.iter() {
+                if key != "id" {
+                    set_map.insert(key.as_str(), val.clone());
+                }
+            }
+
+            // Read existing row, merge, update
+            let tables_guard = self.db.tables.read();
+            let table_lock = tables_guard.get(&table).ok_or_else(|| {
+                napi::Error::from_reason(format!("Table '{}' not found", table))
+            })?;
+            let table_read = table_lock.read();
+
+            let row_idx = match table_read.get_index(&id_val) {
+                Some(idx) => idx,
+                None => { continue; }
+            };
+
+            let mut new_values = Vec::with_capacity(num_columns);
+            for (col_idx, (col_name, _)) in col_defs.iter().enumerate() {
+                let existing = &table_read.data[row_idx * num_columns + col_idx];
+                match set_map.get(col_name.as_str()) {
+                    Some(val) => new_values.push(json_to_value(val.clone())),
+                    None => new_values.push(existing.clone()),
+                }
+            }
+            drop(table_read);
+            drop(tables_guard);
+
+            self.db.update_values(&table, &id_val, new_values)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            total_updated += 1;
+        }
+
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(total_updated)
+    }
 }
 
 impl JsQueryBuilder {

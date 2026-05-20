@@ -5,6 +5,20 @@ use napi_derive::napi;
 use rustc_hash::FxHashMap;
 use serde_json::Value;
 
+fn db_field_to_arrow_type(dt: &DataType) -> arrow::datatypes::DataType {
+    match dt {
+        DataType::Integer => arrow::datatypes::DataType::Int64,
+        DataType::Float => arrow::datatypes::DataType::Float64,
+        DataType::String => arrow::datatypes::DataType::Utf8,
+        DataType::Boolean => arrow::datatypes::DataType::Boolean,
+        DataType::Blob => arrow::datatypes::DataType::Binary,
+        DataType::Json => arrow::datatypes::DataType::Utf8,
+        DataType::ArrayString => arrow::datatypes::DataType::Utf8,
+        DataType::ArrayI64 => arrow::datatypes::DataType::Utf8,
+        DataType::ArrayF64 => arrow::datatypes::DataType::Utf8,
+    }
+}
+
 #[napi(object)]
 pub struct SchemaField {
     pub name: String,
@@ -304,6 +318,45 @@ impl DynamicSchema {
     /// Get schema for internal use
     pub fn get_schema(&self, schema_name: &str) -> Option<&CompiledSchema> {
         self.schemas.get(schema_name)
+    }
+
+    /// Convert a registered schema to an Arrow IPC buffer compatible with createTableFromArrowIpc.
+    /// The buffer contains the Arrow schema (no data rows) that createTableFromArrowIpc can read
+    /// to define a table with matching columns.
+    #[napi]
+    pub fn to_arrow_ipc(&self, schema_name: String) -> Result<Buffer> {
+        use std::sync::Arc as StdArc;
+        use arrow::datatypes::Field;
+        use arrow::ipc::writer::FileWriter;
+        use arrow::record_batch::RecordBatch;
+
+        let schema = self
+            .schemas
+            .get(&schema_name)
+            .ok_or_else(|| Error::from_reason(format!("schema '{schema_name}' not found")))?;
+
+        let mut fields = Vec::with_capacity(schema.fields.len());
+        for field in &schema.fields {
+            let arrow_type = db_field_to_arrow_type(&field.type_);
+            fields.push(Field::new(field.name.as_str(), arrow_type, field.optional));
+        }
+
+        let arrow_schema = StdArc::new(arrow::datatypes::Schema::new(fields));
+
+        // Create an empty record batch (0 rows) — schema-only IPC file
+        let batch = RecordBatch::new_empty(arrow_schema.clone());
+
+        let mut buffer = Vec::new();
+        {
+            let mut writer = FileWriter::try_new(&mut buffer, &arrow_schema)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            writer.write(&batch)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            writer.finish()
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        }
+
+        Ok(Buffer::from(buffer))
     }
 
     /// Validate a pre-parsed serde_json::Value. Fast path: returns original Value when valid.

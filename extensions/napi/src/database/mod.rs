@@ -37,6 +37,16 @@ fn arrow_to_db_type_napi(dt: &arrow::datatypes::DataType) -> Option<DataType> {
     }
 }
 
+fn db_to_arrow_type_napi(dt: &DataType) -> arrow::datatypes::DataType {
+    match dt {
+        DataType::Integer => arrow::datatypes::DataType::Int64,
+        DataType::Float => arrow::datatypes::DataType::Float64,
+        DataType::String => arrow::datatypes::DataType::Utf8,
+        DataType::Boolean => arrow::datatypes::DataType::Boolean,
+        DataType::Blob => arrow::datatypes::DataType::Binary,
+    }
+}
+
 pub(crate) fn jv_helper(v: &Unknown) -> Result<serde_json::Value> {
     match v.get_type()? {
         napi::ValueType::Null | napi::ValueType::Undefined => Ok(serde_json::Value::Null),
@@ -1508,6 +1518,133 @@ impl Database {
             .export_table_to_arrow_ipc(&table_name)
             .map_err(|e| napi::Error::from_reason(e))?;
         Ok(Buffer::from(bytes))
+    }
+
+    /// Convert an array of JS objects to Arrow IPC buffer using the table's schema.
+    /// Each object's properties are mapped to columns by name, with correct Arrow types.
+    /// The returned buffer can be passed directly to insertFromArrow / updateFromArrow.
+    #[napi]
+    pub fn objects_to_arrow_ipc(&self, table_name: String, objects: Vec<serde_json::Value>) -> Result<Buffer> {
+        use std::sync::Arc as StdArc;
+        use arrow::array::*;
+        use arrow::datatypes::{Field, Schema as ArrowSchema};
+        use arrow::ipc::writer::FileWriter;
+        use arrow::record_batch::RecordBatch;
+
+        let tables = self.inner.tables.read();
+        let table_lock = tables.get(&table_name).ok_or_else(|| {
+            napi::Error::from_reason(format!("Table '{}' not found", table_name))
+        })?;
+        let table = table_lock.read();
+
+        let num_rows = objects.len();
+        if num_rows == 0 {
+            return Ok(Buffer::from(Vec::<u8>::new()));
+        }
+
+        let num_cols = table.schema.columns.len();
+        let mut arrow_fields = Vec::with_capacity(num_cols);
+        let mut arrow_columns: Vec<ArrayRef> = Vec::with_capacity(num_cols);
+
+        for col_def in &table.schema.columns {
+            let arrow_type = db_to_arrow_type_napi(&col_def.data_type);
+            arrow_fields.push(Field::new(col_def.name.as_str(), arrow_type, col_def.nullable));
+
+            match col_def.data_type {
+                dbobj::DataType::Integer => {
+                    let mut builder = Int64Builder::with_capacity(num_rows);
+                    for obj in &objects {
+                        if let serde_json::Value::Object(map) = obj {
+                            match map.get(col_def.name.as_str()) {
+                                Some(serde_json::Value::Number(n)) => {
+                                    if let Some(i) = n.as_i64() { builder.append_value(i); }
+                                    else { builder.append_null(); }
+                                }
+                                Some(serde_json::Value::Null) | None => builder.append_null(),
+                                _ => builder.append_null(),
+                            }
+                        } else { builder.append_null(); }
+                    }
+                    arrow_columns.push(Arc::new(builder.finish()));
+                }
+                dbobj::DataType::Float => {
+                    let mut builder = Float64Builder::with_capacity(num_rows);
+                    for obj in &objects {
+                        if let serde_json::Value::Object(map) = obj {
+                            match map.get(col_def.name.as_str()) {
+                                Some(serde_json::Value::Number(n)) => {
+                                    if let Some(f) = n.as_f64() { builder.append_value(f); }
+                                    else { builder.append_null(); }
+                                }
+                                Some(serde_json::Value::Null) | None => builder.append_null(),
+                                _ => builder.append_null(),
+                            }
+                        } else { builder.append_null(); }
+                    }
+                    arrow_columns.push(Arc::new(builder.finish()));
+                }
+                dbobj::DataType::String => {
+                    let avg_len = 32usize;
+                    let mut builder = StringBuilder::with_capacity(num_rows, num_rows * avg_len);
+                    for obj in &objects {
+                        if let serde_json::Value::Object(map) = obj {
+                            match map.get(col_def.name.as_str()) {
+                                Some(serde_json::Value::String(s)) => builder.append_value(s.as_str()),
+                                Some(serde_json::Value::Null) | None => builder.append_null(),
+                                _ => builder.append_null(),
+                            }
+                        } else { builder.append_null(); }
+                    }
+                    arrow_columns.push(Arc::new(builder.finish()));
+                }
+                dbobj::DataType::Boolean => {
+                    let mut builder = BooleanBuilder::with_capacity(num_rows);
+                    for obj in &objects {
+                        if let serde_json::Value::Object(map) = obj {
+                            match map.get(col_def.name.as_str()) {
+                                Some(serde_json::Value::Bool(b)) => builder.append_value(*b),
+                                Some(serde_json::Value::Null) | None => builder.append_null(),
+                                _ => builder.append_null(),
+                            }
+                        } else { builder.append_null(); }
+                    }
+                    arrow_columns.push(Arc::new(builder.finish()));
+                }
+                dbobj::DataType::Blob => {
+                    let avg_len = 64usize;
+                    let mut builder = BinaryBuilder::with_capacity(num_rows, num_rows * avg_len);
+                    for obj in &objects {
+                        if let serde_json::Value::Object(map) = obj {
+                            match map.get(col_def.name.as_str()) {
+                                Some(serde_json::Value::Array(arr)) => {
+                                    let bytes: Vec<u8> = arr.iter().filter_map(|v| v.as_u64().map(|u| u as u8)).collect();
+                                    builder.append_value(&bytes);
+                                }
+                                Some(serde_json::Value::Null) | None => builder.append_null(),
+                                _ => builder.append_null(),
+                            }
+                        } else { builder.append_null(); }
+                    }
+                    arrow_columns.push(Arc::new(builder.finish()));
+                }
+            }
+        }
+
+        let schema = StdArc::new(ArrowSchema::new(arrow_fields));
+        let batch = RecordBatch::try_new(schema.clone(), arrow_columns)
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+        let mut buffer = Vec::new();
+        {
+            let mut writer = FileWriter::try_new(&mut buffer, &schema)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            writer.write(&batch)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            writer.finish()
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+        }
+
+        Ok(Buffer::from(buffer))
     }
 
     #[napi]
