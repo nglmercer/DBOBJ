@@ -8,11 +8,34 @@ pub(crate) mod update;
 
 use crate::types::{ColumnDefinition, TableMetadata};
 use dbobj::Database as CoreDatabase;
+use dbobj::DataType;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::os::raw::c_char;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+
+fn arrow_to_db_type_napi(dt: &arrow::datatypes::DataType) -> Option<DataType> {
+    match dt {
+        arrow::datatypes::DataType::Int8
+        | arrow::datatypes::DataType::Int16
+        | arrow::datatypes::DataType::Int32
+        | arrow::datatypes::DataType::Int64
+        | arrow::datatypes::DataType::UInt8
+        | arrow::datatypes::DataType::UInt16
+        | arrow::datatypes::DataType::UInt32
+        | arrow::datatypes::DataType::UInt64 => Some(DataType::Integer),
+        arrow::datatypes::DataType::Float16
+        | arrow::datatypes::DataType::Float32
+        | arrow::datatypes::DataType::Float64 => Some(DataType::Float),
+        arrow::datatypes::DataType::Utf8 | arrow::datatypes::DataType::LargeUtf8 => Some(DataType::String),
+        arrow::datatypes::DataType::Boolean => Some(DataType::Boolean),
+        arrow::datatypes::DataType::Binary
+        | arrow::datatypes::DataType::LargeBinary
+        | arrow::datatypes::DataType::FixedSizeBinary(_) => Some(DataType::Blob),
+        _ => None,
+    }
+}
 
 pub(crate) fn jv_helper(v: &Unknown) -> Result<serde_json::Value> {
     match v.get_type()? {
@@ -1498,6 +1521,44 @@ impl Database {
             .map_err(|e| napi::Error::from_reason(e))?;
         self.save_if_needed();
         Ok(true)
+    }
+
+    /// Create a table from an Arrow IPC buffer's schema (zero-copy schema definition).
+    /// The IPC buffer must contain at least a valid Arrow schema header (data is optional).
+    /// Returns the number of columns created.
+    #[napi]
+    pub fn create_table_from_arrow_ipc(
+        &self,
+        table_name: String,
+        buffer: Buffer,
+    ) -> Result<u32> {
+        use arrow::ipc::reader::FileReader;
+        use std::io::Cursor;
+
+        let cursor = Cursor::new(buffer.as_ref());
+        let reader = FileReader::try_new(cursor, None)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to read Arrow IPC: {}", e)))?;
+
+        let arrow_schema = reader.schema();
+        let fields = arrow_schema.fields();
+
+        let mut db_columns = Vec::with_capacity(fields.len());
+        for field in fields {
+            let db_type = arrow_to_db_type_napi(field.data_type()).ok_or_else(|| {
+                napi::Error::from_reason(format!("Unsupported Arrow type: {:?}", field.data_type()))
+            })?;
+            db_columns.push(dbobj::ColumnDefinition {
+                name: field.name().as_str().into(),
+                data_type: db_type,
+                nullable: field.is_nullable(),
+            });
+        }
+
+        let schema = dbobj::Schema { columns: db_columns };
+        let count = schema.columns.len() as u32;
+        self.inner.create_table(table_name, schema);
+        self.save_if_needed();
+        Ok(count)
     }
 
     // ── META ─────────────────────────────────────────────────────────

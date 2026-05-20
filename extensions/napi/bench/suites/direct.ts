@@ -1,4 +1,4 @@
-const { Database: DBOBJ, DataType } = require("../../index.node") as typeof import("../../index.d.ts");
+const { Database: DBOBJ, DataType } = require("../../index.js") as typeof import("../../index.d.ts");
 import { TestSuite } from "../interface";
 import { JOIN_COUNT } from "../constants";
 

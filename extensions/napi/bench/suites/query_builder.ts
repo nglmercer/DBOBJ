@@ -1,4 +1,5 @@
-const { Database, DataType } = require("../../index.node") as typeof import("../../index.d.ts");
+const { Database, DataType } = require("../../index.js") as typeof import("../../index.d.ts");
+import { tableFromArrays, tableToIPC } from "apache-arrow";
 import { TestSuite } from "../interface";
 import { JOIN_COUNT } from "../constants";
 
@@ -74,13 +75,23 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
     const t0 = performance.now();
     const qb = this.db.createQueryBuilder();
 
+    const idArr = new BigInt64Array(count);
+    const valArr = new BigInt64Array(count);
+    for (let i = 0; i < count; i++) {
+      idArr[i] = BigInt(i);
+      valArr[i] = BigInt(i * 20);
+    }
+
     for (let b = 0; b < batches; b++) {
       const start = b * batchSize;
       const end = Math.min(start + batchSize, count);
-      for (let i = start; i < end; i++) {
-        qb.update(tableName).set("val", i * 20).whereEq("id", i).execute();
-      }
+      const batchIds = idArr.subarray(start, end);
+      const batchVals = valArr.subarray(start, end);
+      const table = tableFromArrays({ id: batchIds, val: batchVals });
+      const buf = tableToIPC(table, "file");
+      qb.updateFromArrow(tableName, buf);
     }
+
     const elapsed = performance.now() - t0;
 
     const row = qb.select(tableName).whereEq("id", 50).first() as any;

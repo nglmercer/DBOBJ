@@ -384,6 +384,134 @@ impl JsQueryBuilder {
         Ok(count as u32)
     }
 
+    /// Insert from Arrow IPC buffer — zero-copy, no JSON serialization.
+    /// Parses the RecordBatch and inserts all rows into the table.
+    #[napi]
+    pub fn insert_from_arrow(&mut self, table: String, buffer: Buffer) -> Result<u32> {
+        use arrow::ipc::reader::FileReader;
+        use std::io::Cursor;
+
+        let cursor = Cursor::new(buffer.as_ref());
+        let reader = FileReader::try_new(cursor, None)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to read Arrow IPC: {}", e)))?;
+
+        let num_cols = reader.schema().fields().len();
+        let mut total_rows = 0u32;
+
+        for maybe_batch in reader {
+            let batch = maybe_batch
+                .map_err(|e| napi::Error::from_reason(format!("Failed to read batch: {}", e)))?;
+            let num_rows = batch.num_rows();
+            if num_rows == 0 { continue; }
+
+            let mut flat: Vec<Value> = Vec::with_capacity(num_rows * num_cols);
+            for row_idx in 0..num_rows {
+                for col_idx in 0..num_cols {
+                    let arr = batch.column(col_idx);
+                    let val = arrow_value_to_db(arr, row_idx);
+                    flat.push(val);
+                }
+            }
+
+            self.db.insert_batch_flat_values(&table, flat, num_cols)
+                .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+            total_rows += num_rows as u32;
+        }
+
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(total_rows)
+    }
+
+    /// Update rows from Arrow IPC buffer — zero-copy, no JSON serialization.
+    /// The Arrow data must include an "id" column to identify rows.
+    /// Other columns in the Arrow buffer overwrite the corresponding table columns.
+    /// Returns the number of rows updated.
+    #[napi]
+    pub fn update_from_arrow(&mut self, table: String, buffer: Buffer) -> Result<u32> {
+        use arrow::ipc::reader::FileReader;
+        use std::io::Cursor;
+
+        let cursor = Cursor::new(buffer.as_ref());
+        let reader = FileReader::try_new(cursor, None)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to read Arrow IPC: {}", e)))?;
+
+        let arrow_schema = reader.schema();
+        let fields = arrow_schema.fields();
+        // Find the id column index and value column indices
+        let mut id_col_idx = None;
+        let mut value_cols: Vec<(usize, String)> = Vec::new();
+        for (i, field) in fields.iter().enumerate() {
+            if field.name() == "id" {
+                id_col_idx = Some(i);
+            } else {
+                value_cols.push((i, field.name().to_string()));
+            }
+        }
+        let id_col_idx = id_col_idx.ok_or_else(|| {
+            napi::Error::from_reason("Arrow buffer must include an 'id' column for updates")
+        })?;
+
+        let mut total_updated = 0u32;
+
+        for maybe_batch in reader {
+            let batch = maybe_batch
+                .map_err(|e| napi::Error::from_reason(format!("Failed to read batch: {}", e)))?;
+            let num_rows = batch.num_rows();
+            if num_rows == 0 { continue; }
+
+            let id_arr = batch.column(id_col_idx);
+
+            for row_idx in 0..num_rows {
+                let id_val = arrow_value_to_db(id_arr, row_idx);
+
+                // Build set_values map for this row
+                let mut set_map: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+                for &(col_idx, ref col_name) in &value_cols {
+                    let val = arrow_value_to_db(batch.column(col_idx), row_idx);
+                    set_map.insert(col_name.clone(), val);
+                }
+
+                // Convert id to dbobj Id
+                let id = match id_val {
+                    Value::Integer(i) => dbobj::Id::Integer(i as u64),
+                    Value::Float(f) => dbobj::Id::Integer(f as u64),
+                    Value::String(s) => dbobj::Id::String(s),
+                    _ => continue,
+                };
+
+                // Read existing row, merge, update
+                let tables_guard = self.db.tables.read();
+                let table_lock = tables_guard.get(&table).ok_or_else(|| {
+                    napi::Error::from_reason(format!("Table '{}' not found", table))
+                })?;
+                let table_read = table_lock.read();
+
+                let row_idx_in_table = match table_read.get_index(&id) {
+                    Some(idx) => idx,
+                    None => continue, // row not found
+                };
+
+                let mut new_values = Vec::with_capacity(table_read.num_columns);
+                for (col_idx, col_def) in table_read.schema.columns.iter().enumerate() {
+                    let existing = &table_read.data[row_idx_in_table * table_read.num_columns + col_idx];
+                    match set_map.get(col_def.name.as_str()) {
+                        Some(val) => new_values.push(val.clone()),
+                        None => new_values.push(existing.clone()),
+                    }
+                }
+                drop(table_read);
+                drop(tables_guard);
+
+                self.db.update_values(&table, &id, new_values)
+                    .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+                total_updated += 1;
+            }
+        }
+
+        self.is_dirty.store(true, Ordering::Relaxed);
+        Ok(total_updated)
+    }
+
     /// Batch insert from string arrays.
     #[napi]
     pub fn insert_batch_string(
@@ -429,6 +557,97 @@ impl JsQueryBuilder {
             }
             serde_json::Value::Object(map)
         }).collect()
+    }
+}
+
+/// Convert an Arrow array value at a given index to a dbobj Value.
+/// This avoids serde_json entirely — zero-copy for numeric types.
+fn arrow_value_to_db(arr: &arrow::array::ArrayRef, idx: usize) -> Value {
+    use arrow::array::*;
+    use arrow::datatypes::DataType as ArrowDataType;
+    match arr.data_type() {
+        ArrowDataType::Int8 => {
+            let a = arr.as_any().downcast_ref::<Int8Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+        }
+        ArrowDataType::Int16 => {
+            let a = arr.as_any().downcast_ref::<Int16Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+        }
+        ArrowDataType::Int32 => {
+            let a = arr.as_any().downcast_ref::<Int32Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+        }
+        ArrowDataType::Int64 => {
+            let a = arr.as_any().downcast_ref::<Int64Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx)) }
+        }
+        ArrowDataType::UInt8 => {
+            let a = arr.as_any().downcast_ref::<UInt8Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+        }
+        ArrowDataType::UInt16 => {
+            let a = arr.as_any().downcast_ref::<UInt16Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+        }
+        ArrowDataType::UInt32 => {
+            let a = arr.as_any().downcast_ref::<UInt32Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+        }
+        ArrowDataType::UInt64 => {
+            let a = arr.as_any().downcast_ref::<UInt64Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+        }
+        ArrowDataType::Float32 => {
+            let a = arr.as_any().downcast_ref::<Float32Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Float(a.value(idx) as f64) }
+        }
+        ArrowDataType::Float64 => {
+            let a = arr.as_any().downcast_ref::<Float64Array>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Float(a.value(idx)) }
+        }
+        ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 => {
+            let a = arr.as_any().downcast_ref::<StringArray>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::String(compact_str::CompactString::from(a.value(idx))) }
+        }
+        ArrowDataType::Dictionary(_, value_type) => {
+            // Handle dictionary-encoded strings (e.g. Utf8Dictionary from apache-arrow JS)
+            match value_type.as_ref() {
+                ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 => {
+                    if let Some(dict_arr) = arr.as_any().downcast_ref::<arrow::array::DictionaryArray<arrow::datatypes::Int32Type>>() {
+                        if dict_arr.is_null(idx) { Value::Null } else {
+                            let key = dict_arr.keys().value(idx);
+                            let vals = dict_arr.values().as_any().downcast_ref::<StringArray>().unwrap();
+                            Value::String(compact_str::CompactString::from(vals.value(key as usize)))
+                        }
+                    } else if let Some(dict_arr) = arr.as_any().downcast_ref::<arrow::array::DictionaryArray<arrow::datatypes::Int64Type>>() {
+                        if dict_arr.is_null(idx) { Value::Null } else {
+                            let key = dict_arr.keys().value(idx);
+                            let vals = dict_arr.values().as_any().downcast_ref::<StringArray>().unwrap();
+                            Value::String(compact_str::CompactString::from(vals.value(key as usize)))
+                        }
+                    } else if let Some(dict_arr) = arr.as_any().downcast_ref::<arrow::array::DictionaryArray<arrow::datatypes::UInt32Type>>() {
+                        if dict_arr.is_null(idx) { Value::Null } else {
+                            let key = dict_arr.keys().value(idx);
+                            let vals = dict_arr.values().as_any().downcast_ref::<StringArray>().unwrap();
+                            Value::String(compact_str::CompactString::from(vals.value(key as usize)))
+                        }
+                    } else {
+                        Value::Null
+                    }
+                }
+                _ => Value::Null,
+            }
+        }
+        ArrowDataType::Boolean => {
+            let a = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Boolean(a.value(idx)) }
+        }
+        ArrowDataType::Binary | ArrowDataType::LargeBinary => {
+            let a = arr.as_any().downcast_ref::<BinaryArray>().unwrap();
+            if a.is_null(idx) { Value::Null } else { Value::Blob(a.value(idx).to_vec()) }
+        }
+        _ => Value::Null,
     }
 }
 

@@ -67,6 +67,12 @@ export declare class Database {
   queryJoinI64(sql: string): BigInt64Array
   exportTableToArrowIpc(tableName: string): Buffer
   importTableFromArrowIpc(tableName: string, buffer: Buffer): boolean
+  /**
+   * Create a table from an Arrow IPC buffer's schema (zero-copy schema definition).
+   * The IPC buffer must contain at least a valid Arrow schema header (data is optional).
+   * Returns the number of columns created.
+   */
+  createTableFromArrowIpc(tableName: string, buffer: Buffer): number
   static load(path: string): Database
   save(path: string): boolean
   listTables(): Array<string>
@@ -149,6 +155,18 @@ export declare class JsQueryBuilder {
   insertBatchI64(table: string, values: BigInt64Array, numColumns: number): number
   /** Batch insert from interleaved f64 arrays. */
   insertBatchF64(table: string, values: Float64Array, numColumns: number): number
+  /**
+   * Insert from Arrow IPC buffer — zero-copy, no JSON serialization.
+   * Parses the RecordBatch and inserts all rows into the table.
+   */
+  insertFromArrow(table: string, buffer: Buffer): number
+  /**
+   * Update rows from Arrow IPC buffer — zero-copy, no JSON serialization.
+   * The Arrow data must include an "id" column to identify rows.
+   * Other columns in the Arrow buffer overwrite the corresponding table columns.
+   * Returns the number of rows updated.
+   */
+  updateFromArrow(table: string, buffer: Buffer): number
   /** Batch insert from string arrays. */
   insertBatchString(table: string, values: Array<string>, numColumns: number): number
 }

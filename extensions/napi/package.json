@@ -40,5 +40,8 @@
     "build:all": "bun build.ts",
     "test": "bun test dbobj.test.ts",
     "prepublishOnly": "bun run build:all"
+  },
+  "dependencies": {
+    "apache-arrow": "^21.1.0"
   }
 }
