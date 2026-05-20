@@ -191,22 +191,28 @@ impl MigrationRunner {
 
     /// Run all pending migrations. Returns status for each step.
     pub fn run_pending(&self) -> Result<Vec<MigrationStatus>, MigrationError> {
-        let applied = self.applied.read().unwrap();
-        let mut statuses = Vec::new();
-        let mut new_applied = applied.clone();
+        let new_applied = {
+            let applied = self.applied.read().unwrap();
+            let mut statuses = Vec::new();
+            let mut new_applied = applied.clone();
 
-        for migration in &self.migrations {
-            if new_applied.contains(&migration.name) {
-                continue;
+            for migration in &self.migrations {
+                if new_applied.contains(&migration.name) {
+                    continue;
+                }
+
+                let status = self.apply_migration(migration)?;
+                new_applied.push(migration.name.clone());
+                statuses.push(status);
             }
 
-            let status = self.apply_migration(migration)?;
-            new_applied.push(migration.name.clone());
-            statuses.push(status);
-        }
+            // Drop read lock before acquiring write
+            drop(applied);
+            (statuses, new_applied)
+        };
 
-        *self.applied.write().unwrap() = new_applied;
-        Ok(statuses)
+        *self.applied.write().unwrap() = new_applied.1;
+        Ok(new_applied.0)
     }
 
     /// Run a specific migration by name (if not already applied).
