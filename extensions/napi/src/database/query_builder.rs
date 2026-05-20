@@ -167,7 +167,7 @@ impl JsQueryBuilder {
     /// Avoids per-row JSON object overhead. Uses a direct table read for simple
     /// SELECT * (no filters, no joins, no order) — bypasses Row cloning entirely.
     #[napi]
-    pub fn execute_columnar(&self, env: Env) -> Result<Object> {
+    pub fn execute_columnar<'a>(&self, env: Env) -> Result<Object<'a>> {
         self.is_dirty.store(true, Ordering::Relaxed);
 
         let table_name = self.inner.table_name();
