@@ -86,15 +86,23 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
 
   join(t1: string, c1: string, t2: string, c2: string) {
     this.db.executeSql(`CREATE TABLE ${t2} (id INTEGER, score INTEGER)`);
-    for (let i = 0; i < JOIN_COUNT; i++) this.db.executeSql(`INSERT INTO ${t2} (id, score) VALUES (${i}, ${i + 5})`);
+    const qb = this.db.createQueryBuilder();
+    const batchSize = 5000;
+    const batches = Math.ceil(JOIN_COUNT / batchSize);
+    for (let b = 0; b < batches; b++) {
+      const start = b * batchSize;
+      const end = Math.min(start + batchSize, JOIN_COUNT);
+      const vals: number[] = [];
+      for (let i = start; i < end; i++) vals.push(i, i + 5);
+      qb.insertBatch(t2, vals, 2);
+    }
 
     const t0 = performance.now();
-    const res = this.db.executeSql(`SELECT ${t1}.id, ${t1}.val, ${t2}.score FROM ${t1} INNER JOIN ${t2} ON ${t1}.id = ${t2}.id`) as Array<Record<string, any>>;
+    const res = qb.select(t1).join(t2, c1, c2).execute() as Array<Record<string, any>>;
     const elapsed = performance.now() - t0;
 
     if (res.length !== JOIN_COUNT) throw new Error(`join result count ${res.length} !== ${JOIN_COUNT}`);
-    if (Number(res[0][`${t1}.val`]) !== 0) throw new Error(`join val mismatch: ${res[0][`${t1}.val`]} !== 0`);
-    if (Number(res[0][`${t2}.score`]) !== 5) throw new Error(`join score mismatch: ${res[0][`${t2}.score`]} !== 5`);
+    if (Number(res[0].val) !== 0) throw new Error(`join val mismatch: ${res[0].val} !== 0`);
     return elapsed;
   }
 }

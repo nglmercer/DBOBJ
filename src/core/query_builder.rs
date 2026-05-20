@@ -256,11 +256,9 @@ impl QueryBuilder {
         let table = table_lock.read();
 
         let mut results: Vec<Row> = Vec::with_capacity(joined.len());
-        for (r1, r2) in joined {
+        for (r1, _r2) in joined {
             if let Some(ref expr) = self.condition {
-                let check1 = expr.is_true(&r1, &table.column_map, &table);
-                let check2 = expr.is_true(&r2, &table.column_map, &table);
-                if !check1 || !check2 {
+                if !expr.is_true(&r1, &table.column_map, &table) {
                     continue;
                 }
             }

@@ -136,3 +136,25 @@ test("QueryBuilder delete", () => {
   const all = db.createQueryBuilder().select("users").execute() as Array<any>;
   expect(all.length).toBe(1);
 });
+
+test("QueryBuilder join", () => {
+  const db = new Database("QB_Test_Join");
+  db.executeSql("CREATE TABLE users (id INTEGER, name STRING)");
+  db.executeSql("CREATE TABLE scores (id INTEGER, score INTEGER)");
+  db.executeSql("INSERT INTO users (id, name) VALUES (0, 'Alice'), (1, 'Bob'), (2, 'Charlie')");
+  db.executeSql("INSERT INTO scores (id, score) VALUES (0, 95), (1, 87), (2, 92)");
+
+  const qb = db.createQueryBuilder();
+  const rows = qb.select("users").join("scores", "id", "id").execute() as Array<any>;
+  expect(rows.length).toBe(3);
+  expect(rows[0].name).toBe("Alice");
+
+  // Verify join with WHERE condition
+  const filtered = db.createQueryBuilder()
+    .select("users")
+    .join("scores", "id", "id")
+    .whereEq("name", "Bob")
+    .execute() as Array<any>;
+  expect(filtered.length).toBe(1);
+  expect(filtered[0].name).toBe("Bob");
+});

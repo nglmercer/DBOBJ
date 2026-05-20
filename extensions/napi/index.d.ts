@@ -123,6 +123,8 @@ export declare class JsQueryBuilder {
   orderBy(column: string, descending: boolean): this
   limit(limit: number): this
   offset(offset: number): this
+  /** INNER JOIN: ON this_column = other_table.other_column */
+  join(otherTable: string, thisColumn: string, otherColumn: string): this
   execute(): any
   first(): any | null
   /**

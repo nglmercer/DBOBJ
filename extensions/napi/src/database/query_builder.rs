@@ -121,6 +121,13 @@ impl JsQueryBuilder {
         self
     }
 
+    /// INNER JOIN: ON this_column = other_table.other_column
+    #[napi]
+    pub fn join(&mut self, other_table: String, this_column: String, other_column: String) -> &Self {
+        self.inner = std::mem::take(&mut self.inner).join(other_table, this_column, other_column);
+        self
+    }
+
     #[napi]
     pub fn execute(&self) -> Result<serde_json::Value> {
         let rows = self.inner.run(&self.db)
