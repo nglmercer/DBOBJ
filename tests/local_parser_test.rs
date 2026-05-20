@@ -149,9 +149,7 @@ fn test_parse_alter_table() {
     let stmt = parse_one("ALTER TABLE users ADD COLUMN age INTEGER");
     if let Statement::AlterTable { name, operation } = &stmt {
         assert_eq!(name.as_str(), "users");
-        let dbobj_sql::local_parser::AlterOperation::AddColumn(col_def) = operation else {
-            panic!("Expected AddColumn");
-        };
+        let dbobj_sql::local_parser::AlterOperation::AddColumn(col_def) = operation;
         assert_eq!(col_def.name.as_str(), "age");
         assert_eq!(col_def.data_type, DataType::Integer);
     } else {
@@ -163,9 +161,7 @@ fn test_parse_alter_table() {
 fn test_parse_alter_table_without_column_keyword() {
     let stmt = parse_one("ALTER TABLE users ADD age INTEGER");
     if let Statement::AlterTable { operation, .. } = &stmt {
-        let dbobj_sql::local_parser::AlterOperation::AddColumn(col_def) = operation else {
-            panic!("Expected AddColumn");
-        };
+        let dbobj_sql::local_parser::AlterOperation::AddColumn(col_def) = operation;
         assert_eq!(col_def.name.as_str(), "age");
         assert_eq!(col_def.data_type, DataType::Integer);
     } else {

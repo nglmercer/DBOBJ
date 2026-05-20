@@ -90,10 +90,10 @@ fn main() {
     let mut lookup_val = search_val.clone();
     {
         let table = table_lock.read();
-        if let Value::String(s) = &search_val
-            && let Some(id) = table.string_pool.get_id(s.as_str())
-        {
-            lookup_val = Value::InternedString(id);
+        if let Value::String(s) = &search_val {
+            if let Some(id) = table.string_pool.get_id(s.as_str()) {
+                lookup_val = Value::InternedString(id);
+            }
         }
     }
 

@@ -2,8 +2,6 @@ use dbobj::storage::{wal::Wal, Storage};
 use dbobj::{Database, Expr, Id, Operator, RowData, Schema, Value};
 use std::sync::Arc;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("--- DBOBJ Proof of Concept (Optimized) ---");
@@ -69,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for entry in &db.version_log.read().entries {
         println!(
             "[{}] Table: {}, ID: {}, Action: {:?}",
-            entry.timestamp(),
+            entry.timestamp_ms_value(),
             entry.table_name,
             entry.row_id,
             entry.change_type
