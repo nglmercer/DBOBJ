@@ -58,12 +58,15 @@ pub enum MigrationAction {
     },
 }
 
+/// Type alias for a custom migration function.
+type MigrationFnInner = Arc<dyn Fn(&Database) -> Result<(), MigrationError> + Send + Sync>;
+
 /// Wrapper for a custom migration function with manual Debug impl.
 #[derive(Clone)]
-pub struct MigrationFn(Arc<dyn Fn(&Database) -> Result<(), MigrationError> + Send + Sync>);
+pub struct MigrationFn(MigrationFnInner);
 
 impl MigrationFn {
-    pub fn new(f: Arc<dyn Fn(&Database) -> Result<(), MigrationError> + Send + Sync>) -> Self {
+    pub fn new(f: MigrationFnInner) -> Self {
         Self(f)
     }
 
@@ -115,7 +118,7 @@ pub struct MigrationRunner {
 
 impl MigrationRunner {
     /// The name of the internal tracking table.
-    const TRACKING_TABLE: &'static str = "_dbobj_migrations";
+    pub const TRACKING_TABLE: &'static str = "_dbobj_migrations";
 
     /// Create a new runner. If the tracking table doesn't exist, it is created.
     pub fn new(db: Arc<Database>) -> Self {
@@ -283,7 +286,7 @@ impl MigrationRunner {
             .unwrap_or_default()
             .as_millis() as i64;
 
-        let checksum = Some(format!("{}_steps", migration.actions.len()));
+        let checksum = format!("{}_steps", migration.actions.len());
 
         let _ = self.db.insert_values(
             Self::TRACKING_TABLE,
@@ -291,7 +294,7 @@ impl MigrationRunner {
                 Value::String(migration.id.clone().into()),
                 Value::String(migration.name.clone().into()),
                 Value::Integer(now),
-                Value::String(checksum.unwrap_or_default().into()),
+                Value::String(checksum.into()),
             ],
         );
 
@@ -487,7 +490,8 @@ impl MigrationRunner {
             .cloned()
             .unwrap_or(Value::Null);
         let num_rows = guard.ids.len();
-        guard.data.resize(guard.data.len() + num_rows, fill);
+        let current_len = guard.data.len();
+        guard.data.resize(current_len + num_rows, fill);
 
         Ok(format!("Added column '{}' to '{}'", column.name, table))
     }

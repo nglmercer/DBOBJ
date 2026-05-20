@@ -1,6 +1,9 @@
 use crate::protocol::{BackupFormat, BackupInfo, RestoreMode};
 use chrono::Utc;
-use dbobj::{Database, DatabaseSnapshot};
+use dbobj::{
+    core::database::DatabaseSnapshot,
+    Database,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -268,7 +271,7 @@ impl BackupManager {
         }
 
         // Most recent first
-        backups.sort_by(|a, b| b.timestamp_ms.cmp(&a.timestamp_ms));
+        backups.sort_by_key(|b| std::cmp::Reverse(b.timestamp_ms));
         Ok(backups)
     }
 
@@ -282,7 +285,7 @@ impl BackupManager {
         fs::remove_file(&path)?;
 
         // Remove metadata sidecar if present
-        let ext = path.extension().unwrap_or_default();
+        let ext = path.extension().unwrap_or_default().to_string_lossy().to_string();
         let meta_path = path.with_extension(format!("{}.meta", ext));
         if meta_path.exists() {
             let _ = fs::remove_file(&meta_path);

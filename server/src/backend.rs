@@ -1,11 +1,11 @@
-use crate::backup::{BackupError, BackupManager};
+use crate::backup::BackupManager;
 use crate::migration::{Migration, MigrationAction, MigrationRunner};
 use crate::protocol::{
-    BackupFormat, ColumnDef, ComparisonOp, ExprData, MigrationSummary, Request, Response,
-    RestoreMode, SchemaChange, SerializedRow,
+    ColumnDef, ComparisonOp, ExprData, MigrationSummary, Request, Response,
+    SchemaChange, SerializedRow,
 };
 use async_trait::async_trait;
-use dbobj::{Database, Value};
+use dbobj::Database;
 use std::sync::Arc;
 
 /// Abstract database backend
@@ -381,7 +381,7 @@ impl Backend for DbobjBackend {
                 actions,
             } => {
                 match &self.migration_runner {
-                    Some(runner) => {
+                    Some(_runner) => {
                         // Create a Migration from the SchemaChange actions
                         let mut migration = Migration::new(&name, &description);
                         // Workaround for immutable borrow - can't use register because
