@@ -1,4 +1,4 @@
-const { Database } = require("../../index.node") as typeof import("../../index.d.ts");
+const { Database, DataType } = require("../../index.node") as typeof import("../../index.d.ts");
 import { TestSuite } from "../interface";
 import { JOIN_COUNT } from "../constants";
 
@@ -7,9 +7,16 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
   db = new Database("qb");
 
   insert(count: number) {
-    this.db.executeSql("CREATE TABLE users (id INTEGER, val INTEGER)");
-    this.db.executeSql("CREATE TABLE names (name STRING)");
-    this.db.executeSql("CREATE TABLE actives (active BOOLEAN)");
+    this.db.createTable("users", [
+      { name: "id", dataType: DataType.Integer },
+      { name: "val", dataType: DataType.Integer },
+    ]);
+    this.db.createTable("names", [
+      { name: "name", dataType: DataType.String },
+    ]);
+    this.db.createTable("actives", [
+      { name: "active", dataType: DataType.Boolean },
+    ]);
 
     const batchSize = 20000;
     const batches = Math.ceil(count / batchSize);
@@ -19,9 +26,7 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
     for (let b = 0; b < batches; b++) {
       const start = b * batchSize;
       const end = Math.min(start + batchSize, count);
-      const chunkSize = end - start;
 
-      // Build flat row-major arrays for each table
       const intVals: number[] = [];
       const strVals: string[] = [];
       const boolVals: boolean[] = [];
@@ -37,9 +42,8 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
     }
     const elapsed = performance.now() - t0;
 
-    const users = this.db.executeSql("SELECT COUNT(*) FROM users") as Array<Record<string, any>>;
-    const userCount = Number(users[0]["COUNT(*)"]);
-    if (userCount !== count) throw new Error(`users count ${userCount} !== ${count}`);
+    const rows = qb.select("users").execute() as Array<any>;
+    if (rows.length !== count) throw new Error(`users count ${rows.length} !== ${count}`);
 
     return elapsed;
   }
@@ -79,13 +83,17 @@ export class DBOBJQueryBuilderSuite implements TestSuite {
     }
     const elapsed = performance.now() - t0;
 
-    const res = this.db.executeSql("SELECT val FROM users WHERE id = 50") as Array<Record<string, any>>;
-    if (Number(res[0].val) !== 1000) throw new Error(`update val mismatch: ${res[0].val} !== 1000`);
+    const row = qb.select(tableName).whereEq("id", 50).first() as any;
+    if (!row) throw new Error("update row not found");
+    if (Number(row.val) !== 1000) throw new Error(`update val mismatch: ${row.val} !== 1000`);
     return elapsed;
   }
 
   join(t1: string, c1: string, t2: string, c2: string) {
-    this.db.executeSql(`CREATE TABLE ${t2} (id INTEGER, score INTEGER)`);
+    this.db.createTable(t2, [
+      { name: "id", dataType: DataType.Integer },
+      { name: "score", dataType: DataType.Integer },
+    ]);
     const qb = this.db.createQueryBuilder();
     const batchSize = 5000;
     const batches = Math.ceil(JOIN_COUNT / batchSize);
