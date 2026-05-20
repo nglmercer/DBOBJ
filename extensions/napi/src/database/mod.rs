@@ -7,8 +7,8 @@ pub(crate) mod schema;
 pub(crate) mod update;
 
 use crate::types::{ColumnDefinition, TableMetadata};
-use dbobj::Database as CoreDatabase;
 use dbobj::DataType;
+use dbobj::Database as CoreDatabase;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use std::os::raw::c_char;
@@ -28,7 +28,9 @@ fn arrow_to_db_type_napi(dt: &arrow::datatypes::DataType) -> Option<DataType> {
         arrow::datatypes::DataType::Float16
         | arrow::datatypes::DataType::Float32
         | arrow::datatypes::DataType::Float64 => Some(DataType::Float),
-        arrow::datatypes::DataType::Utf8 | arrow::datatypes::DataType::LargeUtf8 => Some(DataType::String),
+        arrow::datatypes::DataType::Utf8 | arrow::datatypes::DataType::LargeUtf8 => {
+            Some(DataType::String)
+        }
         arrow::datatypes::DataType::Boolean => Some(DataType::Boolean),
         arrow::datatypes::DataType::Binary
         | arrow::datatypes::DataType::LargeBinary
@@ -472,7 +474,10 @@ impl PreparedStatement {
     }
 
     #[napi]
-    pub fn get(&self, params: Option<Vec<Option<serde_json::Value>>>) -> Result<Option<serde_json::Value>> {
+    pub fn get(
+        &self,
+        params: Option<Vec<Option<serde_json::Value>>>,
+    ) -> Result<Option<serde_json::Value>> {
         let rows = self.all(params)?;
         if let serde_json::Value::Array(mut arr) = rows {
             if !arr.is_empty() {
@@ -537,9 +542,9 @@ impl Database {
         dynamic_schema: &crate::DynamicSchema,
         schema_name: String,
     ) -> Result<bool> {
-        let schema = dynamic_schema
-            .get_schema(&schema_name)
-            .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
+        let schema = dynamic_schema.get_schema(&schema_name).ok_or_else(|| {
+            napi::Error::from_reason(format!("Schema '{}' not found", schema_name))
+        })?;
 
         let mut has_id = false;
         let schema_columns: Vec<dbobj::ColumnDefinition> = schema
@@ -656,9 +661,9 @@ impl Database {
         dynamic_schema: &crate::DynamicSchema,
         schema_name: String,
     ) -> Result<bool> {
-        let schema = dynamic_schema
-            .get_schema(&schema_name)
-            .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
+        let schema = dynamic_schema.get_schema(&schema_name).ok_or_else(|| {
+            napi::Error::from_reason(format!("Schema '{}' not found", schema_name))
+        })?;
         let keys: Vec<napi::JsString> = schema
             .fields
             .iter()
@@ -730,9 +735,9 @@ impl Database {
         dynamic_schema: &crate::DynamicSchema,
         schema_name: String,
     ) -> Result<bool> {
-        let schema = dynamic_schema
-            .get_schema(&schema_name)
-            .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
+        let schema = dynamic_schema.get_schema(&schema_name).ok_or_else(|| {
+            napi::Error::from_reason(format!("Schema '{}' not found", schema_name))
+        })?;
 
         let num_fields = schema.fields.len();
         let len = objects.len();
@@ -909,7 +914,9 @@ impl Database {
                 sources.push(ColSource::Generic(arr));
                 l
             } else {
-                return Err(napi::Error::from_reason("Column must be an array or TypedArray"));
+                return Err(napi::Error::from_reason(
+                    "Column must be an array or TypedArray",
+                ));
             };
 
             if row_count == 0 {
@@ -990,9 +997,9 @@ impl Database {
         dynamic_schema: &crate::DynamicSchema,
         schema_name: String,
     ) -> Result<bool> {
-        let schema = dynamic_schema
-            .get_schema(&schema_name)
-            .ok_or_else(|| napi::Error::from_reason(format!("Schema '{}' not found", schema_name)))?;
+        let schema = dynamic_schema.get_schema(&schema_name).ok_or_else(|| {
+            napi::Error::from_reason(format!("Schema '{}' not found", schema_name))
+        })?;
 
         let num_fields = schema.fields.len();
         let mut row_values = Vec::with_capacity(num_fields);
@@ -1021,7 +1028,9 @@ impl Database {
                 napi::sys::napi_get_property(env.raw(), obj.raw(), keys[j], &mut val_ptr)
             };
             if status != napi::sys::Status::napi_ok {
-                return Err(napi::Error::from_reason("Failed to get property from object"));
+                return Err(napi::Error::from_reason(
+                    "Failed to get property from object",
+                ));
             }
 
             let val = unsafe { Unknown::from_raw_unchecked(env.raw(), val_ptr) };
@@ -1291,7 +1300,6 @@ impl Database {
         query::get_row_by_column_bool(self, table_name, column_name, value)
     }
 
-
     #[napi]
     pub async fn get_rows_async(
         &self,
@@ -1409,7 +1417,8 @@ impl Database {
                         // but we can try to use a dummy table or implement a simpler version
                         let json_val = match v {
                             dbobj::Value::String(s) if s.starts_with('{') || s.starts_with('[') => {
-                                serde_json::from_str(s.as_str()).unwrap_or(serde_json::Value::String(s.to_string()))
+                                serde_json::from_str(s.as_str())
+                                    .unwrap_or(serde_json::Value::String(s.to_string()))
                             }
                             dbobj::Value::Null => serde_json::Value::Null,
                             dbobj::Value::Integer(i) => serde_json::Value::Number(i.into()),
@@ -1446,16 +1455,28 @@ impl Database {
     }
 
     #[napi]
-    pub fn query(&self, sql: String, params: Option<Vec<Option<serde_json::Value>>>) -> Result<PreparedStatement> {
+    pub fn query(
+        &self,
+        sql: String,
+        params: Option<Vec<Option<serde_json::Value>>>,
+    ) -> Result<PreparedStatement> {
         self.prepare_internal(sql, params)
     }
 
     #[napi]
-    pub fn prepare(&self, sql: String, params: Option<Vec<Option<serde_json::Value>>>) -> Result<PreparedStatement> {
+    pub fn prepare(
+        &self,
+        sql: String,
+        params: Option<Vec<Option<serde_json::Value>>>,
+    ) -> Result<PreparedStatement> {
         self.prepare_internal(sql, params)
     }
 
-    fn prepare_internal(&self, sql: String, params: Option<Vec<Option<serde_json::Value>>>) -> Result<PreparedStatement> {
+    fn prepare_internal(
+        &self,
+        sql: String,
+        params: Option<Vec<Option<serde_json::Value>>>,
+    ) -> Result<PreparedStatement> {
         let executor = dbobj_sql::SqlExecutor::new(&self.inner);
         let stmt = executor.prepare(&sql).map_err(napi::Error::from_reason)?;
         let bound_params = params.map(|p| p.into_iter().map(json_to_db_value).collect());
@@ -1514,17 +1535,21 @@ impl Database {
     /// Each object's properties are mapped to columns by name, with correct Arrow types.
     /// The returned buffer can be passed directly to insertFromArrow / updateFromArrow.
     #[napi]
-    pub fn objects_to_arrow_ipc(&self, table_name: String, objects: Vec<serde_json::Value>) -> Result<Buffer> {
-        use std::sync::Arc as StdArc;
+    pub fn objects_to_arrow_ipc(
+        &self,
+        table_name: String,
+        objects: Vec<serde_json::Value>,
+    ) -> Result<Buffer> {
         use arrow::array::*;
         use arrow::datatypes::{Field, Schema as ArrowSchema};
         use arrow::ipc::writer::FileWriter;
         use arrow::record_batch::RecordBatch;
+        use std::sync::Arc as StdArc;
 
         let tables = self.inner.tables.read();
-        let table_lock = tables.get(&table_name).ok_or_else(|| {
-            napi::Error::from_reason(format!("Table '{}' not found", table_name))
-        })?;
+        let table_lock = tables
+            .get(&table_name)
+            .ok_or_else(|| napi::Error::from_reason(format!("Table '{}' not found", table_name)))?;
         let table = table_lock.read();
 
         let num_rows = objects.len();
@@ -1538,7 +1563,11 @@ impl Database {
 
         for col_def in &table.schema.columns {
             let arrow_type = crate::database::query_builder::db_to_arrow_type(&col_def.data_type);
-            arrow_fields.push(Field::new(col_def.name.as_str(), arrow_type, col_def.nullable));
+            arrow_fields.push(Field::new(
+                col_def.name.as_str(),
+                arrow_type,
+                col_def.nullable,
+            ));
 
             match col_def.data_type {
                 dbobj::DataType::Integer => {
@@ -1547,13 +1576,18 @@ impl Database {
                         if let serde_json::Value::Object(map) = obj {
                             match map.get(col_def.name.as_str()) {
                                 Some(serde_json::Value::Number(n)) => {
-                                    if let Some(i) = n.as_i64() { builder.append_value(i); }
-                                    else { builder.append_null(); }
+                                    if let Some(i) = n.as_i64() {
+                                        builder.append_value(i);
+                                    } else {
+                                        builder.append_null();
+                                    }
                                 }
                                 Some(serde_json::Value::Null) | None => builder.append_null(),
                                 _ => builder.append_null(),
                             }
-                        } else { builder.append_null(); }
+                        } else {
+                            builder.append_null();
+                        }
                     }
                     arrow_columns.push(Arc::new(builder.finish()));
                 }
@@ -1563,13 +1597,18 @@ impl Database {
                         if let serde_json::Value::Object(map) = obj {
                             match map.get(col_def.name.as_str()) {
                                 Some(serde_json::Value::Number(n)) => {
-                                    if let Some(f) = n.as_f64() { builder.append_value(f); }
-                                    else { builder.append_null(); }
+                                    if let Some(f) = n.as_f64() {
+                                        builder.append_value(f);
+                                    } else {
+                                        builder.append_null();
+                                    }
                                 }
                                 Some(serde_json::Value::Null) | None => builder.append_null(),
                                 _ => builder.append_null(),
                             }
-                        } else { builder.append_null(); }
+                        } else {
+                            builder.append_null();
+                        }
                     }
                     arrow_columns.push(Arc::new(builder.finish()));
                 }
@@ -1579,11 +1618,15 @@ impl Database {
                     for obj in &objects {
                         if let serde_json::Value::Object(map) = obj {
                             match map.get(col_def.name.as_str()) {
-                                Some(serde_json::Value::String(s)) => builder.append_value(s.as_str()),
+                                Some(serde_json::Value::String(s)) => {
+                                    builder.append_value(s.as_str())
+                                }
                                 Some(serde_json::Value::Null) | None => builder.append_null(),
                                 _ => builder.append_null(),
                             }
-                        } else { builder.append_null(); }
+                        } else {
+                            builder.append_null();
+                        }
                     }
                     arrow_columns.push(Arc::new(builder.finish()));
                 }
@@ -1596,7 +1639,9 @@ impl Database {
                                 Some(serde_json::Value::Null) | None => builder.append_null(),
                                 _ => builder.append_null(),
                             }
-                        } else { builder.append_null(); }
+                        } else {
+                            builder.append_null();
+                        }
                     }
                     arrow_columns.push(Arc::new(builder.finish()));
                 }
@@ -1607,13 +1652,18 @@ impl Database {
                         if let serde_json::Value::Object(map) = obj {
                             match map.get(col_def.name.as_str()) {
                                 Some(serde_json::Value::Array(arr)) => {
-                                    let bytes: Vec<u8> = arr.iter().filter_map(|v| v.as_u64().map(|u| u as u8)).collect();
+                                    let bytes: Vec<u8> = arr
+                                        .iter()
+                                        .filter_map(|v| v.as_u64().map(|u| u as u8))
+                                        .collect();
                                     builder.append_value(&bytes);
                                 }
                                 Some(serde_json::Value::Null) | None => builder.append_null(),
                                 _ => builder.append_null(),
                             }
-                        } else { builder.append_null(); }
+                        } else {
+                            builder.append_null();
+                        }
                     }
                     arrow_columns.push(Arc::new(builder.finish()));
                 }
@@ -1628,9 +1678,11 @@ impl Database {
         {
             let mut writer = FileWriter::try_new(&mut buffer, &schema)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            writer.write(&batch)
+            writer
+                .write(&batch)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            writer.finish()
+            writer
+                .finish()
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         }
 
@@ -1638,11 +1690,7 @@ impl Database {
     }
 
     #[napi]
-    pub fn import_table_from_arrow_ipc(
-        &self,
-        table_name: String,
-        buffer: Buffer,
-    ) -> Result<bool> {
+    pub fn import_table_from_arrow_ipc(&self, table_name: String, buffer: Buffer) -> Result<bool> {
         self.inner
             .import_table_from_arrow_ipc(&table_name, buffer.as_ref())
             .map_err(|e| napi::Error::from_reason(e))?;
@@ -1654,11 +1702,7 @@ impl Database {
     /// The IPC buffer must contain at least a valid Arrow schema header (data is optional).
     /// Returns the number of columns created.
     #[napi]
-    pub fn create_table_from_arrow_ipc(
-        &self,
-        table_name: String,
-        buffer: Buffer,
-    ) -> Result<u32> {
+    pub fn create_table_from_arrow_ipc(&self, table_name: String, buffer: Buffer) -> Result<u32> {
         use arrow::ipc::reader::FileReader;
         use std::io::Cursor;
 
@@ -1681,7 +1725,9 @@ impl Database {
             });
         }
 
-        let schema = dbobj::Schema { columns: db_columns };
+        let schema = dbobj::Schema {
+            columns: db_columns,
+        };
         let count = schema.columns.len() as u32;
         self.inner.create_table(table_name, schema);
         self.save_if_needed();

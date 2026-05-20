@@ -24,9 +24,9 @@ test("create table from Arrow schema", () => {
   const inserted = qb.insertFromArrow("reborn", arrowBuf);
   expect(inserted).toBe(3);
 
-  const col = qb.select("reborn").executeColumnar() as Record<string, any[]>;
-  expect(col.val.length).toBe(3);
-  expect(col.val[0]).toBe(100);
+  const rows = qb.select("reborn").execute() as Array<any>;
+  expect(rows.length).toBe(3);
+  expect(rows[0].val).toBe(100);
 });
 
 test("Arrow zero-copy roundtrip with mixed types", () => {

@@ -1,13 +1,13 @@
 use dbobj::core::query_builder::QueryBuilder as CoreQueryBuilder;
 use dbobj::core::Database as CoreDatabase;
-use dbobj::{Value, Id, DataType};
+use dbobj::{DataType, Id, Value};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-use crate::database::query::{db_value_to_json_no_table, db_value_to_json};
 use crate::database::jv_helper;
+use crate::database::query::{db_value_to_json, db_value_to_json_no_table};
 
 #[napi]
 pub struct JsQueryBuilder {
@@ -124,14 +124,21 @@ impl JsQueryBuilder {
 
     /// INNER JOIN: ON this_column = other_table.other_column
     #[napi]
-    pub fn join(&mut self, other_table: String, this_column: String, other_column: String) -> &Self {
+    pub fn join(
+        &mut self,
+        other_table: String,
+        this_column: String,
+        other_column: String,
+    ) -> &Self {
         self.inner = std::mem::take(&mut self.inner).join(other_table, this_column, other_column);
         self
     }
 
     #[napi]
     pub fn execute(&self) -> Result<serde_json::Value> {
-        let rows = self.inner.run(&self.db)
+        let rows = self
+            .inner
+            .run(&self.db)
             .map_err(|e| napi::Error::from_reason(e))?;
 
         let results = self.rows_to_json(&rows);
@@ -141,7 +148,9 @@ impl JsQueryBuilder {
 
     #[napi]
     pub fn first(&self) -> Result<Option<serde_json::Value>> {
-        let row = self.inner.run_first(&self.db)
+        let row = self
+            .inner
+            .run_first(&self.db)
             .map_err(|e| napi::Error::from_reason(e))?;
 
         match row {
@@ -158,79 +167,238 @@ impl JsQueryBuilder {
     /// Avoids per-row JSON object overhead. Uses a direct table read for simple
     /// SELECT * (no filters, no joins, no order) — bypasses Row cloning entirely.
     #[napi]
-    pub fn execute_columnar(&self) -> Result<serde_json::Value> {
+    pub fn execute_columnar(&self, env: Env) -> Result<Object> {
         self.is_dirty.store(true, Ordering::Relaxed);
 
         let table_name = self.inner.table_name();
         if table_name.is_empty() {
-            return Ok(serde_json::Value::Object(serde_json::Map::new()));
+            return Object::new(&env);
         }
 
         // Fast path: simple SELECT * — read directly from table.data, skip run()
         if self.inner.is_simple_select() {
             let tables_guard = self.db.tables.read();
-            let table_lock = tables_guard.get(table_name)
+            let table_lock = tables_guard
+                .get(table_name)
                 .ok_or_else(|| napi::Error::from_reason("Table not found"))?;
             let table = table_lock.read();
 
             let num_rows = table.ids.len();
-            let mut map = serde_json::Map::with_capacity(table.schema.columns.len() + 1);
+            let num_cols = table.num_columns;
+            let mut result = Object::new(&env)?;
 
-            // id column
-            let ids: Vec<serde_json::Value> = table.ids.iter().map(|id| match id {
-                Id::Integer(i) => serde_json::Value::Number((*i).into()),
-                Id::String(s) => serde_json::Value::String(s.to_string()),
-            }).collect();
-            map.insert("id".into(), serde_json::Value::Array(ids));
-
-            // data columns — read directly from table.data, skip Row creation
-            // Use db_value_to_json (with table) to resolve InternedString
-            for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
-                let mut col_values = Vec::with_capacity(num_rows);
-                for row_idx in 0..num_rows {
-                    let val = &table.data[row_idx * table.num_columns + col_idx];
-                    col_values.push(db_value_to_json(val, &table));
+            // id column as BigInt64Array
+            let mut id_data: Vec<i64> = Vec::with_capacity(num_rows);
+            for id in &table.ids {
+                match id {
+                    Id::Integer(i) => id_data.push(*i as i64),
+                    Id::String(_) => id_data.push(0),
                 }
-                map.insert(col_def.name.to_string(), serde_json::Value::Array(col_values));
+            }
+            Self::set_bigint64_property(&mut result, "id", id_data)?;
+
+            // data columns — typed arrays per type, no serde_json overhead
+            for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
+                match col_def.data_type {
+                    DataType::Integer => {
+                        let mut col_data: Vec<i64> = Vec::with_capacity(num_rows);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::Integer(v) => col_data.push(*v),
+                                _ => col_data.push(0),
+                            }
+                        }
+                        Self::set_bigint64_property(&mut result, col_def.name.as_str(), col_data)?;
+                    }
+                    DataType::Float => {
+                        let mut col_data: Vec<f64> = Vec::with_capacity(num_rows);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::Float(v) => col_data.push(*v),
+                                Value::Integer(v) => col_data.push(*v as f64),
+                                _ => col_data.push(0.0),
+                            }
+                        }
+                        Self::set_float64_property(&mut result, col_def.name.as_str(), col_data)?;
+                    }
+                    DataType::String => {
+                        let mut col_data: Vec<serde_json::Value> = Vec::with_capacity(num_rows);
+                        for row_idx in 0..num_rows {
+                            col_data.push(db_value_to_json(
+                                &table.data[row_idx * num_cols + col_idx],
+                                &table,
+                            ));
+                        }
+                        result.set(col_def.name.as_str(), serde_json::Value::Array(col_data))?;
+                    }
+                    DataType::Boolean => {
+                        let mut col_data: Vec<serde_json::Value> = Vec::with_capacity(num_rows);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::Boolean(v) => col_data.push(serde_json::Value::Bool(*v)),
+                                _ => col_data.push(serde_json::Value::Null),
+                            }
+                        }
+                        result.set(col_def.name.as_str(), serde_json::Value::Array(col_data))?;
+                    }
+                    DataType::Blob => {
+                        let mut col_data: Vec<serde_json::Value> = Vec::with_capacity(num_rows);
+                        for row_idx in 0..num_rows {
+                            match &table.data[row_idx * num_cols + col_idx] {
+                                Value::Blob(b) => col_data.push(serde_json::Value::Array(
+                                    b.iter()
+                                        .map(|x| serde_json::Value::Number((*x).into()))
+                                        .collect(),
+                                )),
+                                _ => col_data.push(serde_json::Value::Null),
+                            }
+                        }
+                        result.set(col_def.name.as_str(), serde_json::Value::Array(col_data))?;
+                    }
+                }
             }
 
-            return Ok(serde_json::Value::Object(map));
+            return Ok(result);
         }
 
         // Slow path: complex query with filters/joins — use run()
-        let rows = self.inner.run(&self.db)
+        let rows = self
+            .inner
+            .run(&self.db)
             .map_err(|e| napi::Error::from_reason(e))?;
 
         let tables_guard = self.db.tables.read();
         if table_name.is_empty() {
-            return Ok(serde_json::Value::Object(serde_json::Map::new()));
+            return Object::new(&env);
         }
-        let table_lock = tables_guard.get(table_name)
+        let table_lock = tables_guard
+            .get(table_name)
             .ok_or_else(|| napi::Error::from_reason("Table not found"))?;
         let table = table_lock.read();
 
-        let mut map = serde_json::Map::with_capacity(table.schema.columns.len() + 1);
+        let num_rows = rows.len();
+        let _num_cols = table.num_columns;
+        let mut result = Object::new(&env)?;
 
-        let ids: Vec<serde_json::Value> = rows.iter().map(|row| match &row.id {
-            Id::Integer(i) => serde_json::Value::Number((*i).into()),
-            Id::String(s) => serde_json::Value::String(s.to_string()),
-        }).collect();
-        map.insert("id".into(), serde_json::Value::Array(ids));
+        // id column
+        let mut id_data: Vec<i64> = Vec::with_capacity(num_rows);
+        for row in &rows {
+            match &row.id {
+                Id::Integer(i) => id_data.push(*i as i64),
+                Id::String(_) => id_data.push(0),
+            }
+        }
+        Self::set_bigint64_property(&mut result, "id", id_data)?;
 
         for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
-            let mut col_values = Vec::with_capacity(rows.len());
-            for row in &rows {
-                let val = if col_idx < row.data.len() {
-                    db_value_to_json_no_table(&row.data[col_idx])
-                } else {
-                    serde_json::Value::Null
-                };
-                col_values.push(val);
+            match col_def.data_type {
+                DataType::Integer => {
+                    let mut col_data: Vec<i64> = Vec::with_capacity(num_rows);
+                    for row in &rows {
+                        let val = if col_idx < row.data.len() {
+                            &row.data[col_idx]
+                        } else {
+                            &Value::Null
+                        };
+                        match val {
+                            Value::Integer(v) => col_data.push(*v),
+                            _ => col_data.push(0),
+                        }
+                    }
+                    Self::set_bigint64_property(&mut result, col_def.name.as_str(), col_data)?;
+                }
+                DataType::Float => {
+                    let mut col_data: Vec<f64> = Vec::with_capacity(num_rows);
+                    for row in &rows {
+                        let val = if col_idx < row.data.len() {
+                            &row.data[col_idx]
+                        } else {
+                            &Value::Null
+                        };
+                        match val {
+                            Value::Float(v) => col_data.push(*v),
+                            Value::Integer(v) => col_data.push(*v as f64),
+                            _ => col_data.push(0.0),
+                        }
+                    }
+                    Self::set_float64_property(&mut result, col_def.name.as_str(), col_data)?;
+                }
+                DataType::String => {
+                    let mut col_data: Vec<serde_json::Value> = Vec::with_capacity(num_rows);
+                    for row in &rows {
+                        let val = if col_idx < row.data.len() {
+                            &row.data[col_idx]
+                        } else {
+                            &Value::Null
+                        };
+                        col_data.push(db_value_to_json_no_table(val));
+                    }
+                    result.set(col_def.name.as_str(), serde_json::Value::Array(col_data))?;
+                }
+                DataType::Boolean => {
+                    let mut col_data: Vec<serde_json::Value> = Vec::with_capacity(num_rows);
+                    for row in &rows {
+                        let val = if col_idx < row.data.len() {
+                            &row.data[col_idx]
+                        } else {
+                            &Value::Null
+                        };
+                        match val {
+                            Value::Boolean(v) => col_data.push(serde_json::Value::Bool(*v)),
+                            _ => col_data.push(serde_json::Value::Null),
+                        }
+                    }
+                    result.set(col_def.name.as_str(), serde_json::Value::Array(col_data))?;
+                }
+                DataType::Blob => {
+                    let mut col_data: Vec<serde_json::Value> = Vec::with_capacity(num_rows);
+                    for row in &rows {
+                        let val = if col_idx < row.data.len() {
+                            &row.data[col_idx]
+                        } else {
+                            &Value::Null
+                        };
+                        match val {
+                            Value::Blob(b) => col_data.push(serde_json::Value::Array(
+                                b.iter()
+                                    .map(|x| serde_json::Value::Number((*x).into()))
+                                    .collect(),
+                            )),
+                            _ => col_data.push(serde_json::Value::Null),
+                        }
+                    }
+                    result.set(col_def.name.as_str(), serde_json::Value::Array(col_data))?;
+                }
             }
-            map.insert(col_def.name.to_string(), serde_json::Value::Array(col_values));
         }
 
-        Ok(serde_json::Value::Object(map))
+        Ok(result)
+    }
+
+    fn set_bigint64_property(obj: &mut Object, name: &str, data: Vec<i64>) -> Result<()> {
+        let mut data = data;
+        let ptr = data.as_mut_ptr();
+        let len = data.len();
+        std::mem::forget(data);
+        let arr = unsafe {
+            BigInt64Array::with_external_data(ptr, len, |ptr, len| {
+                let _ = Vec::from_raw_parts(ptr, len, len);
+            })
+        };
+        obj.set(name, arr)
+    }
+
+    fn set_float64_property(obj: &mut Object, name: &str, data: Vec<f64>) -> Result<()> {
+        let mut data = data;
+        let ptr = data.as_mut_ptr();
+        let len = data.len();
+        std::mem::forget(data);
+        let arr = unsafe {
+            Float64Array::with_external_data(ptr, len, |ptr, len| {
+                let _ = Vec::from_raw_parts(ptr, len, len);
+            })
+        };
+        obj.set(name, arr)
     }
 
     /// Execute query and return results as Apache Arrow IPC buffer.
@@ -238,11 +406,11 @@ impl JsQueryBuilder {
     /// Uses a direct table read for simple SELECT * (no filters, no joins).
     #[napi]
     pub fn execute_arrow(&self) -> Result<Buffer> {
-        use std::sync::Arc as StdArc;
         use arrow::array::*;
         use arrow::datatypes::{Field, Schema as ArrowSchema};
         use arrow::ipc::writer::FileWriter;
         use arrow::record_batch::RecordBatch;
+        use std::sync::Arc as StdArc;
 
         self.is_dirty.store(true, Ordering::Relaxed);
 
@@ -254,7 +422,8 @@ impl JsQueryBuilder {
         // Fast path: simple SELECT * — read directly from table.data, skip run()
         if self.inner.is_simple_select() {
             let tables_guard = self.db.tables.read();
-            let table_lock = tables_guard.get(table_name)
+            let table_lock = tables_guard
+                .get(table_name)
                 .ok_or_else(|| napi::Error::from_reason("Table not found"))?;
             let table = table_lock.read();
 
@@ -263,13 +432,17 @@ impl JsQueryBuilder {
                 return Ok(Buffer::from(Vec::<u8>::new()));
             }
 
-            let num_cols = table.schema.columns.len();
+            let num_cols = table.num_columns;
             let mut arrow_fields = Vec::with_capacity(num_cols);
             let mut arrow_columns: Vec<ArrayRef> = Vec::with_capacity(num_cols);
 
             for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
                 let arrow_type = db_to_arrow_type(&col_def.data_type);
-                arrow_fields.push(Field::new(col_def.name.as_str(), arrow_type, col_def.nullable));
+                arrow_fields.push(Field::new(
+                    col_def.name.as_str(),
+                    arrow_type,
+                    col_def.nullable,
+                ));
 
                 match col_def.data_type {
                     DataType::Integer => {
@@ -295,7 +468,8 @@ impl JsQueryBuilder {
                     }
                     DataType::String => {
                         let avg_len = 32usize;
-                        let mut builder = StringBuilder::with_capacity(num_rows, num_rows * avg_len);
+                        let mut builder =
+                            StringBuilder::with_capacity(num_rows, num_rows * avg_len);
                         for row_idx in 0..num_rows {
                             match &table.data[row_idx * num_cols + col_idx] {
                                 Value::String(s) => builder.append_value(s.as_str()),
@@ -323,7 +497,8 @@ impl JsQueryBuilder {
                     }
                     DataType::Blob => {
                         let avg_len = 64usize;
-                        let mut builder = BinaryBuilder::with_capacity(num_rows, num_rows * avg_len);
+                        let mut builder =
+                            BinaryBuilder::with_capacity(num_rows, num_rows * avg_len);
                         for row_idx in 0..num_rows {
                             match &table.data[row_idx * num_cols + col_idx] {
                                 Value::Blob(v) => builder.append_value(v),
@@ -343,9 +518,11 @@ impl JsQueryBuilder {
             {
                 let mut writer = FileWriter::try_new(&mut buffer, &schema)
                     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-                writer.write(&batch)
+                writer
+                    .write(&batch)
                     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-                writer.finish()
+                writer
+                    .finish()
                     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
             }
 
@@ -353,11 +530,14 @@ impl JsQueryBuilder {
         }
 
         // Slow path: complex query with filters/joins — use run()
-        let rows = self.inner.run(&self.db)
+        let rows = self
+            .inner
+            .run(&self.db)
             .map_err(|e| napi::Error::from_reason(e))?;
 
         let tables_guard = self.db.tables.read();
-        let table_lock = tables_guard.get(table_name)
+        let table_lock = tables_guard
+            .get(table_name)
             .ok_or_else(|| napi::Error::from_reason("Table not found"))?;
         let table = table_lock.read();
 
@@ -366,13 +546,17 @@ impl JsQueryBuilder {
             return Ok(Buffer::from(Vec::<u8>::new()));
         }
 
-        let num_cols = table.schema.columns.len();
+        let num_cols = table.num_columns;
         let mut arrow_fields = Vec::with_capacity(num_cols);
         let mut arrow_columns: Vec<ArrayRef> = Vec::with_capacity(num_cols);
 
         for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
             let arrow_type = db_to_arrow_type(&col_def.data_type);
-            arrow_fields.push(Field::new(col_def.name.as_str(), arrow_type, col_def.nullable));
+            arrow_fields.push(Field::new(
+                col_def.name.as_str(),
+                arrow_type,
+                col_def.nullable,
+            ));
 
             match col_def.data_type {
                 DataType::Integer => {
@@ -459,9 +643,11 @@ impl JsQueryBuilder {
         {
             let mut writer = FileWriter::try_new(&mut buffer, &schema)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            writer.write(&batch)
+            writer
+                .write(&batch)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            writer.finish()
+            writer
+                .finish()
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         }
 
@@ -478,10 +664,17 @@ impl JsQueryBuilder {
         num_columns: u32,
     ) -> Result<u32> {
         let db_values: Vec<Value> = values.into_iter().map(json_to_value).collect();
-        let count = if num_columns > 0 { db_values.len() / num_columns as usize } else { 0 };
-        if count == 0 { return Ok(0); }
+        let count = if num_columns > 0 {
+            db_values.len() / num_columns as usize
+        } else {
+            0
+        };
+        if count == 0 {
+            return Ok(0);
+        }
 
-        self.db.insert_batch_flat_values(&table, db_values, num_columns as usize)
+        self.db
+            .insert_batch_flat_values(&table, db_values, num_columns as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(count as u32)
@@ -496,11 +689,18 @@ impl JsQueryBuilder {
         values: BigInt64Array,
         num_columns: u32,
     ) -> Result<u32> {
-        let count = if num_columns > 0 { values.len() / num_columns as usize } else { 0 };
-        if count == 0 { return Ok(0); }
+        let count = if num_columns > 0 {
+            values.len() / num_columns as usize
+        } else {
+            0
+        };
+        if count == 0 {
+            return Ok(0);
+        }
 
         let db_values: Vec<Value> = values.as_ref().iter().map(|&v| Value::Integer(v)).collect();
-        self.db.insert_batch_flat_values(&table, db_values, num_columns as usize)
+        self.db
+            .insert_batch_flat_values(&table, db_values, num_columns as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(count as u32)
@@ -514,11 +714,18 @@ impl JsQueryBuilder {
         values: Float64Array,
         num_columns: u32,
     ) -> Result<u32> {
-        let count = if num_columns > 0 { values.len() / num_columns as usize } else { 0 };
-        if count == 0 { return Ok(0); }
+        let count = if num_columns > 0 {
+            values.len() / num_columns as usize
+        } else {
+            0
+        };
+        if count == 0 {
+            return Ok(0);
+        }
 
         let db_values: Vec<Value> = values.as_ref().iter().map(|&v| Value::Float(v)).collect();
-        self.db.insert_batch_flat_values(&table, db_values, num_columns as usize)
+        self.db
+            .insert_batch_flat_values(&table, db_values, num_columns as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(count as u32)
@@ -542,7 +749,9 @@ impl JsQueryBuilder {
             let batch = maybe_batch
                 .map_err(|e| napi::Error::from_reason(format!("Failed to read batch: {}", e)))?;
             let num_rows = batch.num_rows();
-            if num_rows == 0 { continue; }
+            if num_rows == 0 {
+                continue;
+            }
 
             let mut flat: Vec<Value> = Vec::with_capacity(num_rows * num_cols);
             for row_idx in 0..num_rows {
@@ -553,7 +762,8 @@ impl JsQueryBuilder {
                 }
             }
 
-            self.db.insert_batch_flat_values(&table, flat, num_cols)
+            self.db
+                .insert_batch_flat_values(&table, flat, num_cols)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
             total_rows += num_rows as u32;
         }
@@ -597,7 +807,9 @@ impl JsQueryBuilder {
             let batch = maybe_batch
                 .map_err(|e| napi::Error::from_reason(format!("Failed to read batch: {}", e)))?;
             let num_rows = batch.num_rows();
-            if num_rows == 0 { continue; }
+            if num_rows == 0 {
+                continue;
+            }
 
             let id_arr = batch.column(id_col_idx);
 
@@ -605,7 +817,8 @@ impl JsQueryBuilder {
                 let id_val = arrow_value_to_db(id_arr, row_idx);
 
                 // Build set_values map for this row
-                let mut set_map: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+                let mut set_map: std::collections::HashMap<String, Value> =
+                    std::collections::HashMap::new();
                 for &(col_idx, ref col_name) in &value_cols {
                     let val = arrow_value_to_db(batch.column(col_idx), row_idx);
                     set_map.insert(col_name.clone(), val);
@@ -633,7 +846,8 @@ impl JsQueryBuilder {
 
                 let mut new_values = Vec::with_capacity(table_read.num_columns);
                 for (col_idx, col_def) in table_read.schema.columns.iter().enumerate() {
-                    let existing = &table_read.data[row_idx_in_table * table_read.num_columns + col_idx];
+                    let existing =
+                        &table_read.data[row_idx_in_table * table_read.num_columns + col_idx];
                     match set_map.get(col_def.name.as_str()) {
                         Some(val) => new_values.push(val.clone()),
                         None => new_values.push(existing.clone()),
@@ -642,7 +856,8 @@ impl JsQueryBuilder {
                 drop(table_read);
                 drop(tables_guard);
 
-                self.db.update_values(&table, &id, new_values)
+                self.db
+                    .update_values(&table, &id, new_values)
                     .map_err(|e| napi::Error::from_reason(e.to_string()))?;
                 total_updated += 1;
             }
@@ -659,16 +874,23 @@ impl JsQueryBuilder {
     pub fn insert_columnar(&mut self, _env: Env, table: String, columns: Object) -> Result<u32> {
         // Read table schema to get column order
         let tables_guard = self.db.tables.read();
-        let table_lock = tables_guard.get(&table).ok_or_else(|| {
-            napi::Error::from_reason(format!("Table '{}' not found", table))
-        })?;
+        let table_lock = tables_guard
+            .get(&table)
+            .ok_or_else(|| napi::Error::from_reason(format!("Table '{}' not found", table)))?;
         let table_read = table_lock.read();
         let num_columns = table_read.num_columns;
-        let col_names: Vec<String> = table_read.schema.columns.iter().map(|c| c.name.to_string()).collect();
+        let col_names: Vec<String> = table_read
+            .schema
+            .columns
+            .iter()
+            .map(|c| c.name.to_string())
+            .collect();
         drop(table_read);
         drop(tables_guard);
 
-        if num_columns == 0 { return Ok(0); }
+        if num_columns == 0 {
+            return Ok(0);
+        }
 
         // Read column values
         enum ColSource {
@@ -700,10 +922,14 @@ impl JsQueryBuilder {
                 sources.push(ColSource::Generic(arr));
                 l
             } else {
-                return Err(napi::Error::from_reason("Column must be an array or TypedArray"));
+                return Err(napi::Error::from_reason(
+                    "Column must be an array or TypedArray",
+                ));
             };
 
-            if len == 0 { return Ok(0); }
+            if len == 0 {
+                return Ok(0);
+            }
             if row_count == 0 {
                 row_count = len;
             } else if len != row_count {
@@ -731,7 +957,8 @@ impl JsQueryBuilder {
             }
         }
 
-        self.db.insert_batch_flat_values(&table, flat_values, num_columns)
+        self.db
+            .insert_batch_flat_values(&table, flat_values, num_columns)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(row_count)
@@ -745,33 +972,43 @@ impl JsQueryBuilder {
     pub fn update_columnar(&mut self, _env: Env, table: String, columns: Object) -> Result<u32> {
         // Read table schema
         let tables_guard = self.db.tables.read();
-        let table_lock = tables_guard.get(&table).ok_or_else(|| {
-            napi::Error::from_reason(format!("Table '{}' not found", table))
-        })?;
+        let table_lock = tables_guard
+            .get(&table)
+            .ok_or_else(|| napi::Error::from_reason(format!("Table '{}' not found", table)))?;
         let table_read = table_lock.read();
         let num_columns = table_read.num_columns;
-        let col_defs: Vec<(String, usize)> = table_read.schema.columns.iter().enumerate()
-            .map(|(i, c)| (c.name.to_string(), i)).collect();
+        let col_defs: Vec<(String, usize)> = table_read
+            .schema
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.name.to_string(), i))
+            .collect();
         drop(table_read);
         drop(tables_guard);
 
-        if num_columns == 0 { return Ok(0); }
+        if num_columns == 0 {
+            return Ok(0);
+        }
 
         // Determine which columns are provided and find "id"
         let keys = Object::keys(&columns)?;
-        let _id_idx_in_input = keys.iter().position(|k| k == "id")
+        let _id_idx_in_input = keys
+            .iter()
+            .position(|k| k == "id")
             .ok_or_else(|| napi::Error::from_reason("Columnar update requires an 'id' column"))?;
         let _value_keys: Vec<&String> = keys.iter().filter(|k| *k != "id").collect();
 
         // Read all column data
         enum ColValue {
-            I64( BigInt64Array),
+            I64(BigInt64Array),
             F64(Float64Array),
             Generic(Vec<dbobj::Value>),
         }
 
         let mut id_data: Option<ColValue> = None;
-        let mut value_data: std::collections::HashMap<String, ColValue> = std::collections::HashMap::new();
+        let mut value_data: std::collections::HashMap<String, ColValue> =
+            std::collections::HashMap::new();
         let mut row_count = 0u32;
 
         for key in &keys {
@@ -797,10 +1034,14 @@ impl JsQueryBuilder {
                 }
                 (ColValue::Generic(vec), l)
             } else {
-                return Err(napi::Error::from_reason("Column must be an array or TypedArray"));
+                return Err(napi::Error::from_reason(
+                    "Column must be an array or TypedArray",
+                ));
             };
 
-            if len == 0 { return Ok(0); }
+            if len == 0 {
+                return Ok(0);
+            }
             if row_count == 0 {
                 row_count = len;
             } else if len != row_count {
@@ -832,34 +1073,35 @@ impl JsQueryBuilder {
 
             // Read existing row
             let tables_guard = self.db.tables.read();
-            let table_lock = tables_guard.get(&table).ok_or_else(|| {
-                napi::Error::from_reason(format!("Table '{}' not found", table))
-            })?;
+            let table_lock = tables_guard
+                .get(&table)
+                .ok_or_else(|| napi::Error::from_reason(format!("Table '{}' not found", table)))?;
             let table_read = table_lock.read();
 
             let row_idx_in_table = match table_read.get_index(&id_val) {
                 Some(idx) => idx,
-                None => { continue; }
+                None => {
+                    continue;
+                }
             };
 
             let mut new_values = Vec::with_capacity(num_columns);
             for (col_name, col_idx) in &col_defs {
                 let existing = &table_read.data[row_idx_in_table * num_columns + col_idx];
                 match value_data.get(col_name.as_str()) {
-                    Some(val_source) => {
-                        match val_source {
-                            ColValue::I64(arr) => new_values.push(dbobj::Value::Integer(arr[row_idx])),
-                            ColValue::F64(arr) => new_values.push(dbobj::Value::Float(arr[row_idx])),
-                            ColValue::Generic(v) => new_values.push(v[row_idx].clone()),
-                        }
-                    }
+                    Some(val_source) => match val_source {
+                        ColValue::I64(arr) => new_values.push(dbobj::Value::Integer(arr[row_idx])),
+                        ColValue::F64(arr) => new_values.push(dbobj::Value::Float(arr[row_idx])),
+                        ColValue::Generic(v) => new_values.push(v[row_idx].clone()),
+                    },
                     None => new_values.push(existing.clone()),
                 }
             }
             drop(table_read);
             drop(tables_guard);
 
-            self.db.update_values(&table, &id_val, new_values)
+            self.db
+                .update_values(&table, &id_val, new_values)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
             total_updated += 1;
         }
@@ -876,11 +1118,21 @@ impl JsQueryBuilder {
         values: Vec<String>,
         num_columns: u32,
     ) -> Result<u32> {
-        let count = if num_columns > 0 { values.len() / num_columns as usize } else { 0 };
-        if count == 0 { return Ok(0); }
+        let count = if num_columns > 0 {
+            values.len() / num_columns as usize
+        } else {
+            0
+        };
+        if count == 0 {
+            return Ok(0);
+        }
 
-        let db_values: Vec<Value> = values.into_iter().map(|v| Value::String(v.into())).collect();
-        self.db.insert_batch_flat_values(&table, db_values, num_columns as usize)
+        let db_values: Vec<Value> = values
+            .into_iter()
+            .map(|v| Value::String(v.into()))
+            .collect();
+        self.db
+            .insert_batch_flat_values(&table, db_values, num_columns as usize)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(count as u32)
@@ -890,19 +1142,30 @@ impl JsQueryBuilder {
     /// Uses the table schema to determine column order and types.
     /// Avoids manual columnar construction — schema-aware batch insert.
     #[napi]
-    pub fn insert_from_objects(&mut self, table: String, objects: Vec<serde_json::Value>) -> Result<u32> {
+    pub fn insert_from_objects(
+        &mut self,
+        table: String,
+        objects: Vec<serde_json::Value>,
+    ) -> Result<u32> {
         let num_rows = objects.len();
-        if num_rows == 0 { return Ok(0); }
+        if num_rows == 0 {
+            return Ok(0);
+        }
 
         let tables_guard = self.db.tables.read();
-        let table_lock = tables_guard.get(&table).ok_or_else(|| {
-            napi::Error::from_reason(format!("Table '{}' not found", table))
-        })?;
+        let table_lock = tables_guard
+            .get(&table)
+            .ok_or_else(|| napi::Error::from_reason(format!("Table '{}' not found", table)))?;
         let table_read = table_lock.read();
         let num_columns = table_read.num_columns;
-        if num_columns == 0 { return Ok(0); }
+        if num_columns == 0 {
+            return Ok(0);
+        }
         // Pre-collect column names: must collect owned strings before dropping the read lock
-        let col_names: Vec<(String, DataType)> = table_read.schema.columns.iter()
+        let col_names: Vec<(String, DataType)> = table_read
+            .schema
+            .columns
+            .iter()
             .map(|c| (c.name.to_string(), c.data_type.clone()))
             .collect();
         drop(table_read);
@@ -914,7 +1177,11 @@ impl JsQueryBuilder {
         for obj in &objects {
             let map = match obj {
                 serde_json::Value::Object(m) => m,
-                _ => return Err(napi::Error::from_reason("Each element must be a JSON object")),
+                _ => {
+                    return Err(napi::Error::from_reason(
+                        "Each element must be a JSON object",
+                    ))
+                }
             };
             for (col_name, _) in &col_names {
                 match map.get(col_name.as_str()) {
@@ -924,7 +1191,8 @@ impl JsQueryBuilder {
             }
         }
 
-        self.db.insert_batch_flat_values(&table, flat, num_columns)
+        self.db
+            .insert_batch_flat_values(&table, flat, num_columns)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         self.is_dirty.store(true, Ordering::Relaxed);
         Ok(num_rows as u32)
@@ -935,19 +1203,30 @@ impl JsQueryBuilder {
     /// Other properties are merged into the existing row data.
     /// Uses the table schema for column name resolution.
     #[napi]
-    pub fn update_from_objects(&mut self, table: String, objects: Vec<serde_json::Value>) -> Result<u32> {
+    pub fn update_from_objects(
+        &mut self,
+        table: String,
+        objects: Vec<serde_json::Value>,
+    ) -> Result<u32> {
         let num_rows = objects.len();
-        if num_rows == 0 { return Ok(0); }
+        if num_rows == 0 {
+            return Ok(0);
+        }
 
         let tables_guard = self.db.tables.read();
-        let table_lock = tables_guard.get(&table).ok_or_else(|| {
-            napi::Error::from_reason(format!("Table '{}' not found", table))
-        })?;
+        let table_lock = tables_guard
+            .get(&table)
+            .ok_or_else(|| napi::Error::from_reason(format!("Table '{}' not found", table)))?;
         let table_read = table_lock.read();
         let num_columns = table_read.num_columns;
-        if num_columns == 0 { return Ok(0); }
+        if num_columns == 0 {
+            return Ok(0);
+        }
         // Collect owned data before dropping read lock
-        let col_defs: Vec<(String, DataType)> = table_read.schema.columns.iter()
+        let col_defs: Vec<(String, DataType)> = table_read
+            .schema
+            .columns
+            .iter()
             .map(|c| (c.name.to_string(), c.data_type.clone()))
             .collect();
         drop(table_read);
@@ -977,7 +1256,8 @@ impl JsQueryBuilder {
             };
 
             // Build set map from remaining properties
-            let mut set_map: std::collections::HashMap<&str, serde_json::Value> = std::collections::HashMap::new();
+            let mut set_map: std::collections::HashMap<&str, serde_json::Value> =
+                std::collections::HashMap::new();
             for (key, val) in map.iter() {
                 if key != "id" {
                     set_map.insert(key.as_str(), val.clone());
@@ -986,14 +1266,16 @@ impl JsQueryBuilder {
 
             // Read existing row, merge, update
             let tables_guard = self.db.tables.read();
-            let table_lock = tables_guard.get(&table).ok_or_else(|| {
-                napi::Error::from_reason(format!("Table '{}' not found", table))
-            })?;
+            let table_lock = tables_guard
+                .get(&table)
+                .ok_or_else(|| napi::Error::from_reason(format!("Table '{}' not found", table)))?;
             let table_read = table_lock.read();
 
             let row_idx = match table_read.get_index(&id_val) {
                 Some(idx) => idx,
-                None => { continue; }
+                None => {
+                    continue;
+                }
             };
 
             let mut new_values = Vec::with_capacity(num_columns);
@@ -1007,7 +1289,8 @@ impl JsQueryBuilder {
             drop(table_read);
             drop(tables_guard);
 
-            self.db.update_values(&table, &id_val, new_values)
+            self.db
+                .update_values(&table, &id_val, new_values)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
             total_updated += 1;
         }
@@ -1028,21 +1311,30 @@ impl JsQueryBuilder {
         };
         let table_read = table_lock.map(|t| t.read());
 
-        rows.iter().map(|row| {
-            let mut map = serde_json::Map::new();
-            match &row.id {
-                Id::Integer(i) => { map.insert("id".into(), serde_json::Value::Number((*i).into())); }
-                Id::String(s) => { map.insert("id".into(), serde_json::Value::String(s.to_string())); }
-            }
-            if let Some(ref table) = table_read {
-                for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
-                    if col_idx < row.data.len() {
-                        map.insert(col_def.name.to_string(), db_value_to_json_no_table(&row.data[col_idx]));
+        rows.iter()
+            .map(|row| {
+                let mut map = serde_json::Map::new();
+                match &row.id {
+                    Id::Integer(i) => {
+                        map.insert("id".into(), serde_json::Value::Number((*i).into()));
+                    }
+                    Id::String(s) => {
+                        map.insert("id".into(), serde_json::Value::String(s.to_string()));
                     }
                 }
-            }
-            serde_json::Value::Object(map)
-        }).collect()
+                if let Some(ref table) = table_read {
+                    for (col_idx, col_def) in table.schema.columns.iter().enumerate() {
+                        if col_idx < row.data.len() {
+                            map.insert(
+                                col_def.name.to_string(),
+                                db_value_to_json_no_table(&row.data[col_idx]),
+                            );
+                        }
+                    }
+                }
+                serde_json::Value::Object(map)
+            })
+            .collect()
     }
 }
 
@@ -1054,47 +1346,91 @@ fn arrow_value_to_db(arr: &arrow::array::ArrayRef, idx: usize) -> Value {
     match arr.data_type() {
         ArrowDataType::Int8 => {
             let a = arr.as_any().downcast_ref::<Int8Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Integer(a.value(idx) as i64)
+            }
         }
         ArrowDataType::Int16 => {
             let a = arr.as_any().downcast_ref::<Int16Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Integer(a.value(idx) as i64)
+            }
         }
         ArrowDataType::Int32 => {
             let a = arr.as_any().downcast_ref::<Int32Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Integer(a.value(idx) as i64)
+            }
         }
         ArrowDataType::Int64 => {
             let a = arr.as_any().downcast_ref::<Int64Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx)) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Integer(a.value(idx))
+            }
         }
         ArrowDataType::UInt8 => {
             let a = arr.as_any().downcast_ref::<UInt8Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Integer(a.value(idx) as i64)
+            }
         }
         ArrowDataType::UInt16 => {
             let a = arr.as_any().downcast_ref::<UInt16Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Integer(a.value(idx) as i64)
+            }
         }
         ArrowDataType::UInt32 => {
             let a = arr.as_any().downcast_ref::<UInt32Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Integer(a.value(idx) as i64)
+            }
         }
         ArrowDataType::UInt64 => {
             let a = arr.as_any().downcast_ref::<UInt64Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Integer(a.value(idx) as i64) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Integer(a.value(idx) as i64)
+            }
         }
         ArrowDataType::Float32 => {
             let a = arr.as_any().downcast_ref::<Float32Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Float(a.value(idx) as f64) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Float(a.value(idx) as f64)
+            }
         }
         ArrowDataType::Float64 => {
             let a = arr.as_any().downcast_ref::<Float64Array>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Float(a.value(idx)) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Float(a.value(idx))
+            }
         }
         ArrowDataType::Utf8 | ArrowDataType::LargeUtf8 => {
             let a = arr.as_any().downcast_ref::<StringArray>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::String(compact_str::CompactString::from(a.value(idx))) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::String(compact_str::CompactString::from(a.value(idx)))
+            }
         }
         ArrowDataType::Dictionary(_, value_type) => {
             // Handle dictionary-encoded strings (e.g. Utf8Dictionary from apache-arrow JS)
@@ -1127,11 +1463,19 @@ fn arrow_value_to_db(arr: &arrow::array::ArrayRef, idx: usize) -> Value {
         }
         ArrowDataType::Boolean => {
             let a = arr.as_any().downcast_ref::<BooleanArray>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Boolean(a.value(idx)) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Boolean(a.value(idx))
+            }
         }
         ArrowDataType::Binary | ArrowDataType::LargeBinary => {
             let a = arr.as_any().downcast_ref::<BinaryArray>().unwrap();
-            if a.is_null(idx) { Value::Null } else { Value::Blob(a.value(idx).to_vec()) }
+            if a.is_null(idx) {
+                Value::Null
+            } else {
+                Value::Blob(a.value(idx).to_vec())
+            }
         }
         _ => Value::Null,
     }

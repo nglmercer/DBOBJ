@@ -325,10 +325,10 @@ impl DynamicSchema {
     /// to define a table with matching columns.
     #[napi]
     pub fn to_arrow_ipc(&self, schema_name: String) -> Result<Buffer> {
-        use std::sync::Arc as StdArc;
         use arrow::datatypes::Field;
         use arrow::ipc::writer::FileWriter;
         use arrow::record_batch::RecordBatch;
+        use std::sync::Arc as StdArc;
 
         let schema = self
             .schemas
@@ -350,9 +350,11 @@ impl DynamicSchema {
         {
             let mut writer = FileWriter::try_new(&mut buffer, &arrow_schema)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            writer.write(&batch)
+            writer
+                .write(&batch)
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-            writer.finish()
+            writer
+                .finish()
                 .map_err(|e| napi::Error::from_reason(e.to_string()))?;
         }
 

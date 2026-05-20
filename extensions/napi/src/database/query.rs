@@ -376,19 +376,17 @@ pub(crate) fn db_value_to_json(
                 .map(|&x| serde_json::Value::Number(x.into()))
                 .collect(),
         ),
-        dbobj::Value::InternedString(id) => {
-            table.string_pool.resolve(*id).map_or_else(
-                || serde_json::Value::String(format!("<interned:{}>", id)),
-                |s| {
-                    if s.starts_with('{') || s.starts_with('[') {
-                        if let Ok(v) = serde_json::from_str(s.as_str()) {
-                            return v;
-                        }
+        dbobj::Value::InternedString(id) => table.string_pool.resolve(*id).map_or_else(
+            || serde_json::Value::String(format!("<interned:{}>", id)),
+            |s| {
+                if s.starts_with('{') || s.starts_with('[') {
+                    if let Ok(v) = serde_json::from_str(s.as_str()) {
+                        return v;
                     }
-                    serde_json::Value::String(s.to_string())
-                },
-            )
-        }
+                }
+                serde_json::Value::String(s.to_string())
+            },
+        ),
     }
 }
 
