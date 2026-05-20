@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-const { Database, DataType } = require("../index.js") as typeof import("../index.d.ts");
+const { Database, DataType, DynamicSchema } = require("../index.js") as typeof import("../index.d.ts");
 
 test("objectsToArrowIpc produces valid IPC buffer for insertFromArrow", () => {
   const db = new Database("SchemaObjects1");
@@ -207,4 +207,72 @@ test("updateFromObjects with mixed types", () => {
   expect(rows[0].active).toBe(false);
   expect(rows[1].price).toBeCloseTo(20.0);
   expect(rows[1].active).toBe(false);
+});
+
+test("DynamicSchema.toArrowIpc creates buffer compatible with createTableFromArrowIpc", () => {
+  const ds = new DynamicSchema();
+  ds.register("person", [
+    { name: "id", type: DataType.Integer },
+    { name: "name", type: DataType.String, optional: true },
+    { name: "score", type: DataType.Float },
+    { name: "active", type: DataType.Boolean },
+  ]);
+
+  const buf = ds.toArrowIpc("person");
+  expect(buf instanceof Buffer).toBe(true);
+  expect(buf.length).toBeGreaterThan(0);
+
+  // Use the buffer to create a table
+  const db = new Database("DynSchema1");
+  const n = db.createTableFromArrowIpc("users", buf);
+  expect(n).toBe(4); // 4 columns created
+
+  // Verify columns match the schema
+  const qb = db.createQueryBuilder();
+  qb.insertFromObjects("users", [
+    { id: 0, name: "Alice", score: 95.5, active: true },
+    { id: 1, score: 87.0, active: false }, // name is optional
+  ]);
+
+  const rows = qb.select("users").execute() as Array<any>;
+  expect(rows.length).toBe(2);
+  expect(rows[0].name).toBe("Alice");
+  expect(rows[0].score).toBeCloseTo(95.5);
+  expect(rows[0].active).toBe(true);
+  expect(rows[1].name).toBe(null);
+  expect(rows[1].score).toBeCloseTo(87.0);
+  expect(rows[1].active).toBe(false);
+});
+
+test("DynamicSchema.toArrowIpc on non-existent schema throws", () => {
+  const ds = new DynamicSchema();
+  expect(() => ds.toArrowIpc("nonexistent")).toThrow();
+});
+
+test("DynamicSchema.toArrowIpc roundtrip with objectsToArrowIpc", () => {
+  const ds = new DynamicSchema();
+  ds.register("item", [
+    { name: "id", type: DataType.Integer },
+    { name: "label", type: DataType.String },
+  ]);
+
+  const schemaBuf = ds.toArrowIpc("item");
+
+  // Create table from schema buffer
+  const db = new Database("DynSchema2");
+  db.createTableFromArrowIpc("items", schemaBuf);
+
+  // Now use objectsToArrowIpc to insert data
+  const dataBuf = db.objectsToArrowIpc("items", [
+    { id: 1, label: "Alpha" },
+    { id: 2, label: "Beta" },
+  ]);
+
+  const qb = db.createQueryBuilder();
+  qb.insertFromArrow("items", dataBuf);
+
+  const rows = qb.select("items").execute() as Array<any>;
+  expect(rows.length).toBe(2);
+  expect(rows[0].label).toBe("Alpha");
+  expect(rows[1].id).toBe(2);
 });

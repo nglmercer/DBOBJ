@@ -116,6 +116,12 @@ export declare class DynamicSchema {
    * following the schema field order, suitable for database insertion.
    */
   toRowValues(schemaName: string, obj: object): Array<any | undefined | null>
+  /**
+   * Convert a registered schema to an Arrow IPC buffer compatible with createTableFromArrowIpc.
+   * The buffer contains the Arrow schema (no data rows) that createTableFromArrowIpc can read
+   * to define a table with matching columns.
+   */
+  toArrowIpc(schemaName: string): Buffer
   /** Validate a pre-parsed serde_json::Value. Fast path: returns original Value when valid. */
   validate(schemaName: string, value: any): any
 }
