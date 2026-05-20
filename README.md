@@ -122,7 +122,7 @@ We maintain three benchmark suites:
 ```bash
 cd extensions/napi
 npm run build
-bun bench.ts
+bun bench/index.ts
 ```
 
 ---

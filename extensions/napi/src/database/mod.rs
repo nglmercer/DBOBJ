@@ -945,8 +945,29 @@ impl Database {
                 ColSource::Generic(arr) => {
                     for i in 0..row_count {
                         let val: Unknown = Array::get_element(arr, i)?;
-                        flat_values[i as usize * num_columns as usize + j] =
-                            json_to_db_value(Some(jv_helper(&val)?));
+                        let idx = i as usize * num_columns as usize + j;
+                        flat_values[idx] = match val.get_type()? {
+                            napi::ValueType::Boolean => {
+                                dbobj::Value::Boolean(unsafe { val.cast::<bool>()? })
+                            }
+                            napi::ValueType::String => {
+                                let s: String = unsafe { val.cast::<String>()? };
+                                dbobj::Value::String(s.into())
+                            }
+                            napi::ValueType::Number => {
+                                let f: f64 = unsafe { val.cast::<f64>()? };
+                                if f.is_finite() && f.fract() == 0.0
+                                    && f >= i64::MIN as f64 && f <= i64::MAX as f64
+                                {
+                                    dbobj::Value::Integer(f as i64)
+                                } else if f.is_finite() {
+                                    dbobj::Value::Float(f)
+                                } else {
+                                    dbobj::Value::Null
+                                }
+                            }
+                            _ => json_to_db_value(Some(jv_helper(&val)?)),
+                        };
                     }
                 }
             }
