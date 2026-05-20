@@ -30,6 +30,7 @@ string-interner = { version = "0.20.0", features = ["serde"] }
 thiserror = "2.0.18"
 rkyv = { version = "0.8.16", features = ["bytecheck", "std"] }
 memmap2 = "0.9.5"
+arrow = "58"
 
 [features]
 mimalloc = ["dep:mimalloc"]

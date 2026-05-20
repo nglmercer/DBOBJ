@@ -1,6 +1,8 @@
+pub mod arrow;
 pub mod database;
 pub mod id;
 pub mod query;
+pub mod query_builder;
 pub mod table;
 pub mod value;
 

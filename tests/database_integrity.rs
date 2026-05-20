@@ -1,3 +1,4 @@
+use dbobj::core::query_builder::QueryBuilder;
 use dbobj::core::{ColumnDefinition, DataType, Database, Expr, Operator, RowData, Schema, Value};
 
 #[test]
@@ -381,4 +382,232 @@ fn test_index_operations_integrity() {
         .find("users", "username", Value::from("nonexistent"))
         .unwrap();
     assert!(results.is_empty());
+}
+
+#[test]
+fn test_query_builder_select() {
+    let db = Database::new("QBTest".to_string());
+    let schema = Schema {
+        columns: vec![
+            ColumnDefinition { name: "name".into(), data_type: DataType::String, nullable: false },
+            ColumnDefinition { name: "age".into(), data_type: DataType::Integer, nullable: false },
+            ColumnDefinition { name: "score".into(), data_type: DataType::Float, nullable: true },
+        ],
+    };
+    db.create_table("users".to_string(), schema);
+
+    // Insert some test data
+    db.insert_values("users", vec![Value::from("Alice"), Value::Integer(30), Value::Float(95.5)]).unwrap();
+    db.insert_values("users", vec![Value::from("Bob"), Value::Integer(25), Value::Float(87.0)]).unwrap();
+    db.insert_values("users", vec![Value::from("Charlie"), Value::Integer(35), Value::Float(92.3)]).unwrap();
+    db.insert_values("users", vec![Value::from("Diana"), Value::Integer(28), Value::Float(88.8)]).unwrap();
+
+    // Test select all
+    let rows = QueryBuilder::select("users").run(&db).unwrap();
+    assert_eq!(rows.len(), 4);
+
+    // Test select with where_eq
+    let rows = QueryBuilder::select("users")
+        .where_eq("name", Value::from("Alice"))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].data[0], Value::from("Alice"));
+
+    // Test select with where_gt and ordering
+    let rows = QueryBuilder::select("users")
+        .where_gt("age", Value::Integer(28))
+        .order_by("age", false)
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(dbobj::core::Value::Integer(30), rows[0].data[1]);
+    assert_eq!(dbobj::core::Value::Integer(35), rows[1].data[1]);
+
+    // Test select with where_gt and descending order
+    let rows = QueryBuilder::select("users")
+        .where_gt("age", Value::Integer(25))
+        .order_by("age", true)
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 3);
+    assert_eq!(dbobj::core::Value::Integer(35), rows[0].data[1]);
+
+    // Test select with limit and offset
+    let rows = QueryBuilder::select("users")
+        .order_by("age", false)
+        .limit(2)
+        .offset(1)
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 2);
+
+    // Test select with columns projection
+    let rows = QueryBuilder::select("users")
+        .columns(vec!["name"])
+        .where_eq("age", Value::Integer(30))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].data.len(), 1);
+    assert_eq!(rows[0].data[0], Value::from("Alice"));
+
+    // Test where_like
+    let rows = QueryBuilder::select("users")
+        .where_like("name", "%lice")
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(&rows[0].data[0], Value::String(s) if s == "Alice"));
+
+    // Test and conditions (chained where_*)
+    let rows = QueryBuilder::select("users")
+        .where_gt("age", Value::Integer(25))
+        .where_lt("age", Value::Integer(35))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 2);
+
+    // Test run_first
+    let row = QueryBuilder::select("users")
+        .where_eq("name", Value::from("Bob"))
+        .run_first(&db).unwrap();
+    assert!(row.is_some());
+    assert_eq!(row.unwrap().data[0], Value::from("Bob"));
+
+    let row = QueryBuilder::select("users")
+        .where_eq("name", Value::from("Nobody"))
+        .run_first(&db).unwrap();
+    assert!(row.is_none());
+
+    // Test count via select
+    let rows = QueryBuilder::select("users")
+        .where_gt("age", Value::Integer(20))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 4);
+
+    // Test no match
+    let rows = QueryBuilder::select("users")
+        .where_gt("age", Value::Integer(100))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 0);
+}
+
+#[test]
+fn test_query_builder_insert_update_delete() {
+    let db = Database::new("QBCrud".to_string());
+    let schema = Schema {
+        columns: vec![
+            ColumnDefinition { name: "name".into(), data_type: DataType::String, nullable: false },
+            ColumnDefinition { name: "age".into(), data_type: DataType::Integer, nullable: false },
+        ],
+    };
+    db.create_table("users".to_string(), schema);
+
+    // Test insert
+    let rows = QueryBuilder::insert("users")
+        .set("name", Value::from("Alice"))
+        .set("age", Value::Integer(30))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(matches!(&rows[0].data[0], Value::String(s) if s == "Alice"));
+
+    let rows = QueryBuilder::insert("users")
+        .set("name", Value::from("Bob"))
+        .set("age", Value::Integer(25))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 1);
+
+    let rows = QueryBuilder::insert("users")
+        .set("name", Value::from("Charlie"))
+        .set("age", Value::Integer(35))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 1);
+
+    // Verify 3 rows
+    assert_eq!(QueryBuilder::select("users").run(&db).unwrap().len(), 3);
+
+    // Test update
+    let updated = QueryBuilder::update("users")
+        .set("age", Value::Integer(31))
+        .where_eq("name", Value::from("Alice"))
+        .run(&db).unwrap();
+    assert_eq!(updated.len(), 1);
+    assert_eq!(updated[0].data[1], Value::Integer(31));
+
+    // Verify update persisted
+    let rows = QueryBuilder::select("users")
+        .where_eq("name", Value::from("Alice"))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].data[1], Value::Integer(31));
+
+    // Test delete
+    let deleted = QueryBuilder::delete("users")
+        .where_eq("name", Value::from("Bob"))
+        .run(&db).unwrap();
+    assert_eq!(deleted.len(), 1);
+
+    // Verify deletion
+    assert_eq!(QueryBuilder::select("users").run(&db).unwrap().len(), 2);
+
+    // Delete all remaining
+    let deleted = QueryBuilder::delete("users").run(&db).unwrap();
+    assert_eq!(deleted.len(), 2);
+
+    // Verify empty
+    assert_eq!(QueryBuilder::select("users").run(&db).unwrap().len(), 0);
+}
+
+#[test]
+fn test_query_builder_with_expr() {
+    let db = Database::new("QBExpr".to_string());
+    let schema = Schema {
+        columns: vec![
+            ColumnDefinition { name: "name".into(), data_type: DataType::String, nullable: false },
+            ColumnDefinition { name: "age".into(), data_type: DataType::Integer, nullable: false },
+            ColumnDefinition { name: "active".into(), data_type: DataType::Boolean, nullable: false },
+        ],
+    };
+    db.create_table("users".to_string(), schema);
+
+    db.insert_values("users", vec![
+        Value::from("Alice"), Value::Integer(30), Value::Boolean(true),
+    ]).unwrap();
+    db.insert_values("users", vec![
+        Value::from("Bob"), Value::Integer(25), Value::Boolean(false),
+    ]).unwrap();
+    db.insert_values("users", vec![
+        Value::from("Charlie"), Value::Integer(35), Value::Boolean(true),
+    ]).unwrap();
+
+    // Test with custom Expr (Expr helper methods)
+    let expr = Expr::col("age").gt(28).and(Expr::col("active").eq(Value::Boolean(true)));
+    let rows = QueryBuilder::select("users")
+        .r#where(expr)
+        .order_by("age", false)
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].data[0], Value::from("Alice"));
+    assert_eq!(rows[1].data[0], Value::from("Charlie"));
+
+    // Test OR expression via where_or
+    let rows = QueryBuilder::select("users")
+        .where_or(
+            Expr::col("name").eq(Value::from("Alice")),
+            Expr::col("name").eq(Value::from("Bob")),
+        )
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 2);
+
+    // Test not equals
+    let rows = QueryBuilder::select("users")
+        .where_neq("active", Value::Boolean(true))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].data[0], Value::from("Bob"));
+
+    // Test where_gte and lte
+    let rows = QueryBuilder::select("users")
+        .where_gte("age", Value::Integer(30))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 2);
+
+    let rows = QueryBuilder::select("users")
+        .where_lte("age", Value::Integer(30))
+        .run(&db).unwrap();
+    assert_eq!(rows.len(), 2);
 }

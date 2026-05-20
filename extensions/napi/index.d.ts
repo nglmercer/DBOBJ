@@ -72,6 +72,51 @@ export declare class Database {
   createUniqueIndex(tableName: string, columnName: string): boolean
   createCompositeIndex(tableName: string, columnNames: Array<string>): boolean
   getTableMetadata(name: string): TableMetadata | null
+  /** Export a table as Apache Arrow IPC format bytes */
+  exportTableToArrowIpc(tableName: string): Buffer
+  /** Import a table from Apache Arrow IPC format bytes */
+  importTableFromArrowIpc(tableName: string, buffer: Buffer): boolean
+  /** Create a new query builder for fluent query construction */
+  createQueryBuilder(): QueryBuilder
+}
+
+export declare class QueryBuilder {
+  /** Start building a SELECT query */
+  select(table: string): this
+  /** Start building an INSERT query */
+  insert(table: string): this
+  /** Start building an UPDATE query */
+  update(table: string): this
+  /** Start building a DELETE query */
+  delete(table: string): this
+  /** Specify columns to select */
+  columns(cols: Array<string>): this
+  /** Set a column value for INSERT or UPDATE */
+  set(column: string, value: any): this
+  /** WHERE column = value */
+  whereEq(column: string, value: any): this
+  /** WHERE column != value */
+  whereNeq(column: string, value: any): this
+  /** WHERE column > value */
+  whereGt(column: string, value: any): this
+  /** WHERE column >= value */
+  whereGte(column: string, value: any): this
+  /** WHERE column < value */
+  whereLt(column: string, value: any): this
+  /** WHERE column <= value */
+  whereLte(column: string, value: any): this
+  /** WHERE column LIKE pattern */
+  whereLike(column: string, pattern: string): this
+  /** ORDER BY column */
+  orderBy(column: string, descending: boolean): this
+  /** LIMIT n rows */
+  limit(limit: number): this
+  /** OFFSET n rows */
+  offset(offset: number): this
+  /** Execute the query and return all matching rows */
+  execute(): Array<any>
+  /** Execute the query and return the first matching row */
+  first(): any | null
 }
 
 export declare class DbError {

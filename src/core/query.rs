@@ -33,6 +33,54 @@ pub enum Expr {
 }
 
 impl Expr {
+    pub fn col(name: impl Into<compact_str::CompactString>) -> Self {
+        Expr::Column(name.into())
+    }
+
+    pub fn lit(val: impl Into<Value>) -> Self {
+        Expr::Literal(val.into())
+    }
+
+    pub fn eq(self, rhs: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::Eq, Box::new(rhs.into()))
+    }
+
+    pub fn neq(self, rhs: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::Neq, Box::new(rhs.into()))
+    }
+
+    pub fn gt(self, rhs: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::Gt, Box::new(rhs.into()))
+    }
+
+    pub fn gte(self, rhs: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::Gte, Box::new(rhs.into()))
+    }
+
+    pub fn lt(self, rhs: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::Lt, Box::new(rhs.into()))
+    }
+
+    pub fn lte(self, rhs: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::Lte, Box::new(rhs.into()))
+    }
+
+    pub fn and(self, rhs: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::And, Box::new(rhs.into()))
+    }
+
+    pub fn or(self, rhs: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::Or, Box::new(rhs.into()))
+    }
+
+    pub fn not(self) -> Self {
+        Expr::Not(Box::new(self))
+    }
+
+    pub fn like(self, pattern: impl Into<Expr>) -> Self {
+        Expr::Binary(Box::new(self), Operator::Like, Box::new(pattern.into()))
+    }
+
     pub fn evaluate(&self, data: &[Value], mapping: &FastHashMap<String, usize>) -> Value {
         match self {
             Expr::Literal(v) => v.clone(),
@@ -281,4 +329,40 @@ fn like_match(value: &Value, pattern: &Value) -> bool {
         pi += 1;
     }
     pi == pat_chars.len()
+}
+
+impl From<i64> for Expr {
+    fn from(v: i64) -> Self {
+        Expr::Literal(Value::Integer(v))
+    }
+}
+
+impl From<f64> for Expr {
+    fn from(v: f64) -> Self {
+        Expr::Literal(Value::Float(v))
+    }
+}
+
+impl From<String> for Expr {
+    fn from(v: String) -> Self {
+        Expr::Literal(Value::String(v.into()))
+    }
+}
+
+impl From<&str> for Expr {
+    fn from(v: &str) -> Self {
+        Expr::Literal(Value::String(v.into()))
+    }
+}
+
+impl From<bool> for Expr {
+    fn from(v: bool) -> Self {
+        Expr::Literal(Value::Boolean(v))
+    }
+}
+
+impl From<Value> for Expr {
+    fn from(v: Value) -> Self {
+        Expr::Literal(v)
+    }
 }

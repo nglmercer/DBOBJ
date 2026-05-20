@@ -2,6 +2,7 @@ pub(crate) mod cursor;
 pub(crate) mod error;
 pub(crate) mod insert;
 pub(crate) mod query;
+pub(crate) mod query_builder;
 pub(crate) mod schema;
 pub(crate) mod update;
 
@@ -1475,6 +1476,30 @@ impl Database {
         }
     }
 
+    // ── ARROW ────────────────────────────────────────────────────────
+
+    #[napi]
+    pub fn export_table_to_arrow_ipc(&self, table_name: String) -> Result<Buffer> {
+        let bytes = self
+            .inner
+            .export_table_to_arrow_ipc(&table_name)
+            .map_err(|e| napi::Error::from_reason(e))?;
+        Ok(Buffer::from(bytes))
+    }
+
+    #[napi]
+    pub fn import_table_from_arrow_ipc(
+        &self,
+        table_name: String,
+        buffer: Buffer,
+    ) -> Result<bool> {
+        self.inner
+            .import_table_from_arrow_ipc(&table_name, buffer.as_ref())
+            .map_err(|e| napi::Error::from_reason(e))?;
+        self.save_if_needed();
+        Ok(true)
+    }
+
     // ── META ─────────────────────────────────────────────────────────
 
     #[napi(factory)]
@@ -1553,5 +1578,12 @@ impl Database {
             row_count: info.row_count as u32,
             column_count: info.columns.len() as u32,
         }))
+    }
+
+    // ── QUERY BUILDER ──────────────────────────────────────────────────
+
+    #[napi]
+    pub fn create_query_builder(&self) -> query_builder::JsQueryBuilder {
+        query_builder::JsQueryBuilder::new(self.inner.clone(), self.is_dirty.clone())
     }
 }
