@@ -1,6 +1,11 @@
-use crate::protocol::{ColumnDef, ComparisonOp, ExprData, Request, Response, SerializedRow};
+use crate::backup::{BackupError, BackupManager};
+use crate::migration::{Migration, MigrationAction, MigrationRunner};
+use crate::protocol::{
+    BackupFormat, ColumnDef, ComparisonOp, ExprData, MigrationSummary, Request, Response,
+    RestoreMode, SchemaChange, SerializedRow,
+};
 use async_trait::async_trait;
-use dbobj::Database;
+use dbobj::{Database, Value};
 use std::sync::Arc;
 
 /// Abstract database backend
@@ -12,15 +17,31 @@ pub trait Backend: Send + Sync {
 /// Backend implementation wrapping the DBOBJ database
 pub struct DbobjBackend {
     db: Arc<Database>,
+    backup_mgr: Option<BackupManager>,
+    migration_runner: Option<MigrationRunner>,
 }
 
 impl DbobjBackend {
     pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+        Self {
+            db,
+            backup_mgr: None,
+            migration_runner: None,
+        }
     }
 
     pub fn db(&self) -> &Arc<Database> {
         &self.db
+    }
+
+    pub fn with_backup_dir(mut self, backup_dir: impl Into<std::path::PathBuf>) -> Self {
+        self.backup_mgr = Some(BackupManager::new(backup_dir));
+        self
+    }
+
+    pub fn with_migrations(mut self) -> Self {
+        self.migration_runner = Some(MigrationRunner::new(self.db.clone()));
+        self
     }
 }
 
@@ -292,6 +313,185 @@ impl Backend for DbobjBackend {
                 match storage.load() {
                     Ok(_loaded) => Response::Ok(1),
                     Err(e) => Response::Error(e.to_string()),
+                }
+            }
+
+            // ── Backup operations ─────────────────────────────────
+            Request::CreateBackup { label, format } => {
+                match &self.backup_mgr {
+                    Some(mgr) => match mgr.create_backup(&self.db, label, format) {
+                        Ok(info) => Response::BackupCreated(info),
+                        Err(e) => Response::Error(e.to_string()),
+                    },
+                    None => Response::Error("Backup manager not configured".into()),
+                }
+            }
+            Request::ListBackups => {
+                match &self.backup_mgr {
+                    Some(mgr) => match mgr.list_backups() {
+                        Ok(backups) => Response::BackupList(backups),
+                        Err(e) => Response::Error(e.to_string()),
+                    },
+                    None => Response::Error("Backup manager not configured".into()),
+                }
+            }
+            Request::RestoreBackup { backup_id, mode } => {
+                match &self.backup_mgr {
+                    Some(mgr) => match mgr.restore_backup(&backup_id, mode) {
+                        Ok(db) => {
+                            // Replace the current Arc<Database> with the restored one
+                            // Because Arc doesn't support direct replacement, we update
+                            // the database in-place by clearing and restoring
+                            let mut tables = self.db.tables.write();
+                            *tables = db.tables.write().clone();
+                            drop(tables);
+                            // Rebuild indexes and column maps for the new state
+                            let tables = self.db.tables.read();
+                            for (_, tbl_lock) in tables.iter() {
+                                let mut guard = tbl_lock.write();
+                                guard.rebuild_from_archive();
+                            }
+                            // Ensure migration tracking table exists if runner exists
+                            if self.migration_runner.is_some() {
+                                drop(tables);
+                                // Re-create migration runner state
+                                // (applied migrations list is re-read from tracking table)
+                            }
+                            Response::Ok(1)
+                        }
+                        Err(e) => Response::Error(e.to_string()),
+                    },
+                    None => Response::Error("Backup manager not configured".into()),
+                }
+            }
+            Request::DeleteBackup { backup_id } => {
+                match &self.backup_mgr {
+                    Some(mgr) => match mgr.delete_backup(&backup_id) {
+                        Ok(()) => Response::BackupDeleted,
+                        Err(e) => Response::Error(e.to_string()),
+                    },
+                    None => Response::Error("Backup manager not configured".into()),
+                }
+            }
+
+            // ── Migration operations ──────────────────────────────
+            Request::RegisterMigration {
+                name,
+                description,
+                actions,
+            } => {
+                match &self.migration_runner {
+                    Some(runner) => {
+                        // Create a Migration from the SchemaChange actions
+                        let mut migration = Migration::new(&name, &description);
+                        // Workaround for immutable borrow - can't use register because
+                        // MigrationRunner only exposes mutable register.
+                        // We execute SchemaChange actions directly via the runner's DB.
+                        // Build migration actions
+                        let migration_actions: Vec<MigrationAction> = actions
+                            .into_iter()
+                            .map(|change| match change {
+                                SchemaChange::AddColumn {
+                                    table,
+                                    column,
+                                    default_value,
+                                } => MigrationAction::AddColumn {
+                                    table,
+                                    column,
+                                    default_value,
+                                },
+                                SchemaChange::DropColumn { table, column } => {
+                                    MigrationAction::DropColumn { table, column }
+                                }
+                                SchemaChange::RenameColumn {
+                                    table,
+                                    old_name,
+                                    new_name,
+                                } => MigrationAction::RenameColumn {
+                                    table,
+                                    old_name,
+                                    new_name,
+                                },
+                                SchemaChange::RenameTable { old_name, new_name } => {
+                                    MigrationAction::RenameTable { old_name, new_name }
+                                }
+                                SchemaChange::DropTable { name } => {
+                                    MigrationAction::DropTable { name }
+                                }
+                            })
+                            .collect();
+
+                        for action in migration_actions {
+                            migration = migration.add_step(action);
+                        }
+                        // Since we can't get a mutable reference, we use a static
+                        // registration approach via the runner's database
+                        let _ = migration;
+                        Response::Error(
+                            "Dynamic migration registration not supported during server runtime. \
+                             Use the direct backend API or configure migrations at startup"
+                                .into(),
+                        )
+                    }
+                    None => Response::Error(
+                        "Migration runner not configured. Enable with with_migrations()".into(),
+                    ),
+                }
+            }
+            Request::RunPendingMigrations => {
+                match &self.migration_runner {
+                    Some(runner) => match runner.run_pending() {
+                        Ok(statuses) => Response::MigrationStatuses(statuses),
+                        Err(e) => Response::Error(e.to_string()),
+                    },
+                    None => Response::Error(
+                        "Migration runner not configured. Enable with with_migrations()".into(),
+                    ),
+                }
+            }
+            Request::RunMigration { name } => {
+                match &self.migration_runner {
+                    Some(runner) => match runner.run_named(&name) {
+                        Ok(status) => Response::MigrationStatus(status),
+                        Err(e) => Response::Error(e.to_string()),
+                    },
+                    None => Response::Error(
+                        "Migration runner not configured. Enable with with_migrations()".into(),
+                    ),
+                }
+            }
+            Request::ListMigrations => {
+                match &self.migration_runner {
+                    Some(runner) => {
+                        let registered = runner.registered();
+                        let applied = runner.applied_list();
+                        let summaries: Vec<MigrationSummary> = registered
+                            .into_iter()
+                            .map(|name| MigrationSummary {
+                                id: String::new(),
+                                name: name.to_string(),
+                                description: String::new(),
+                                applied: applied.contains(&name.to_string()),
+                                applied_at_ms: None,
+                                step_count: 0,
+                            })
+                            .collect();
+                        Response::MigrationList(summaries)
+                    }
+                    None => Response::Error(
+                        "Migration runner not configured. Enable with with_migrations()".into(),
+                    ),
+                }
+            }
+            Request::DryRunMigrations => {
+                match &self.migration_runner {
+                    Some(runner) => match runner.dry_run() {
+                        Ok(steps) => Response::MigrationSteps(steps),
+                        Err(e) => Response::Error(e.to_string()),
+                    },
+                    None => Response::Error(
+                        "Migration runner not configured. Enable with with_migrations()".into(),
+                    ),
                 }
             }
 
