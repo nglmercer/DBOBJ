@@ -1,7 +1,13 @@
-use dbobj::{Id, RowData, Value};
+use ahash::HashMapExt;
+use dbobj::{Id, Value};
 use dbobj_server::protocol::{
     ColumnDef, ComparisonOp, ExprData, Request, Response, SerializedRow,
 };
+
+/// Helper to create a RowData (HashMap) with column-value pairs
+fn make_row(pairs: Vec<(&str, Value)>) -> dbobj::RowData {
+    pairs.into_iter().map(|(k, v)| (k.into(), v)).collect()
+}
 
 #[test]
 fn test_request_serialization_roundtrip() {
@@ -30,11 +36,7 @@ fn test_request_serialization_roundtrip() {
         },
         Request::Insert {
             table: "users".into(),
-            data: RowData {
-                id: None,
-                columns: vec![],
-                values: vec![],
-            },
+            data: make_row(vec![]),
             custom_id: None,
         },
         Request::InsertValues {
@@ -57,11 +59,7 @@ fn test_request_serialization_roundtrip() {
         Request::UpdateRow {
             table: "users".into(),
             id: Id::Integer(1),
-            data: RowData {
-                id: None,
-                columns: vec![],
-                values: vec![],
-            },
+            data: make_row(vec![]),
         },
         Request::UpdateValues {
             table: "users".into(),
@@ -130,7 +128,8 @@ fn test_request_serialization_roundtrip() {
         assert_eq!(
             format!("{:?}", req),
             format!("{:?}", decoded),
-            "Roundtrip failed for request"
+            "Roundtrip failed for request: {:?}",
+            req
         );
     }
 }
@@ -232,7 +231,6 @@ fn test_expr_data_roundtrip() {
 
 #[test]
 fn test_comparison_op_values() {
-    // Verify that discriminant values are preserved across serialization
     let ops = vec![
         (ComparisonOp::Eq, "Eq"),
         (ComparisonOp::Neq, "Neq"),
@@ -258,11 +256,9 @@ fn test_comparison_op_values() {
 fn test_large_batch_roundtrip() {
     let mut batch = Vec::with_capacity(1000);
     for i in 0..1000 {
-        batch.push(RowData {
-            id: Some(Id::Integer(i)),
-            columns: vec!["value".into()],
-            values: vec![Value::Integer(i)],
-        });
+        let mut row = dbobj::RowData::new();
+        row.insert("value".into(), Value::Integer(i as i64));
+        batch.push(row);
     }
 
     let req = Request::InsertBatch {
@@ -274,7 +270,6 @@ fn test_large_batch_roundtrip() {
     let _decoded: Request =
         bincode::deserialize(&encoded).expect("Failed to deserialize large batch");
 
-    // Large batches should be reasonably sized (not explode)
     assert!(encoded.len() > 1000, "Large batch should be > 1KB");
     assert!(encoded.len() < 50_000, "Large batch should be < 50KB");
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use dbobj::{Database, Id, Value};
+use dbobj::{Database, Value};
 use dbobj_server::backend::{Backend, DbobjBackend};
 use dbobj_server::protocol::{ColumnDef, ComparisonOp, ExprData, Request, Response};
 
@@ -110,8 +110,8 @@ async fn test_insert_and_query() {
             values: vec![Value::String("Alice".into()), Value::Integer(30), Value::Boolean(true)],
         })
         .await;
-    let inserted_id = match resp {
-        Response::Id(id) => id,
+    let inserted_id = match &resp {
+        Response::Id(id) => id.clone(),
         other => panic!("Expected Id, got {:?}", other),
     };
 
@@ -180,8 +180,8 @@ async fn test_update_row() {
             values: vec![Value::String("Dave".into()), Value::Integer(40), Value::Boolean(true)],
         })
         .await;
-    let id = match resp {
-        Response::Id(id) => id,
+    let id = match &resp {
+        Response::Id(id) => id.clone(),
         other => panic!("Expected Id, got {:?}", other),
     };
 
@@ -227,8 +227,8 @@ async fn test_delete_row() {
             ],
         })
         .await;
-    let id = match resp {
-        Response::Id(id) => id,
+    let id = match &resp {
+        Response::Id(id) => id.clone(),
         other => panic!("Expected Id, got {:?}", other),
     };
 
@@ -236,7 +236,7 @@ async fn test_delete_row() {
     let resp = backend
         .execute(Request::DeleteRow {
             table: "users".into(),
-            id: id.clone(),
+            id,
         })
         .await;
     assert!(matches!(resp, Response::Ok(1)), "Expected Ok(1), got {:?}", resp);
@@ -451,12 +451,12 @@ async fn test_insert_or_replace() {
             ],
         })
         .await;
-    let id = match resp {
-        Response::Id(id) => id,
+    let _first_id = match &resp {
+        Response::Id(id) => id.clone(),
         other => panic!("Expected Id, got {:?}", other),
     };
 
-    // Replace by ID
+    // Replace by name
     let resp = backend
         .execute(Request::InsertOrReplace {
             table: "users".into(),
