@@ -211,7 +211,11 @@ impl QueryBuilder {
 
     pub fn run_first(&self, db: &Database) -> Result<Option<Row>, String> {
         let mut results = self.run(db)?;
-        Ok(if results.is_empty() { None } else { Some(results.remove(0)) })
+        Ok(if results.is_empty() {
+            None
+        } else {
+            Some(results.remove(0))
+        })
     }
 
     fn run_select(&self, db: &Database) -> Result<Vec<Row>, String> {
@@ -220,7 +224,8 @@ impl QueryBuilder {
         }
 
         let tables_guard = db.tables.read();
-        let table_lock = tables_guard.get(&self.table)
+        let table_lock = tables_guard
+            .get(&self.table)
             .ok_or_else(|| format!("Table '{}' not found", self.table))?;
         let table = table_lock.read();
 
@@ -231,12 +236,11 @@ impl QueryBuilder {
                 super::query::QueryPlan::FullScan(_, expr) => {
                     table.select(|r| expr.is_true(r, &table.column_map, &table))
                 }
-                super::query::QueryPlan::IndexScan(_, col, val) => {
-                    table.find_by_column(&col, &val)
-                }
+                super::query::QueryPlan::IndexScan(_, col, val) => table.find_by_column(&col, &val),
                 super::query::QueryPlan::IndexFilteredScan(_, col, val, expr) => {
                     let candidates = table.find_by_column(&col, &val);
-                    candidates.into_iter()
+                    candidates
+                        .into_iter()
                         .filter(|r| expr.is_true(r, &table.column_map, &table))
                         .collect()
                 }
@@ -250,21 +254,32 @@ impl QueryBuilder {
         let results = self.apply_order(results, &table);
         let results = self.apply_pagination(results);
 
-        let results = results.into_iter().map(|row| Self::resolve_row(&row, &table)).collect();
+        let results = results
+            .into_iter()
+            .map(|row| Self::resolve_row(&row, &table))
+            .collect();
 
         Ok(results)
     }
 
     fn run_select_join(&self, db: &Database, join_table: &str) -> Result<Vec<Row>, String> {
-        let col1 = self.join_col1.as_ref().ok_or("Join column 1 not specified")?;
-        let col2 = self.join_col2.as_ref().ok_or("Join column 2 not specified")?;
+        let col1 = self
+            .join_col1
+            .as_ref()
+            .ok_or("Join column 1 not specified")?;
+        let col2 = self
+            .join_col2
+            .as_ref()
+            .ok_or("Join column 2 not specified")?;
 
         // Use hash_join_indices to avoid creating right-side Row objects (discarded below)
-        let indices = db.hash_join_indices(&self.table, col1, join_table, col2)
+        let indices = db
+            .hash_join_indices(&self.table, col1, join_table, col2)
             .map_err(|e| e.to_string())?;
 
         let tables_guard = db.tables.read();
-        let table_lock = tables_guard.get(&self.table)
+        let table_lock = tables_guard
+            .get(&self.table)
             .ok_or_else(|| format!("Table '{}' not found", self.table))?;
         let table = table_lock.read();
 
@@ -282,32 +297,50 @@ impl QueryBuilder {
         let results = self.apply_order(results, &table);
         let results = self.apply_pagination(results);
 
-        let results = results.into_iter().map(|row| Self::resolve_row(&row, &table)).collect();
+        let results = results
+            .into_iter()
+            .map(|row| Self::resolve_row(&row, &table))
+            .collect();
         Ok(results)
     }
 
     fn resolve_row(row: &Row, table: &super::Table) -> Row {
-        let resolved_data: Vec<Value> = row.data.iter().map(|v| {
-            if let Value::InternedString(id) = v {
-                table.string_pool.resolve(*id)
-                    .map(|s| Value::String(s))
-                    .unwrap_or_else(|| v.clone())
-            } else {
-                v.clone()
-            }
-        }).collect();
-        Row { id: row.id.clone(), data: resolved_data.into(), version: row.version }
+        let resolved_data: Vec<Value> = row
+            .data
+            .iter()
+            .map(|v| {
+                if let Value::InternedString(id) = v {
+                    table
+                        .string_pool
+                        .resolve(*id)
+                        .map(|s| Value::String(s))
+                        .unwrap_or_else(|| v.clone())
+                } else {
+                    v.clone()
+                }
+            })
+            .collect();
+        Row {
+            id: row.id.clone(),
+            data: resolved_data.into(),
+            version: row.version,
+        }
     }
 
     fn run_insert(&self, db: &Database) -> Result<Vec<Row>, String> {
-        let id = db.insert_values(&self.table, self.build_insert_values(db))
+        let id = db
+            .insert_values(&self.table, self.build_insert_values(db))
             .map_err(|e| e.to_string())?;
         let tables_guard = db.tables.read();
-        let table_lock = tables_guard.get(&self.table)
+        let table_lock = tables_guard
+            .get(&self.table)
             .ok_or_else(|| format!("Table '{}' not found", self.table))?;
         let table = table_lock.read();
         let row = table.get(&id);
-        Ok(row.map(|r| Self::resolve_row(&r, &table)).into_iter().collect())
+        Ok(row
+            .map(|r| Self::resolve_row(&r, &table))
+            .into_iter()
+            .collect())
     }
 
     fn run_update(&self, db: &Database) -> Result<Vec<Row>, String> {
@@ -316,7 +349,8 @@ impl QueryBuilder {
 
         for row in &matching {
             let tables_guard = db.tables.read();
-            let table_lock = tables_guard.get(&self.table)
+            let table_lock = tables_guard
+                .get(&self.table)
                 .ok_or_else(|| format!("Table '{}' not found", self.table))?;
             let table_read = table_lock.read();
 
@@ -324,7 +358,11 @@ impl QueryBuilder {
             let mut new_values = Vec::with_capacity(table_read.num_columns);
             for (col_idx, col_def) in table_read.schema.columns.iter().enumerate() {
                 let existing = &table_read.data[row_idx * table_read.num_columns + col_idx];
-                match self.set_values.iter().find(|(name, _)| name == &col_def.name) {
+                match self
+                    .set_values
+                    .iter()
+                    .find(|(name, _)| name == &col_def.name)
+                {
                     Some((_, val)) => new_values.push(val.clone()),
                     None => new_values.push(existing.clone()),
                 }
@@ -338,14 +376,18 @@ impl QueryBuilder {
 
         // Re-read updated rows
         let tables_guard = db.tables.read();
-        let table_lock = tables_guard.get(&self.table)
+        let table_lock = tables_guard
+            .get(&self.table)
             .ok_or_else(|| format!("Table '{}' not found", self.table))?;
         let table = table_lock.read();
 
-        let updated: Vec<Row> = ids.iter().filter_map(|id| {
-            let idx = table.get_index(id)?;
-            Some(Self::resolve_row(&table.get_row_by_index(idx), &table))
-        }).collect();
+        let updated: Vec<Row> = ids
+            .iter()
+            .filter_map(|id| {
+                let idx = table.get_index(id)?;
+                Some(Self::resolve_row(&table.get_row_by_index(idx), &table))
+            })
+            .collect();
 
         Ok(updated)
     }
@@ -380,19 +422,25 @@ impl QueryBuilder {
             None => return rows,
         };
 
-        rows.into_iter().map(|row| {
-            let row_idx = table.get_index(&row.id).unwrap_or(0);
-            let mut new_data = Vec::with_capacity(columns.len());
-            for col_name in &columns {
-                if col_name == "id" {
-                    continue;
+        rows.into_iter()
+            .map(|row| {
+                let row_idx = table.get_index(&row.id).unwrap_or(0);
+                let mut new_data = Vec::with_capacity(columns.len());
+                for col_name in &columns {
+                    if col_name == "id" {
+                        continue;
+                    }
+                    if let Some(&idx) = table.column_map.get(col_name) {
+                        new_data.push(table.data[row_idx * table.num_columns + idx].clone());
+                    }
                 }
-                if let Some(&idx) = table.column_map.get(col_name) {
-                    new_data.push(table.data[row_idx * table.num_columns + idx].clone());
+                Row {
+                    id: row.id,
+                    data: new_data.into(),
+                    version: row.version,
                 }
-            }
-            Row { id: row.id, data: new_data.into(), version: row.version }
-        }).collect()
+            })
+            .collect()
     }
 
     fn apply_order(&self, mut rows: Vec<Row>, table: &super::Table) -> Vec<Row> {
@@ -412,7 +460,11 @@ impl QueryBuilder {
             let b_idx = table.get_index(&b.id).unwrap_or(0);
             let a_val = &table.data[a_idx * table.num_columns + col_idx];
             let b_val = &table.data[b_idx * table.num_columns + col_idx];
-            if desc { b_val.cmp(a_val) } else { a_val.cmp(b_val) }
+            if desc {
+                b_val.cmp(a_val)
+            } else {
+                a_val.cmp(b_val)
+            }
         });
         rows
     }

@@ -623,9 +623,7 @@ impl Table {
         // Batch intern all strings, then push as InternedString
         let interned: Vec<u32> = values
             .iter()
-            .map(|s| {
-                self.string_pool.intern(s.as_str())
-            })
+            .map(|s| self.string_pool.intern(s.as_str()))
             .collect();
         for &id in &interned {
             self.data.push(Value::InternedString(id));
@@ -811,12 +809,14 @@ impl Table {
         self.intern_row(&mut values);
         self.data.extend(values);
 
-        self.ids.extend((0..batch_size).map(|i| Id::Integer(start_id + i as u64)));
+        self.ids
+            .extend((0..batch_size).map(|i| Id::Integer(start_id + i as u64)));
         self.versions.resize(self.ids.len(), 1);
 
         if !self.is_sequential_ids {
             for i in 0..batch_size {
-                self.id_map.insert(Id::Integer(start_id + i as u64), starting_idx + i);
+                self.id_map
+                    .insert(Id::Integer(start_id + i as u64), starting_idx + i);
             }
         }
 

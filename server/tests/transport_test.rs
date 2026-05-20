@@ -53,16 +53,17 @@ async fn test_channel_transport_full_cycle() {
         })
         .await
         .expect("Send failed");
-    assert!(matches!(resp, Response::Ok(1)), "Expected Ok(1), got {:?}", resp);
+    assert!(
+        matches!(resp, Response::Ok(1)),
+        "Expected Ok(1), got {:?}",
+        resp
+    );
 
     // 2. Insert data
     let resp = client
         .send(Request::InsertValues {
             table: "users".into(),
-            values: vec![
-                Value::String("Alice".into()),
-                Value::Integer(30),
-            ],
+            values: vec![Value::String("Alice".into()), Value::Integer(30)],
         })
         .await
         .expect("Send failed");
@@ -72,10 +73,7 @@ async fn test_channel_transport_full_cycle() {
     };
 
     // 3. List tables
-    let resp = client
-        .send(Request::ListTables)
-        .await
-        .expect("Send failed");
+    let resp = client.send(Request::ListTables).await.expect("Send failed");
     match resp {
         Response::TableList(tables) => {
             assert!(tables.contains(&"users".to_string()));
@@ -85,10 +83,7 @@ async fn test_channel_transport_full_cycle() {
     }
 
     // 4. Ping (heartbeat)
-    let resp = client
-        .send(Request::Ping)
-        .await
-        .expect("Send failed");
+    let resp = client.send(Request::Ping).await.expect("Send failed");
     assert!(matches!(resp, Response::Pong));
 
     // 5. Drop table
@@ -136,7 +131,11 @@ async fn test_channel_concurrent_requests() {
                 })
                 .await
                 .expect("Concurrent send failed");
-            assert!(matches!(resp, Response::Id(_)), "Expected Id, got {:?}", resp);
+            assert!(
+                matches!(resp, Response::Id(_)),
+                "Expected Id, got {:?}",
+                resp
+            );
         }));
     }
 
@@ -174,9 +173,7 @@ async fn test_channel_transport_channel_closed() {
     drop(rx);
 
     // Sending should fail with ChannelClosed error
-    let result = client
-        .send(Request::Ping)
-        .await;
+    let result = client.send(Request::Ping).await;
     assert!(result.is_err(), "Expected error when channel is closed");
 }
 

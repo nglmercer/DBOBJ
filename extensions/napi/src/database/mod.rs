@@ -956,8 +956,10 @@ impl Database {
                             }
                             napi::ValueType::Number => {
                                 let f: f64 = unsafe { val.cast::<f64>()? };
-                                if f.is_finite() && f.fract() == 0.0
-                                    && f >= i64::MIN as f64 && f <= i64::MAX as f64
+                                if f.is_finite()
+                                    && f.fract() == 0.0
+                                    && f >= i64::MIN as f64
+                                    && f <= i64::MAX as f64
                                 {
                                     dbobj::Value::Integer(f as i64)
                                 } else if f.is_finite() {

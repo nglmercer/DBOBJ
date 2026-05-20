@@ -12,7 +12,6 @@ use tokio::sync::oneshot;
 ///
 /// Client side: sends a (Request, oneshot::Sender<Response>) and awaits
 /// the response.
-
 type ChannelMessage = (Request, oneshot::Sender<Response>);
 
 /// Server-side transport that receives requests
@@ -97,9 +96,7 @@ impl Transport for ClientChannelTransport {
 
 /// Creates a (client transport, server channel) pair.
 /// The server must call `serve_loop` on the ServerChannel to process requests.
-pub fn channel_pair(
-    buffer: usize,
-) -> (ClientChannelTransport, ServerChannelTransport) {
+pub fn channel_pair(buffer: usize) -> (ClientChannelTransport, ServerChannelTransport) {
     let (tx, rx) = mpsc::channel(buffer);
     let client = ClientChannelTransport::new(tx);
     let server = ServerChannelTransport::new(rx);

@@ -48,13 +48,23 @@ async fn test_create_table_and_list() {
             }],
         })
         .await;
-    assert!(matches!(resp, Response::Ok(1)), "Expected Ok(1), got {:?}", resp);
+    assert!(
+        matches!(resp, Response::Ok(1)),
+        "Expected Ok(1), got {:?}",
+        resp
+    );
 
     let resp = backend.execute(Request::ListTables).await;
     match resp {
         Response::TableList(tables) => {
-            assert!(tables.contains(&"products".to_string()), "Tables should contain 'products'");
-            assert!(tables.contains(&"users".to_string()), "Tables should contain 'users'");
+            assert!(
+                tables.contains(&"products".to_string()),
+                "Tables should contain 'products'"
+            );
+            assert!(
+                tables.contains(&"users".to_string()),
+                "Tables should contain 'users'"
+            );
         }
         other => panic!("Expected TableList, got {:?}", other),
     }
@@ -96,7 +106,11 @@ async fn test_table_info() {
             name: "nonexistent".into(),
         })
         .await;
-    assert!(matches!(resp, Response::Error(_)), "Expected Error, got {:?}", resp);
+    assert!(
+        matches!(resp, Response::Error(_)),
+        "Expected Error, got {:?}",
+        resp
+    );
 }
 
 #[tokio::test]
@@ -107,7 +121,11 @@ async fn test_insert_and_query() {
     let resp = backend
         .execute(Request::InsertValues {
             table: "users".into(),
-            values: vec![Value::String("Alice".into()), Value::Integer(30), Value::Boolean(true)],
+            values: vec![
+                Value::String("Alice".into()),
+                Value::Integer(30),
+                Value::Boolean(true),
+            ],
         })
         .await;
     let inserted_id = match &resp {
@@ -138,8 +156,16 @@ async fn test_insert_batch() {
     let backend = create_backend();
 
     let batch = vec![
-        vec![Value::String("Bob".into()), Value::Integer(25), Value::Boolean(true)],
-        vec![Value::String("Carol".into()), Value::Integer(35), Value::Boolean(false)],
+        vec![
+            Value::String("Bob".into()),
+            Value::Integer(25),
+            Value::Boolean(true),
+        ],
+        vec![
+            Value::String("Carol".into()),
+            Value::Integer(35),
+            Value::Boolean(false),
+        ],
     ];
 
     let resp = backend
@@ -177,7 +203,11 @@ async fn test_update_row() {
     let resp = backend
         .execute(Request::InsertValues {
             table: "users".into(),
-            values: vec![Value::String("Dave".into()), Value::Integer(40), Value::Boolean(true)],
+            values: vec![
+                Value::String("Dave".into()),
+                Value::Integer(40),
+                Value::Boolean(true),
+            ],
         })
         .await;
     let id = match &resp {
@@ -193,7 +223,11 @@ async fn test_update_row() {
             updates: vec![(1, Value::Integer(41))], // change age to 41
         })
         .await;
-    assert!(matches!(resp, Response::Ok(1)), "Expected Ok(1), got {:?}", resp);
+    assert!(
+        matches!(resp, Response::Ok(1)),
+        "Expected Ok(1), got {:?}",
+        resp
+    );
 
     // Verify
     let resp = backend
@@ -239,7 +273,11 @@ async fn test_delete_row() {
             id,
         })
         .await;
-    assert!(matches!(resp, Response::Ok(1)), "Expected Ok(1), got {:?}", resp);
+    assert!(
+        matches!(resp, Response::Ok(1)),
+        "Expected Ok(1), got {:?}",
+        resp
+    );
 
     // Verify deleted
     let resp = backend
@@ -296,7 +334,11 @@ async fn test_query_predicate() {
         .await;
     match resp {
         Response::Rows(rows) => {
-            assert_eq!(rows.len(), 2, "Expected 2 rows with age > 28 (Alice 30, Carol 35)");
+            assert_eq!(
+                rows.len(),
+                2,
+                "Expected 2 rows with age > 28 (Alice 30, Carol 35)"
+            );
         }
         other => panic!("Expected Rows, got {:?}", other),
     }
@@ -373,7 +415,11 @@ async fn test_drop_table() {
             name: "users".into(),
         })
         .await;
-    assert!(matches!(resp, Response::Ok(1)), "Expected Ok(1), got {:?}", resp);
+    assert!(
+        matches!(resp, Response::Ok(1)),
+        "Expected Ok(1), got {:?}",
+        resp
+    );
 
     // Verify gone
     let resp = backend.execute(Request::ListTables).await;
@@ -389,7 +435,11 @@ async fn test_drop_table() {
 async fn test_ping() {
     let backend = create_backend();
     let resp = backend.execute(Request::Ping).await;
-    assert!(matches!(resp, Response::Pong), "Expected Pong, got {:?}", resp);
+    assert!(
+        matches!(resp, Response::Pong),
+        "Expected Pong, got {:?}",
+        resp
+    );
 }
 
 #[tokio::test]
@@ -400,7 +450,11 @@ async fn test_drop_nonexistent_table() {
             name: "nonexistent".into(),
         })
         .await;
-    assert!(matches!(resp, Response::Error(_)), "Expected Error, got {:?}", resp);
+    assert!(
+        matches!(resp, Response::Error(_)),
+        "Expected Error, got {:?}",
+        resp
+    );
 }
 
 #[tokio::test]
@@ -409,9 +463,21 @@ async fn test_delete_batch() {
 
     // Insert multiple rows
     let batch = vec![
-        vec![Value::String("A".into()), Value::Integer(1), Value::Boolean(true)],
-        vec![Value::String("B".into()), Value::Integer(2), Value::Boolean(true)],
-        vec![Value::String("C".into()), Value::Integer(3), Value::Boolean(false)],
+        vec![
+            Value::String("A".into()),
+            Value::Integer(1),
+            Value::Boolean(true),
+        ],
+        vec![
+            Value::String("B".into()),
+            Value::Integer(2),
+            Value::Boolean(true),
+        ],
+        vec![
+            Value::String("C".into()),
+            Value::Integer(3),
+            Value::Boolean(false),
+        ],
     ];
 
     let resp = backend
@@ -460,7 +526,11 @@ async fn test_insert_or_replace() {
     let resp = backend
         .execute(Request::InsertOrReplace {
             table: "users".into(),
-            values: vec![Value::String("Replaced".into()), Value::Integer(99), Value::Boolean(false)],
+            values: vec![
+                Value::String("Replaced".into()),
+                Value::Integer(99),
+                Value::Boolean(false),
+            ],
             unique_column: "name".into(),
         })
         .await;

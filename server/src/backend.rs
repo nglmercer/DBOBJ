@@ -1,6 +1,4 @@
-use crate::protocol::{
-    ColumnDef, ComparisonOp, ExprData, Request, Response, SerializedRow,
-};
+use crate::protocol::{ColumnDef, ComparisonOp, ExprData, Request, Response, SerializedRow};
 use async_trait::async_trait;
 use dbobj::Database;
 use std::sync::Arc;
@@ -99,12 +97,10 @@ impl Backend for DbobjBackend {
                 }
             }
 
-            Request::InsertBatch { table, batch } => {
-                match self.db.insert_batch(&table, batch) {
-                    Ok(ids) => Response::Ids(ids),
-                    Err(e) => Response::Error(e.to_string()),
-                }
-            }
+            Request::InsertBatch { table, batch } => match self.db.insert_batch(&table, batch) {
+                Ok(ids) => Response::Ids(ids),
+                Err(e) => Response::Error(e.to_string()),
+            },
 
             Request::InsertBatchValues { table, batch } => {
                 match self.db.insert_batch_values(&table, batch) {
@@ -122,30 +118,24 @@ impl Backend for DbobjBackend {
                 Err(e) => Response::Error(e.to_string()),
             },
 
-            Request::UpdateRow { table, id, data } => {
-                match self.db.update_row(&table, &id, data) {
+            Request::UpdateRow { table, id, data } => match self.db.update_row(&table, &id, data) {
+                Ok(_) => Response::Ok(1),
+                Err(e) => Response::Error(e.to_string()),
+            },
+
+            Request::UpdateValues { table, id, values } => {
+                match self.db.update_values(&table, &id, values) {
                     Ok(_) => Response::Ok(1),
                     Err(e) => Response::Error(e.to_string()),
                 }
             }
 
-            Request::UpdateValues {
-                table,
-                id,
-                values,
-            } => match self.db.update_values(&table, &id, values) {
-                Ok(_) => Response::Ok(1),
-                Err(e) => Response::Error(e.to_string()),
-            },
-
-            Request::UpdateByIndices {
-                table,
-                id,
-                updates,
-            } => match self.db.update_row_by_indices(&table, &id, &updates) {
-                Ok(_) => Response::Ok(1),
-                Err(e) => Response::Error(e.to_string()),
-            },
+            Request::UpdateByIndices { table, id, updates } => {
+                match self.db.update_row_by_indices(&table, &id, &updates) {
+                    Ok(_) => Response::Ok(1),
+                    Err(e) => Response::Error(e.to_string()),
+                }
+            }
 
             Request::DeleteRow { table, id } => match self.db.delete_row(&table, &id) {
                 Ok(_) => Response::Ok(1),
@@ -161,21 +151,19 @@ impl Backend for DbobjBackend {
                 table,
                 column_name,
                 value,
-            } => {
-                match self.db.find(&table, &column_name, value) {
-                    Ok(rows) => {
-                        let serialized: Vec<SerializedRow> = rows
-                            .into_iter()
-                            .map(|r| SerializedRow {
-                                id: r.id,
-                                data: r.data.to_vec(),
-                            })
-                            .collect();
-                        Response::Rows(serialized)
-                    }
-                    Err(e) => Response::Error(e.to_string()),
+            } => match self.db.find(&table, &column_name, value) {
+                Ok(rows) => {
+                    let serialized: Vec<SerializedRow> = rows
+                        .into_iter()
+                        .map(|r| SerializedRow {
+                            id: r.id,
+                            data: r.data.to_vec(),
+                        })
+                        .collect();
+                    Response::Rows(serialized)
                 }
-            }
+                Err(e) => Response::Error(e.to_string()),
+            },
 
             Request::QueryPredicate {
                 table,
@@ -187,15 +175,18 @@ impl Backend for DbobjBackend {
                 let col_name = {
                     let tbl = match self.db.get_table(&table) {
                         Some(t) => t,
-                        None => {
-                            return Response::Error(format!("Table '{}' not found", table))
-                        }
+                        None => return Response::Error(format!("Table '{}' not found", table)),
                     };
                     let tbl_guard = tbl.read();
                     let column_map = &tbl_guard.column_map;
                     match column_map.iter().find(|(_, idx)| **idx == column_idx) {
                         Some((name, _)) => name.clone(),
-                        None => return Response::Error(format!("Column index {} not found", column_idx)),
+                        None => {
+                            return Response::Error(format!(
+                                "Column index {} not found",
+                                column_idx
+                            ))
+                        }
                     }
                 };
 
@@ -237,12 +228,10 @@ impl Backend for DbobjBackend {
 
             Request::QueryExpr { table, expr } => self.handle_expr_query(&table, expr),
 
-            Request::CreateIndex { table, column } => {
-                match self.db.create_index(&table, &column) {
-                    Ok(_) => Response::Ok(1),
-                    Err(e) => Response::Error(e.to_string()),
-                }
-            }
+            Request::CreateIndex { table, column } => match self.db.create_index(&table, &column) {
+                Ok(_) => Response::Ok(1),
+                Err(e) => Response::Error(e.to_string()),
+            },
 
             Request::CreateUniqueIndex { table, column } => {
                 match self.db.create_unique_index(&table, &column) {
@@ -299,8 +288,7 @@ impl Backend for DbobjBackend {
             }
 
             Request::Load { path } => {
-                let storage =
-                    dbobj::storage::Storage::new(&path, dbobj::storage::BitcodeAdapter);
+                let storage = dbobj::storage::Storage::new(&path, dbobj::storage::BitcodeAdapter);
                 match storage.load() {
                     Ok(_loaded) => Response::Ok(1),
                     Err(e) => Response::Error(e.to_string()),
@@ -358,11 +346,8 @@ fn convert_expr(expr: ExprData) -> Result<dbobj::Expr, String> {
             let mut result = convert_expr(first)?;
             for e in iter {
                 let next = convert_expr(e)?;
-                result = dbobj::Expr::Binary(
-                    Box::new(result),
-                    dbobj::Operator::And,
-                    Box::new(next),
-                );
+                result =
+                    dbobj::Expr::Binary(Box::new(result), dbobj::Operator::And, Box::new(next));
             }
             Ok(result)
         }
@@ -374,11 +359,7 @@ fn convert_expr(expr: ExprData) -> Result<dbobj::Expr, String> {
             let mut result = convert_expr(first)?;
             for e in iter {
                 let next = convert_expr(e)?;
-                result = dbobj::Expr::Binary(
-                    Box::new(result),
-                    dbobj::Operator::Or,
-                    Box::new(next),
-                );
+                result = dbobj::Expr::Binary(Box::new(result), dbobj::Operator::Or, Box::new(next));
             }
             Ok(result)
         }

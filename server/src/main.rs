@@ -73,8 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             TcpServer::bind(&addr, backend).await?.serve().await?;
         }
         "uds" => {
-            let path =
-                std::env::var("SOCK_PATH").unwrap_or_else(|_| "/tmp/dbobj.sock".to_string());
+            let path = std::env::var("SOCK_PATH").unwrap_or_else(|_| "/tmp/dbobj.sock".to_string());
             eprintln!("  Binding UDS on {}", path);
             UdsServer::bind(&path, backend).await?.serve().await?;
         }

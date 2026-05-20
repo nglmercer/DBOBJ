@@ -144,9 +144,8 @@ impl Table {
         let mut schema_columns = Vec::with_capacity(num_cols);
         for i in 0..num_cols {
             let field = arrow_schema.field(i);
-            let db_type = arrow_to_db_type(field.data_type()).ok_or_else(|| {
-                format!("Unsupported Arrow type: {:?}", field.data_type())
-            })?;
+            let db_type = arrow_to_db_type(field.data_type())
+                .ok_or_else(|| format!("Unsupported Arrow type: {:?}", field.data_type()))?;
             schema_columns.push(ColumnDefinition {
                 name: field.name().into(),
                 data_type: db_type,
@@ -292,9 +291,8 @@ impl Table {
 
         let mut buffer = Vec::new();
         {
-            let mut writer =
-                FileWriter::try_new(&mut buffer, &schema)
-                    .map_err(|e| format!("Failed to create Arrow writer: {}", e))?;
+            let mut writer = FileWriter::try_new(&mut buffer, &schema)
+                .map_err(|e| format!("Failed to create Arrow writer: {}", e))?;
             writer
                 .write(&batch)
                 .map_err(|e| format!("Failed to write RecordBatch: {}", e))?;
@@ -307,16 +305,15 @@ impl Table {
 
     pub fn from_arrow_ipc(name: String, bytes: &[u8]) -> Result<Self, String> {
         let cursor = std::io::Cursor::new(bytes);
-        let reader =
-            FileReader::try_new(cursor, None).map_err(|e| format!("Failed to read Arrow IPC: {}", e))?;
+        let reader = FileReader::try_new(cursor, None)
+            .map_err(|e| format!("Failed to read Arrow IPC: {}", e))?;
 
         let arrow_schema = reader.schema();
 
         let mut schema_columns = Vec::with_capacity(arrow_schema.fields().len());
         for field in arrow_schema.fields() {
-            let db_type = arrow_to_db_type(field.data_type()).ok_or_else(|| {
-                format!("Unsupported Arrow type: {:?}", field.data_type())
-            })?;
+            let db_type = arrow_to_db_type(field.data_type())
+                .ok_or_else(|| format!("Unsupported Arrow type: {:?}", field.data_type()))?;
             schema_columns.push(ColumnDefinition {
                 name: field.name().into(),
                 data_type: db_type,
@@ -329,8 +326,7 @@ impl Table {
         let mut table = Table::new(name, db_schema);
 
         for maybe_batch in reader {
-            let batch =
-                maybe_batch.map_err(|e| format!("Failed to read RecordBatch: {}", e))?;
+            let batch = maybe_batch.map_err(|e| format!("Failed to read RecordBatch: {}", e))?;
             let num_rows = batch.num_rows();
             let num_cols = batch.num_columns();
 
@@ -480,7 +476,10 @@ impl Database {
     ) -> Result<(), String> {
         let table = Table::from_arrow_ipc(table_name.to_string(), bytes)?;
         let mut tables_guard = self.tables.write();
-        tables_guard.insert(table_name.to_string(), Arc::new(parking_lot::RwLock::new(table)));
+        tables_guard.insert(
+            table_name.to_string(),
+            Arc::new(parking_lot::RwLock::new(table)),
+        );
         Ok(())
     }
 }

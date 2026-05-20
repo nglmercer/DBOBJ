@@ -1,8 +1,6 @@
 use ahash::HashMapExt;
 use dbobj::{Id, Value};
-use dbobj_server::protocol::{
-    ColumnDef, ComparisonOp, ExprData, Request, Response, SerializedRow,
-};
+use dbobj_server::protocol::{ColumnDef, ComparisonOp, ExprData, Request, Response, SerializedRow};
 
 /// Helper to create a RowData (HashMap) with column-value pairs
 fn make_row(pairs: Vec<(&str, Value)>) -> dbobj::RowData {
@@ -124,7 +122,8 @@ fn test_request_serialization_roundtrip() {
 
     for req in &requests {
         let encoded = bincode::serialize(req).expect("Failed to serialize request");
-        let decoded: Request = bincode::deserialize(&encoded).expect("Failed to deserialize request");
+        let decoded: Request =
+            bincode::deserialize(&encoded).expect("Failed to deserialize request");
         assert_eq!(
             format!("{:?}", req),
             format!("{:?}", decoded),

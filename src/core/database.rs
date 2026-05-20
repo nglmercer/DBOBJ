@@ -408,7 +408,11 @@ impl Database {
             }
         }
         if let Some(first_id) = ids.first() {
-            self.version_log.write().record_batch(table_name.to_string(), first_id.clone(), ids.len());
+            self.version_log.write().record_batch(
+                table_name.to_string(),
+                first_id.clone(),
+                ids.len(),
+            );
         }
     }
 
@@ -420,7 +424,10 @@ impl Database {
     ) -> Result<Vec<Id>, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let mut table = table_lock.write();
         let ids = table.insert_batch_flat_string(values, num_columns)?;
@@ -436,7 +443,10 @@ impl Database {
     ) -> Result<Vec<Id>, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let mut table = table_lock.write();
         let ids = table.insert_batch_flat_bool(values, num_columns)?;
@@ -474,7 +484,10 @@ impl Database {
     ) -> Result<Vec<Id>, crate::core::table::TableError> {
         let tables = self.tables.read();
         let table_lock = tables.get(table_name).ok_or_else(|| {
-            crate::core::table::TableError::SchemaViolation(format!("Table {} not found", table_name))
+            crate::core::table::TableError::SchemaViolation(format!(
+                "Table {} not found",
+                table_name
+            ))
         })?;
         let mut table = table_lock.write();
         let ids = table.insert_batch_flat_f64(values, num_columns)?;
@@ -1245,13 +1258,9 @@ impl Database {
             let build_rows = build_table.ids.len();
             let probe_rows = probe_table.ids.len();
             if reversed {
-                return Ok((0..probe_rows.min(build_rows))
-                    .map(|i| (i, i))
-                    .collect());
+                return Ok((0..probe_rows.min(build_rows)).map(|i| (i, i)).collect());
             } else {
-                return Ok((0..probe_rows.min(build_rows))
-                    .map(|i| (i, i))
-                    .collect());
+                return Ok((0..probe_rows.min(build_rows)).map(|i| (i, i)).collect());
             }
         }
 

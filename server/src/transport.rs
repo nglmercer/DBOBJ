@@ -58,10 +58,7 @@ pub fn decode_frame<T: serde::de::DeserializeOwned>(data: &[u8]) -> Result<T, Tr
 /// Generic function to handle a client connection via any transport.
 /// The transport's recv() is called in a loop, each request is dispatched
 /// to the backend, and the response is sent back via the responder.
-pub async fn handle_client(
-    transport: impl Transport,
-    backend: Arc<dyn crate::backend::Backend>,
-) {
+pub async fn handle_client(transport: impl Transport, backend: Arc<dyn crate::backend::Backend>) {
     loop {
         let (req, responder) = match transport.recv().await {
             Ok(r) => r,
