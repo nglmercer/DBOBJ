@@ -65,6 +65,8 @@ export declare class Database {
   prepare(sql: string, params?: Array<any | undefined | null> | undefined | null): PreparedStatement
   queryI64(sql: string): BigInt64Array
   queryJoinI64(sql: string): BigInt64Array
+  exportTableToArrowIpc(tableName: string): Buffer
+  importTableFromArrowIpc(tableName: string, buffer: Buffer): boolean
   static load(path: string): Database
   save(path: string): boolean
   listTables(): Array<string>
@@ -72,51 +74,7 @@ export declare class Database {
   createUniqueIndex(tableName: string, columnName: string): boolean
   createCompositeIndex(tableName: string, columnNames: Array<string>): boolean
   getTableMetadata(name: string): TableMetadata | null
-  /** Export a table as Apache Arrow IPC format bytes */
-  exportTableToArrowIpc(tableName: string): Buffer
-  /** Import a table from Apache Arrow IPC format bytes */
-  importTableFromArrowIpc(tableName: string, buffer: Buffer): boolean
-  /** Create a new query builder for fluent query construction */
-  createQueryBuilder(): QueryBuilder
-}
-
-export declare class QueryBuilder {
-  /** Start building a SELECT query */
-  select(table: string): this
-  /** Start building an INSERT query */
-  insert(table: string): this
-  /** Start building an UPDATE query */
-  update(table: string): this
-  /** Start building a DELETE query */
-  delete(table: string): this
-  /** Specify columns to select */
-  columns(cols: Array<string>): this
-  /** Set a column value for INSERT or UPDATE */
-  set(column: string, value: any): this
-  /** WHERE column = value */
-  whereEq(column: string, value: any): this
-  /** WHERE column != value */
-  whereNeq(column: string, value: any): this
-  /** WHERE column > value */
-  whereGt(column: string, value: any): this
-  /** WHERE column >= value */
-  whereGte(column: string, value: any): this
-  /** WHERE column < value */
-  whereLt(column: string, value: any): this
-  /** WHERE column <= value */
-  whereLte(column: string, value: any): this
-  /** WHERE column LIKE pattern */
-  whereLike(column: string, pattern: string): this
-  /** ORDER BY column */
-  orderBy(column: string, descending: boolean): this
-  /** LIMIT n rows */
-  limit(limit: number): this
-  /** OFFSET n rows */
-  offset(offset: number): this
-  /** Execute the query and return all matching rows */
-  execute(): Array<any>
-  /** Execute the query and return the first matching row */
-  first(): any | null
+  createQueryBuilder(): JsQueryBuilder
 }
 
 export declare class DbError {
@@ -146,6 +104,51 @@ export declare class DynamicSchema {
   toRowValues(schemaName: string, obj: object): Array<any | undefined | null>
   /** Validate a pre-parsed serde_json::Value. Fast path: returns original Value when valid. */
   validate(schemaName: string, value: any): any
+}
+
+export declare class JsQueryBuilder {
+  select(table: string): this
+  insert(table: string): this
+  update(table: string): this
+  delete(table: string): this
+  columns(cols: Array<string>): this
+  set(column: string, value: any): this
+  whereEq(column: string, value: any): this
+  whereNeq(column: string, value: any): this
+  whereGt(column: string, value: any): this
+  whereGte(column: string, value: any): this
+  whereLt(column: string, value: any): this
+  whereLte(column: string, value: any): this
+  whereLike(column: string, pattern: string): this
+  orderBy(column: string, descending: boolean): this
+  limit(limit: number): this
+  offset(offset: number): this
+  execute(): any
+  first(): any | null
+  /**
+   * Execute query and return data column-oriented: { colName: [values...] }
+   * Avoids per-row JSON object overhead.
+   */
+  executeColumnar(): any
+  /**
+   * Execute query and return results as Apache Arrow IPC buffer.
+   * Avoids JSON serialization — the JS side can parse with @apache-arrow.
+   */
+  executeArrow(): Buffer
+  /**
+   * Batch insert — flat row-major values. Much faster than per-row insert loops.
+   * `values` is a flat array: [row1col1, row1col2, row2col1, row2col2, ...]
+   */
+  insertBatch(table: string, values: Array<any>, numColumns: number): number
+  /**
+   * Batch insert from interleaved i64 arrays.
+   * BigInt64Array interleaved: [row1col1, row1col2, row2col1, row2col2, ...]
+   */
+  insertBatchI64(table: string, values: BigInt64Array, numColumns: number): number
+  /** Batch insert from interleaved f64 arrays. */
+  insertBatchF64(table: string, values: Float64Array, numColumns: number): number
+  /** Batch insert from string arrays. */
+  insertBatchString(table: string, values: Array<string>, numColumns: number): number
 }
 
 export declare class PreparedStatement {

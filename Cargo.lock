@@ -644,6 +644,7 @@ dependencies = [
 name = "dbobj-napi"
 version = "0.1.0"
 dependencies = [
+ "arrow",
  "compact_str",
  "dbobj",
  "dbobj-sql",

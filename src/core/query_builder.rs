@@ -26,6 +26,12 @@ pub struct QueryBuilder {
     join_col2: Option<String>,
 }
 
+impl Default for QueryBuilder {
+    fn default() -> Self {
+        Self::select("")
+    }
+}
+
 impl QueryBuilder {
     fn new(query_type: QueryType, table: impl Into<String>) -> Self {
         Self {

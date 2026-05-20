@@ -4,6 +4,7 @@ import { DBOBJDirectSuite } from "./suites/direct";
 import { DBOBJSchemaSuite } from "./suites/schema";
 import { DBOBJSQLSuite } from "./suites/sql";
 import { DBOBJSQLPreparedSuite } from "./suites/prepared";
+import { DBOBJQueryBuilderSuite } from "./suites/query_builder";
 import { BunSQLiteSuite } from "./suites/sqlite";
 
 async function runBenchmark() {
@@ -12,6 +13,7 @@ async function runBenchmark() {
     new DBOBJSchemaSuite(),
     new DBOBJSQLSuite(),
     new DBOBJSQLPreparedSuite(),
+    new DBOBJQueryBuilderSuite(),
     new BunSQLiteSuite()
   ];
 
@@ -37,9 +39,9 @@ async function runBenchmark() {
     }
   }
 
-  console.log("\n" + "=".repeat(101));
-  console.log(`${"Operation".padEnd(20)} | ${"Direct".padEnd(12)} | ${"Schema".padEnd(12)} | ${"Columnar".padEnd(12)} | ${"SQL Bulk".padEnd(12)} | ${"SQL Prep".padEnd(12)} | ${"Bun SQLite".padEnd(12)}`);
-  console.log("-".repeat(101));
+  console.log("\n" + "=".repeat(117));
+  console.log(`${"Operation".padEnd(20)} | ${"Direct".padEnd(12)} | ${"Schema".padEnd(12)} | ${"Columnar".padEnd(12)} | ${"SQL Bulk".padEnd(12)} | ${"SQL Prep".padEnd(12)} | ${"QB Build".padEnd(12)} | ${"Bun SQLite".padEnd(12)}`);
+  console.log("-".repeat(117));
 
   const ops = ["insert", "read", "find", "update", "join"];
   for (const op of ops) {
@@ -48,10 +50,11 @@ async function runBenchmark() {
     const columnar = (results["DBOBJ Schema (Direct)"][`columnar_${op}`] || 0).toFixed(2);
     const sql = (results["DBOBJ SQL (Engine)"][op] || 0).toFixed(2);
     const prep = (results["DBOBJ SQL (Prepared)"][op] || 0).toFixed(2);
+    const qb = (results["DBOBJ QueryBuilder"][op] || 0).toFixed(2);
     const sqlite = (results["Bun SQLite (Native)"][op] || 0).toFixed(2);
-    console.log(`${op.toUpperCase().padEnd(20)} | ${direct.padStart(10)}ms | ${schema.padStart(10)}ms | ${columnar.padStart(10)}ms | ${sql.padStart(10)}ms | ${prep.padStart(10)}ms | ${sqlite.padStart(10)}ms`);
+    console.log(`${op.toUpperCase().padEnd(20)} | ${direct.padStart(10)}ms | ${schema.padStart(10)}ms | ${columnar.padStart(10)}ms | ${sql.padStart(10)}ms | ${prep.padStart(10)}ms | ${qb.padStart(10)}ms | ${sqlite.padStart(10)}ms`);
   }
-  console.log("=".repeat(101));
+  console.log("=".repeat(117));
 }
 
 runBenchmark();
